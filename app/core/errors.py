@@ -16,3 +16,8 @@ class AppError(Exception):
 class NotFoundError(AppError):
     status_code = 404
     error_code = "resource_not_found"
+
+
+class ConflictError(AppError):
+    status_code = 409
+    error_code = "resource_conflict"

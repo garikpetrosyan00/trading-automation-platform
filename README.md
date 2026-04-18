@@ -2,7 +2,7 @@
 
 This repository provides the initial backend foundation for a production-style trading automation platform. The current scope is intentionally narrow: it sets up a clean FastAPI application skeleton, environment-based configuration, database and migration scaffolding, logging, basic exception handling, and starter Docker files.
 
-The first business entities, `Strategy` and `Bot`, are now included as stored metadata/configuration records. At this stage neither of them executes trades. They are only persisted and managed through the REST API.
+The first business entities, `Strategy`, `Bot`, and `ExecutionProfile`, are now included as stored metadata/configuration records. At this stage none of them executes trades. They are only persisted and managed through the REST API.
 
 Trading logic, broker integrations, Telegram notifications, dashboards, background jobs, authentication, and risk workflows are intentionally left for later steps.
 
@@ -13,6 +13,7 @@ Trading logic, broker integrations, Telegram notifications, dashboards, backgrou
 - `GET /api/v1/system/ping` API starter endpoint
 - CRUD endpoints for `Strategy`
 - CRUD endpoints for `Bot`
+- nested configuration endpoints for `ExecutionProfile`
 - Environment-driven settings using Pydantic
 - SQLAlchemy 2.x database session and declarative base
 - Alembic scaffold with the initial `strategies` migration
@@ -124,9 +125,24 @@ It is intentionally limited to metadata and configuration only.
 
 Each bot belongs to a strategy and is intended to become the future operational wrapper around a strategy configuration.
 
+## ExecutionProfile entity
+
+`ExecutionProfile` represents runtime and risk configuration attached to a bot. For now it is configuration only and stores:
+
+- `bot_id`
+- `max_position_size_usd`
+- `max_daily_loss_usd`
+- `max_open_positions`
+- `default_order_type`
+- `is_enabled`
+- `created_at`
+- `updated_at`
+
+Each bot can have at most one execution profile. This keeps the relationship simple while giving the platform a clear place to store future operational and risk settings.
+
 ## Database and migrations
 
-Alembic is wired to the application's SQLAlchemy metadata and includes migrations for the `strategies` and `bots` tables.
+Alembic is wired to the application's SQLAlchemy metadata and includes migrations for the `strategies`, `bots`, and `execution_profiles` tables.
 
 Run the current migrations:
 
@@ -239,6 +255,43 @@ Delete a bot:
 
 ```bash
 curl -X DELETE http://127.0.0.1:8000/api/v1/bots/1
+```
+
+Create an execution profile for a bot:
+
+```bash
+curl -X POST http://127.0.0.1:8000/api/v1/bots/1/execution-profile \
+  -H "Content-Type: application/json" \
+  -d '{
+    "max_position_size_usd": 500.0,
+    "max_daily_loss_usd": 150.0,
+    "max_open_positions": 2,
+    "default_order_type": "limit",
+    "is_enabled": true
+  }'
+```
+
+Get a bot execution profile:
+
+```bash
+curl http://127.0.0.1:8000/api/v1/bots/1/execution-profile
+```
+
+Partially update a bot execution profile:
+
+```bash
+curl -X PATCH http://127.0.0.1:8000/api/v1/bots/1/execution-profile \
+  -H "Content-Type: application/json" \
+  -d '{
+    "max_daily_loss_usd": 200.0,
+    "default_order_type": "market"
+  }'
+```
+
+Delete a bot execution profile:
+
+```bash
+curl -X DELETE http://127.0.0.1:8000/api/v1/bots/1/execution-profile
 ```
 
 ## Architectural choices

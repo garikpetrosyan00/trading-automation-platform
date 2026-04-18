@@ -37,3 +37,7 @@ class Bot(Base):
     )
 
     strategy: Mapped["Strategy"] = relationship(back_populates="bots")
+    execution_profile: Mapped["ExecutionProfile | None"] = relationship(
+        back_populates="bot",
+        uselist=False,
+    )
