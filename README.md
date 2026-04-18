@@ -2,7 +2,7 @@
 
 This repository provides the initial backend foundation for a production-style trading automation platform. The current scope is intentionally narrow: it sets up a clean FastAPI application skeleton, environment-based configuration, database and migration scaffolding, logging, basic exception handling, and starter Docker files.
 
-The first business entities, `Strategy`, `Bot`, and `ExecutionProfile`, are now included as stored metadata/configuration records. At this stage none of them executes trades. They are only persisted and managed through the REST API.
+The first business entities, `Strategy`, `Bot`, `ExecutionProfile`, and `BotRun`, are now included as stored metadata/configuration records. At this stage none of them executes trades. They are only persisted and managed through the REST API.
 
 Trading logic, broker integrations, Telegram notifications, dashboards, background jobs, authentication, and risk workflows are intentionally left for later steps.
 
@@ -14,6 +14,7 @@ Trading logic, broker integrations, Telegram notifications, dashboards, backgrou
 - CRUD endpoints for `Strategy`
 - CRUD endpoints for `Bot`
 - nested configuration endpoints for `ExecutionProfile`
+- nested history endpoints for `BotRun`
 - Environment-driven settings using Pydantic
 - SQLAlchemy 2.x database session and declarative base
 - Alembic scaffold with the initial `strategies` migration
@@ -140,9 +141,25 @@ Each bot belongs to a strategy and is intended to become the future operational 
 
 Each bot can have at most one execution profile. This keeps the relationship simple while giving the platform a clear place to store future operational and risk settings.
 
+## BotRun entity
+
+`BotRun` represents a historical record of a bot run request or lifecycle attempt. It stores:
+
+- `bot_id`
+- `trigger_type`
+- `status`
+- `summary`
+- `error_message`
+- `started_at`
+- `finished_at`
+- `created_at`
+- `updated_at`
+
+Each bot can accumulate many bot runs over time. BotRun is treated as audit/history data rather than normal editable configuration, which is why there is no delete endpoint for runs at this stage.
+
 ## Database and migrations
 
-Alembic is wired to the application's SQLAlchemy metadata and includes migrations for the `strategies`, `bots`, and `execution_profiles` tables.
+Alembic is wired to the application's SQLAlchemy metadata and includes migrations for the `strategies`, `bots`, `execution_profiles`, and `bot_runs` tables.
 
 Run the current migrations:
 
@@ -292,6 +309,50 @@ Delete a bot execution profile:
 
 ```bash
 curl -X DELETE http://127.0.0.1:8000/api/v1/bots/1/execution-profile
+```
+
+Create a bot run:
+
+```bash
+curl -X POST http://127.0.0.1:8000/api/v1/bots/1/runs \
+  -H "Content-Type: application/json" \
+  -d '{
+    "trigger_type": "manual"
+  }'
+```
+
+List bot runs:
+
+```bash
+curl http://127.0.0.1:8000/api/v1/bots/1/runs
+```
+
+Get a bot run by id:
+
+```bash
+curl http://127.0.0.1:8000/api/v1/bots/1/runs/1
+```
+
+Move a bot run to running:
+
+```bash
+curl -X PATCH http://127.0.0.1:8000/api/v1/bots/1/runs/1 \
+  -H "Content-Type: application/json" \
+  -d '{
+    "status": "running",
+    "summary": "Run started"
+  }'
+```
+
+Move a bot run to succeeded:
+
+```bash
+curl -X PATCH http://127.0.0.1:8000/api/v1/bots/1/runs/1 \
+  -H "Content-Type: application/json" \
+  -d '{
+    "status": "succeeded",
+    "summary": "Run completed without execution"
+  }'
 ```
 
 ## Architectural choices

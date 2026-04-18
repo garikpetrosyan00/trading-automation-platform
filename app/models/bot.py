@@ -41,3 +41,4 @@ class Bot(Base):
         back_populates="bot",
         uselist=False,
     )
+    runs: Mapped[list["BotRun"]] = relationship(back_populates="bot")
