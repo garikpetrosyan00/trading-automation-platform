@@ -2,7 +2,7 @@
 
 This repository provides the initial backend foundation for a production-style trading automation platform. The current scope is intentionally narrow: it sets up a clean FastAPI application skeleton, environment-based configuration, database and migration scaffolding, logging, basic exception handling, and starter Docker files.
 
-The first business entities, `Strategy`, `Bot`, `ExecutionProfile`, and `BotRun`, are now included as stored metadata/configuration records. At this stage none of them executes trades. They are only persisted and managed through the REST API.
+The first business entities, `Strategy`, `Bot`, `ExecutionProfile`, `BotRun`, and `RunEvent`, are now included as stored metadata/configuration records. At this stage none of them executes trades. They are only persisted and managed through the REST API.
 
 Trading logic, broker integrations, Telegram notifications, dashboards, background jobs, authentication, and risk workflows are intentionally left for later steps.
 
@@ -15,6 +15,7 @@ Trading logic, broker integrations, Telegram notifications, dashboards, backgrou
 - CRUD endpoints for `Bot`
 - nested configuration endpoints for `ExecutionProfile`
 - nested history endpoints for `BotRun`
+- append-only timeline endpoints for `RunEvent`
 - Environment-driven settings using Pydantic
 - SQLAlchemy 2.x database session and declarative base
 - Alembic scaffold with the initial `strategies` migration
@@ -157,9 +158,24 @@ Each bot can have at most one execution profile. This keeps the relationship sim
 
 Each bot can accumulate many bot runs over time. BotRun is treated as audit/history data rather than normal editable configuration, which is why there is no delete endpoint for runs at this stage.
 
+## RunEvent entity
+
+`RunEvent` represents the append-only event timeline for a bot run. It stores:
+
+- `bot_run_id`
+- `event_type`
+- `level`
+- `message`
+- `payload`
+- `created_at`
+
+RunEvents are intended for operational notes, lifecycle transitions, warnings, and errors. They are not editable configuration, which is why there are no update or delete endpoints for events at this stage.
+
+Lifecycle events are created automatically when a bot run is requested and when its status changes, giving each run a useful built-in timeline from the start.
+
 ## Database and migrations
 
-Alembic is wired to the application's SQLAlchemy metadata and includes migrations for the `strategies`, `bots`, `execution_profiles`, and `bot_runs` tables.
+Alembic is wired to the application's SQLAlchemy metadata and includes migrations for the `strategies`, `bots`, `execution_profiles`, `bot_runs`, and `run_events` tables.
 
 Run the current migrations:
 
@@ -352,6 +368,33 @@ curl -X PATCH http://127.0.0.1:8000/api/v1/bots/1/runs/1 \
   -d '{
     "status": "succeeded",
     "summary": "Run completed without execution"
+  }'
+```
+
+List run events:
+
+```bash
+curl http://127.0.0.1:8000/api/v1/bots/1/runs/1/events
+```
+
+Get a run event by id:
+
+```bash
+curl http://127.0.0.1:8000/api/v1/bots/1/runs/1/events/1
+```
+
+Create a manual run event:
+
+```bash
+curl -X POST http://127.0.0.1:8000/api/v1/bots/1/runs/1/events \
+  -H "Content-Type: application/json" \
+  -d '{
+    "event_type": "log",
+    "level": "info",
+    "message": "Dry validation checks completed",
+    "payload": {
+      "checks_passed": true
+    }
   }'
 ```
 

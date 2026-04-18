@@ -2,9 +2,11 @@ from datetime import datetime, timezone
 
 from app.core.errors import ConflictError, NotFoundError
 from app.models.bot_run import BotRun
+from app.models.run_event import RunEvent
 from app.repositories.bot import BotRepository
 from app.repositories.bot_run import BotRunRepository
 from app.repositories.execution_profile import ExecutionProfileRepository
+from app.repositories.run_event import RunEventRepository
 from app.schemas.bot_run import BotRunCreate, BotRunUpdate
 
 NON_TERMINAL_STATUSES = {"requested", "running"}
@@ -24,10 +26,12 @@ class BotRunService:
         repository: BotRunRepository,
         bot_repository: BotRepository,
         execution_profile_repository: ExecutionProfileRepository,
+        run_event_repository: RunEventRepository,
     ):
         self.repository = repository
         self.bot_repository = bot_repository
         self.execution_profile_repository = execution_profile_repository
+        self.run_event_repository = run_event_repository
 
     def create(self, bot_id: int, payload: BotRunCreate) -> BotRun:
         bot = self._get_bot(bot_id)
@@ -45,7 +49,13 @@ class BotRunService:
             trigger_type=payload.trigger_type,
             status="requested",
         )
-        return self.repository.create(bot_run)
+        bot_run = self.repository.create(bot_run)
+        self._record_lifecycle_event(
+            bot_run.id,
+            f"Run requested via {payload.trigger_type} trigger",
+            payload={"from_status": None, "to_status": "requested", "trigger_type": payload.trigger_type},
+        )
+        return bot_run
 
     def get_by_id_for_bot(self, bot_id: int, run_id: int) -> BotRun:
         self._ensure_bot_exists(bot_id)
@@ -66,6 +76,7 @@ class BotRunService:
         updates = payload.model_dump(exclude_unset=True)
 
         next_status = updates.get("status")
+        previous_status = bot_run.status
         if next_status is not None and next_status != bot_run.status:
             self._validate_transition(bot_run.status, next_status, bot_id)
             self._apply_status_timestamps(bot_run, next_status)
@@ -73,7 +84,16 @@ class BotRunService:
         for field, value in updates.items():
             setattr(bot_run, field, value)
 
-        return self.repository.update(bot_run)
+        bot_run = self.repository.update(bot_run)
+
+        if next_status is not None and next_status != previous_status:
+            self._record_lifecycle_event(
+                bot_run.id,
+                f"Run status changed from {previous_status} to {next_status}",
+                payload={"from_status": previous_status, "to_status": next_status},
+            )
+
+        return bot_run
 
     def _ensure_bot_exists(self, bot_id: int) -> None:
         self._get_bot(bot_id)
@@ -116,3 +136,13 @@ class BotRunService:
             if bot_run.started_at is None and bot_run.status == "running":
                 bot_run.started_at = now
             bot_run.finished_at = now
+
+    def _record_lifecycle_event(self, bot_run_id: int, message: str, payload: dict | None = None) -> None:
+        run_event = RunEvent(
+            bot_run_id=bot_run_id,
+            event_type="lifecycle",
+            level="info",
+            message=message,
+            payload=payload,
+        )
+        self.run_event_repository.create(run_event)

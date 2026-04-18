@@ -4,6 +4,7 @@ from app.api.dependencies import DbSession
 from app.repositories.bot import BotRepository
 from app.repositories.bot_run import BotRunRepository
 from app.repositories.execution_profile import ExecutionProfileRepository
+from app.repositories.run_event import RunEventRepository
 from app.schemas.bot_run import BotRunCreate, BotRunRead, BotRunStatus, BotRunTriggerType, BotRunUpdate
 from app.services.bot_run import BotRunService
 
@@ -15,6 +16,7 @@ def get_bot_run_service(db: DbSession) -> BotRunService:
         BotRunRepository(db),
         BotRepository(db),
         ExecutionProfileRepository(db),
+        RunEventRepository(db),
     )
 
 

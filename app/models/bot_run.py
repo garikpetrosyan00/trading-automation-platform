@@ -49,3 +49,4 @@ class BotRun(Base):
     )
 
     bot: Mapped["Bot"] = relationship(back_populates="runs")
+    events: Mapped[list["RunEvent"]] = relationship(back_populates="bot_run")

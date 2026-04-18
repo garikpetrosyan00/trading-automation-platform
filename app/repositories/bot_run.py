@@ -20,6 +20,10 @@ class BotRunRepository:
         statement = select(BotRun).where(BotRun.bot_id == bot_id, BotRun.id == run_id)
         return self.db.scalar(statement)
 
+    def get_by_id(self, run_id: int) -> BotRun | None:
+        statement = select(BotRun).where(BotRun.id == run_id)
+        return self.db.scalar(statement)
+
     def list_for_bot(self, bot_id: int, status: str | None = None, trigger_type: str | None = None) -> list[BotRun]:
         statement = select(BotRun).where(BotRun.bot_id == bot_id)
 
