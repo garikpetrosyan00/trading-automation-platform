@@ -2,7 +2,7 @@
 
 This repository provides the initial backend foundation for a production-style trading automation platform. The current scope is intentionally narrow: it sets up a clean FastAPI application skeleton, environment-based configuration, database and migration scaffolding, logging, basic exception handling, and starter Docker files.
 
-The first business entity, `Strategy`, is now included as a stored metadata/configuration record. At this stage a strategy does not execute trades. It is only persisted and managed through the REST API.
+The first business entities, `Strategy` and `Bot`, are now included as stored metadata/configuration records. At this stage neither of them executes trades. They are only persisted and managed through the REST API.
 
 Trading logic, broker integrations, Telegram notifications, dashboards, background jobs, authentication, and risk workflows are intentionally left for later steps.
 
@@ -12,6 +12,7 @@ Trading logic, broker integrations, Telegram notifications, dashboards, backgrou
 - `GET /health` health endpoint
 - `GET /api/v1/system/ping` API starter endpoint
 - CRUD endpoints for `Strategy`
+- CRUD endpoints for `Bot`
 - Environment-driven settings using Pydantic
 - SQLAlchemy 2.x database session and declarative base
 - Alembic scaffold with the initial `strategies` migration
@@ -108,9 +109,24 @@ The API will be available at `http://127.0.0.1:8000`.
 
 It is intentionally limited to metadata and configuration only.
 
+## Bot entity
+
+`Bot` represents a future automation instance attached to a strategy. For now it is also metadata only and stores:
+
+- `name`
+- `strategy_id`
+- `exchange_name`
+- `status`
+- `is_paper`
+- `notes`
+- `created_at`
+- `updated_at`
+
+Each bot belongs to a strategy and is intended to become the future operational wrapper around a strategy configuration.
+
 ## Database and migrations
 
-Alembic is wired to the application's SQLAlchemy metadata and includes the first migration for the `strategies` table.
+Alembic is wired to the application's SQLAlchemy metadata and includes migrations for the `strategies` and `bots` tables.
 
 Run the current migrations:
 
@@ -173,6 +189,56 @@ Delete a strategy:
 
 ```bash
 curl -X DELETE http://127.0.0.1:8000/api/v1/strategies/1
+```
+
+Create a bot:
+
+```bash
+curl -X POST http://127.0.0.1:8000/api/v1/bots \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "BTC Paper Bot",
+    "strategy_id": 1,
+    "exchange_name": "Binance",
+    "status": "draft",
+    "is_paper": true,
+    "notes": "First bot placeholder"
+  }'
+```
+
+List bots:
+
+```bash
+curl http://127.0.0.1:8000/api/v1/bots
+```
+
+List bots filtered by strategy:
+
+```bash
+curl "http://127.0.0.1:8000/api/v1/bots?strategy_id=1"
+```
+
+Get a bot by id:
+
+```bash
+curl http://127.0.0.1:8000/api/v1/bots/1
+```
+
+Partially update a bot:
+
+```bash
+curl -X PATCH http://127.0.0.1:8000/api/v1/bots/1 \
+  -H "Content-Type: application/json" \
+  -d '{
+    "status": "active",
+    "notes": "Ready for future activation"
+  }'
+```
+
+Delete a bot:
+
+```bash
+curl -X DELETE http://127.0.0.1:8000/api/v1/bots/1
 ```
 
 ## Architectural choices

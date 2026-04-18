@@ -1,7 +1,7 @@
 from datetime import datetime
 
 from sqlalchemy import Boolean, DateTime, String, Text, func
-from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base
 
@@ -28,3 +28,5 @@ class Strategy(Base):
         onupdate=func.now(),
         nullable=False,
     )
+
+    bots: Mapped[list["Bot"]] = relationship(back_populates="strategy")
