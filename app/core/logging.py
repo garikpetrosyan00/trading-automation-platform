@@ -15,12 +15,12 @@ class JsonFormatter(logging.Formatter):
             "message": record.getMessage(),
         }
 
-        for field in ("service", "environment", "path", "method"):
+        for field in ("service", "environment", "path", "method", "provider", "symbol", "url", "base_currency"):
             value = getattr(record, field, None)
             if value is not None:
                 payload[field] = value
 
-        for field in ("status_code", "duration_ms", "error_code"):
+        for field in ("status_code", "duration_ms", "error_code", "reconnect_delay_seconds", "account_id", "bot_id", "run_id"):
             value = getattr(record, field, None)
             if value is not None:
                 payload[field] = value

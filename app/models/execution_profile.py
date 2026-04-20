@@ -1,4 +1,5 @@
 from datetime import datetime
+from decimal import Decimal
 
 from sqlalchemy import Boolean, CheckConstraint, DateTime, ForeignKey, Numeric, String, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -11,6 +12,10 @@ class ExecutionProfile(Base):
 
     __tablename__ = "execution_profiles"
     __table_args__ = (
+        CheckConstraint(
+            "strategy_type IN ('price_threshold')",
+            name="ck_execution_profiles_strategy_type",
+        ),
         CheckConstraint(
             "default_order_type IN ('market', 'limit')",
             name="ck_execution_profiles_default_order_type",
@@ -27,6 +32,16 @@ class ExecutionProfile(Base):
     max_position_size_usd: Mapped[float] = mapped_column(Numeric(12, 2), nullable=False)
     max_daily_loss_usd: Mapped[float] = mapped_column(Numeric(12, 2), nullable=False)
     max_open_positions: Mapped[int] = mapped_column(nullable=False)
+    strategy_type: Mapped[str] = mapped_column(
+        String(50),
+        nullable=False,
+        default="price_threshold",
+        server_default="price_threshold",
+    )
+    entry_below: Mapped[Decimal | None] = mapped_column(Numeric(18, 8), nullable=True)
+    exit_above: Mapped[Decimal | None] = mapped_column(Numeric(18, 8), nullable=True)
+    order_quantity: Mapped[Decimal | None] = mapped_column(Numeric(18, 8), nullable=True)
+    cooldown_seconds: Mapped[int] = mapped_column(nullable=False, default=60, server_default="60")
     default_order_type: Mapped[str] = mapped_column(
         String(20),
         nullable=False,

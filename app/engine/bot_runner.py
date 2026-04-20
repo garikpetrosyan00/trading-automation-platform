@@ -1,0 +1,424 @@
+from __future__ import annotations
+
+import asyncio
+from contextlib import suppress
+from dataclasses import dataclass
+from datetime import datetime, timedelta, timezone
+from decimal import Decimal
+
+from app.core.errors import ConflictError, NotFoundError
+from app.core.logging import get_logger
+from app.data.schemas import MarketEvent
+from app.engine.strategy_evaluator import StrategyEvaluator
+from app.models.bot_run import BotRun
+from app.models.run_event import RunEvent
+from app.repositories.bot import BotRepository
+from app.repositories.bot_run import BotRunRepository
+from app.repositories.execution_profile import ExecutionProfileRepository
+from app.repositories.portfolio import PortfolioRepository
+from app.repositories.run_event import RunEventRepository
+from app.repositories.strategy import StrategyRepository
+from app.schemas.bot_run import BotRunCreate, BotRunUpdate
+from app.schemas.bot_runner import BotStatusRead
+from app.schemas.execution import MarketOrderRequest
+from app.services.bot_run import BotRunService
+from app.services.simulated_execution import SimulatedExecutionService
+
+logger = get_logger(__name__)
+
+ZERO = Decimal("0")
+
+
+@dataclass
+class RunnerConfig:
+    enabled: bool
+    poll_interval_seconds: float
+    simulation_enabled: bool
+    simulation_fee_bps: Decimal
+    simulation_slippage_bps: Decimal
+
+
+class BotRunner:
+    def __init__(self, session_factory, market_data_service, config: RunnerConfig, now_provider=None):
+        self.session_factory = session_factory
+        self.market_data_service = market_data_service
+        self.config = config
+        self.now_provider = now_provider or (lambda: datetime.now(timezone.utc))
+        self._task: asyncio.Task[None] | None = None
+        self._cycle_lock = asyncio.Lock()
+
+    async def start(self) -> None:
+        if not self.config.enabled:
+            logger.info("bot_runner_disabled")
+            return
+        if self._task is not None and not self._task.done():
+            return
+        logger.info("bot_runner_starting")
+        self._task = asyncio.create_task(self._run_loop(), name="bot-runner")
+
+    async def stop(self) -> None:
+        task = self._task
+        self._task = None
+        if task is None:
+            return
+        logger.info("bot_runner_stopping")
+        task.cancel()
+        with suppress(asyncio.CancelledError):
+            await task
+        self._cancel_active_runs("Bot runner stopped")
+
+    async def run_cycle(self) -> None:
+        async with self._cycle_lock:
+            self._run_cycle_sync()
+
+    def start_bot(self, bot_id: int) -> BotStatusRead:
+        with self.session_factory() as db:
+            bot_repository = BotRepository(db)
+            bot = bot_repository.get_by_id(bot_id)
+            if bot is None:
+                raise NotFoundError(f"Bot with id {bot_id} was not found", error_code="bot_not_found")
+
+            profile_repository = ExecutionProfileRepository(db)
+            strategy_repository = StrategyRepository(db)
+            bot_run_service = self._build_bot_run_service(db)
+            profile = profile_repository.get_by_bot_id(bot_id)
+            if profile is None:
+                raise NotFoundError(
+                    f"Execution profile for bot with id {bot_id} was not found",
+                    error_code="execution_profile_not_found",
+                )
+            strategy = strategy_repository.get_by_id(bot.strategy_id)
+            if strategy is None:
+                raise NotFoundError(
+                    f"Strategy with id {bot.strategy_id} was not found",
+                    error_code="strategy_not_found",
+                )
+            self._validate_profile_config(profile)
+
+            if bot.status != "active":
+                bot.status = "active"
+                bot_repository.update(bot)
+
+            bot_run = self._ensure_running_run(bot_run_service, bot_id, trigger_type="manual")
+            self._record_event(
+                db,
+                bot_run.id,
+                event_type="lifecycle",
+                level="info",
+                message="started",
+                payload={"symbol": strategy.symbol, "strategy_type": profile.strategy_type},
+            )
+            db.commit()
+            return self._build_status(db, bot_id)
+
+    def stop_bot(self, bot_id: int) -> BotStatusRead:
+        with self.session_factory() as db:
+            bot_repository = BotRepository(db)
+            bot = bot_repository.get_by_id(bot_id)
+            if bot is None:
+                raise NotFoundError(f"Bot with id {bot_id} was not found", error_code="bot_not_found")
+
+            if bot.status != "paused":
+                bot.status = "paused"
+                bot_repository.update(bot)
+
+            bot_run_repository = BotRunRepository(db)
+            bot_run_service = self._build_bot_run_service(db)
+            active_run = bot_run_repository.get_active_for_bot(bot_id)
+            if active_run is not None:
+                bot_run_service.update(
+                    bot_id,
+                    active_run.id,
+                    BotRunUpdate(status="cancelled", summary="Bot stopped manually"),
+                )
+                self._record_event(
+                    db,
+                    active_run.id,
+                    event_type="lifecycle",
+                    level="info",
+                    message="stopped",
+                    payload={"reason": "manual_stop"},
+                )
+                db.commit()
+
+            return self._build_status(db, bot_id)
+
+    def get_bot_status(self, bot_id: int) -> BotStatusRead:
+        with self.session_factory() as db:
+            return self._build_status(db, bot_id)
+
+    def _run_cycle_sync(self) -> None:
+        if not self.config.enabled:
+            return
+
+        with self.session_factory() as db:
+            bot_repository = BotRepository(db)
+            bots = bot_repository.list_all(status="active")
+            for bot in bots:
+                try:
+                    self._evaluate_bot(db, bot.id)
+                except Exception:
+                    db.rollback()
+                    logger.exception("bot_runner_bot_error", extra={"bot_id": bot.id})
+                    active_run = BotRunRepository(db).get_active_for_bot(bot.id)
+                    if active_run is not None:
+                        self._record_event(
+                            db,
+                            active_run.id,
+                            event_type="error",
+                            level="error",
+                            message="error",
+                            payload={"detail": "Bot runner evaluation failed"},
+                        )
+                        db.commit()
+
+    async def _run_loop(self) -> None:
+        try:
+            while True:
+                await self.run_cycle()
+                await asyncio.sleep(self.config.poll_interval_seconds)
+        except asyncio.CancelledError:
+            logger.info("bot_runner_cancelled")
+            raise
+
+    def _evaluate_bot(self, db, bot_id: int) -> None:
+        bot_repository = BotRepository(db)
+        strategy_repository = StrategyRepository(db)
+        profile_repository = ExecutionProfileRepository(db)
+        portfolio_repository = PortfolioRepository(db)
+        bot_run_service = self._build_bot_run_service(db)
+
+        bot = bot_repository.get_by_id(bot_id)
+        if bot is None or bot.status != "active":
+            return
+
+        profile = profile_repository.get_by_bot_id(bot_id)
+        if profile is None or not profile.is_enabled:
+            return
+        self._validate_profile_config(profile)
+
+        strategy = strategy_repository.get_by_id(bot.strategy_id)
+        if strategy is None:
+            raise NotFoundError(f"Strategy with id {bot.strategy_id} was not found", error_code="strategy_not_found")
+
+        bot_run = self._ensure_running_run(bot_run_service, bot_id, trigger_type="system")
+        latest_price = self._get_latest_price(strategy.symbol)
+        position = portfolio_repository.get_position_by_symbol(strategy.symbol)
+        position_quantity = position.quantity if position is not None else ZERO
+        cooldown_until = self._get_cooldown_until(RunEventRepository(db), bot.id, profile.cooldown_seconds)
+
+        decision = StrategyEvaluator.evaluate_price_threshold(
+            latest_price=latest_price,
+            position_quantity=position_quantity,
+            entry_below=profile.entry_below,
+            exit_above=profile.exit_above,
+        )
+
+        if (
+            decision.action == "buy"
+            and position_quantity <= ZERO
+            and cooldown_until is not None
+            and self.now_provider() < cooldown_until
+        ):
+            self._record_event(
+                db,
+                bot_run.id,
+                event_type="system",
+                level="info",
+                message="cooldown_active",
+                payload={"symbol": strategy.symbol, "cooldown_until": cooldown_until.isoformat()},
+            )
+            db.commit()
+            return
+
+        if decision.action == "skip":
+            self._record_event(
+                db,
+                bot_run.id,
+                event_type="system",
+                level="warning",
+                message="evaluation_skipped",
+                payload={"reason": decision.reason, "symbol": strategy.symbol},
+            )
+            db.commit()
+            return
+
+        if decision.action == "hold":
+            self._record_event(
+                db,
+                bot_run.id,
+                event_type="log",
+                level="info",
+                message="evaluation_no_signal",
+                payload={"reason": decision.reason, "symbol": strategy.symbol, "latest_price": str(latest_price)},
+            )
+            db.commit()
+            return
+
+        quantity = profile.order_quantity
+        if decision.action == "sell":
+            quantity = position_quantity
+
+        self._record_event(
+            db,
+            bot_run.id,
+            event_type="system",
+            level="info",
+            message=f"{decision.action}_signal",
+            payload={"reason": decision.reason, "symbol": strategy.symbol, "quantity": str(quantity)},
+        )
+        db.commit()
+
+        execution_service = SimulatedExecutionService(
+            repository=portfolio_repository,
+            market_data_service=self.market_data_service,
+            simulation_enabled=self.config.simulation_enabled,
+            fee_bps=self.config.simulation_fee_bps,
+            slippage_bps=self.config.simulation_slippage_bps,
+        )
+        result = execution_service.submit_market_order(
+            MarketOrderRequest(symbol=strategy.symbol, side=decision.action, quantity=quantity)
+        )
+
+        self._record_event(
+            db,
+            bot_run.id,
+            event_type="system",
+            level="info" if result.accepted else "warning",
+            message="order_filled" if result.accepted else "order_rejected",
+            payload={
+                "side": decision.action,
+                "symbol": strategy.symbol,
+                "message": result.message,
+                "order_id": result.order.id,
+                "fill_id": result.fill.id if result.fill is not None else None,
+            },
+        )
+        db.commit()
+
+    def _ensure_running_run(self, bot_run_service: BotRunService, bot_id: int, trigger_type: str) -> BotRun:
+        existing = bot_run_service.repository.get_active_for_bot(bot_id)
+        if existing is not None:
+            if existing.status != "running":
+                return bot_run_service.update(bot_id, existing.id, BotRunUpdate(status="running"))
+            return existing
+
+        bot_run = bot_run_service.create(bot_id, BotRunCreate(trigger_type=trigger_type))
+        return bot_run_service.update(bot_id, bot_run.id, BotRunUpdate(status="running", summary="Bot runner active"))
+
+    def _build_status(self, db, bot_id: int) -> BotStatusRead:
+        bot_repository = BotRepository(db)
+        strategy_repository = StrategyRepository(db)
+        profile_repository = ExecutionProfileRepository(db)
+        bot_run_repository = BotRunRepository(db)
+        run_event_repository = RunEventRepository(db)
+        portfolio_repository = PortfolioRepository(db)
+
+        bot = bot_repository.get_by_id(bot_id)
+        if bot is None:
+            raise NotFoundError(f"Bot with id {bot_id} was not found", error_code="bot_not_found")
+
+        strategy = strategy_repository.get_by_id(bot.strategy_id)
+        if strategy is None:
+            raise NotFoundError(f"Strategy with id {bot.strategy_id} was not found", error_code="strategy_not_found")
+
+        profile = profile_repository.get_by_bot_id(bot_id)
+        if profile is None:
+            raise NotFoundError(
+                f"Execution profile for bot with id {bot_id} was not found",
+                error_code="execution_profile_not_found",
+            )
+
+        active_run = bot_run_repository.get_active_for_bot(bot_id)
+        latest_event = run_event_repository.get_latest_for_bot(bot_id)
+        position = portfolio_repository.get_position_by_symbol(strategy.symbol)
+        latest_price = self._get_latest_price(strategy.symbol)
+        cooldown_until = self._get_cooldown_until(run_event_repository, bot.id, profile.cooldown_seconds)
+        cooldown_active = cooldown_until is not None and self.now_provider() < cooldown_until
+
+        return BotStatusRead(
+            bot_id=bot.id,
+            bot_name=bot.name,
+            bot_status=bot.status,
+            execution_profile_enabled=profile.is_enabled,
+            runner_enabled=self.config.enabled and bot.status == "active" and profile.is_enabled,
+            strategy_type=profile.strategy_type,
+            symbol=strategy.symbol,
+            active_run_id=active_run.id if active_run is not None else None,
+            active_run_status=active_run.status if active_run is not None else None,
+            latest_price=latest_price,
+            current_position_quantity=position.quantity if position is not None else ZERO,
+            cooldown_seconds=profile.cooldown_seconds,
+            cooldown_active=cooldown_active,
+            cooldown_until=cooldown_until if cooldown_active else None,
+            last_event_message=latest_event.message if latest_event is not None else None,
+            last_event_at=latest_event.created_at if latest_event is not None else None,
+            poll_interval_seconds=self.config.poll_interval_seconds,
+        )
+
+    def _cancel_active_runs(self, reason: str) -> None:
+        with self.session_factory() as db:
+            bot_repository = BotRepository(db)
+            bot_run_service = self._build_bot_run_service(db)
+            for bot in bot_repository.list_all(status="active"):
+                active_run = bot_run_service.repository.get_active_for_bot(bot.id)
+                if active_run is None:
+                    continue
+                bot_run_service.update(bot.id, active_run.id, BotRunUpdate(status="cancelled", summary=reason))
+                self._record_event(
+                    db,
+                    active_run.id,
+                    event_type="lifecycle",
+                    level="info",
+                    message="stopped",
+                    payload={"reason": "shutdown"},
+                )
+            db.commit()
+
+    def _record_event(self, db, bot_run_id: int, event_type: str, level: str, message: str, payload: dict | None) -> None:
+        db.add(
+            RunEvent(
+                bot_run_id=bot_run_id,
+                event_type=event_type,
+                level=level,
+                message=message,
+                payload=payload,
+            )
+        )
+
+    def _build_bot_run_service(self, db) -> BotRunService:
+        return BotRunService(
+            BotRunRepository(db),
+            BotRepository(db),
+            ExecutionProfileRepository(db),
+            RunEventRepository(db),
+        )
+
+    def _get_latest_price(self, symbol: str) -> Decimal | None:
+        latest = self.market_data_service.get_latest(symbol)
+        if latest is None or not isinstance(latest, MarketEvent):
+            return None
+        return latest.price or latest.close
+
+    def _get_cooldown_until(self, run_event_repository: RunEventRepository, bot_id: int, cooldown_seconds: int) -> datetime | None:
+        latest_sell_event = run_event_repository.get_latest_order_filled_for_bot(bot_id, side="sell")
+        if latest_sell_event is None:
+            return None
+        return self._normalize_timestamp(latest_sell_event.created_at) + timedelta(seconds=cooldown_seconds)
+
+    @staticmethod
+    def _normalize_timestamp(value: datetime) -> datetime:
+        if value.tzinfo is None:
+            return value.replace(tzinfo=timezone.utc)
+        return value
+
+    @staticmethod
+    def _validate_profile_config(profile) -> None:
+        if profile.strategy_type != "price_threshold":
+            raise ConflictError("Only price_threshold strategy is supported", error_code="unsupported_strategy_type")
+        if profile.entry_below is None:
+            raise ConflictError("Execution profile entry_below is required", error_code="missing_entry_below")
+        if profile.exit_above is None:
+            raise ConflictError("Execution profile exit_above is required", error_code="missing_exit_above")
+        if profile.order_quantity is None:
+            raise ConflictError("Execution profile order_quantity is required", error_code="missing_order_quantity")

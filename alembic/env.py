@@ -7,7 +7,20 @@ from sqlalchemy import engine_from_config, pool
 
 from app.core.config import get_settings
 from app.db.base import Base
-from app.models import alert_event, alert_rule, bot, bot_run, execution_profile, notification_rule, run_event, strategy  # noqa: F401
+from app.models import (  # noqa: F401
+    alert_event,
+    alert_rule,
+    bot,
+    bot_run,
+    execution_profile,
+    notification_rule,
+    portfolio_account,
+    position,
+    run_event,
+    simulated_fill,
+    simulated_order,
+    strategy,
+)
 
 config = context.config
 settings = get_settings()

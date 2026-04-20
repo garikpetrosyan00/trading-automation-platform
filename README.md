@@ -1,6 +1,6 @@
 # Trading Automation Platform
 
-This repository provides the initial backend foundation for a production-style trading automation platform. The current scope is intentionally narrow: it sets up a clean FastAPI application skeleton, environment-based configuration, database and migration scaffolding, logging, basic exception handling, and starter Docker files.
+This repository provides the initial backend foundation for a production-style trading automation platform. The current scope is intentionally narrow: it sets up a clean FastAPI application skeleton, environment-based configuration, database and migration scaffolding, logging, basic exception handling, starter Docker files, the first real market-data ingestion slice, and the first persisted virtual portfolio and simulated execution slice.
 
 The first business entities, `Strategy`, `Bot`, `ExecutionProfile`, `BotRun`, and `RunEvent`, are now included as stored metadata/configuration records. At this stage none of them executes trades. They are only persisted and managed through the REST API.
 
@@ -11,6 +11,15 @@ Trading logic, broker integrations, Telegram notifications, dashboards, backgrou
 - FastAPI application entrypoint
 - `GET /health` health endpoint
 - `GET /api/v1/system/ping` API starter endpoint
+- background market-data ingestion for one public symbol stream
+- `GET /api/v1/market-data/status` inspection endpoint
+- `GET /api/v1/market-data/latest` inspection endpoint
+- persisted virtual portfolio account, positions, orders, and fills
+- `GET /api/v1/portfolio/summary` portfolio inspection endpoint
+- `GET /api/v1/portfolio/positions` open-position inspection endpoint
+- `GET /api/v1/execution/orders` simulated order history endpoint
+- `GET /api/v1/execution/fills` simulated fill history endpoint
+- `POST /api/v1/execution/market-order` simulated market order endpoint
 - CRUD endpoints for `Strategy`
 - CRUD endpoints for `Bot`
 - nested configuration endpoints for `ExecutionProfile`
@@ -32,6 +41,7 @@ Trading logic, broker integrations, Telegram notifications, dashboards, backgrou
 ├── app/
 │   ├── api/                # Routers and HTTP endpoints
 │   ├── core/               # Settings, logging, error handling
+│   ├── data/               # Market data schemas and provider adapters
 │   ├── db/                 # SQLAlchemy base and session
 │   ├── models/             # ORM models
 │   ├── repositories/       # Data access layer
@@ -87,6 +97,9 @@ uvicorn app.main:app --reload
 ```bash
 curl http://127.0.0.1:8000/health
 curl http://127.0.0.1:8000/api/v1/system/ping
+curl http://127.0.0.1:8000/api/v1/market-data/status
+curl http://127.0.0.1:8000/api/v1/market-data/latest
+curl http://127.0.0.1:8000/api/v1/portfolio/summary
 ```
 
 ## Docker run instructions
@@ -97,6 +110,241 @@ docker compose up --build
 ```
 
 The API will be available at `http://127.0.0.1:8000`.
+
+## Market data slice
+
+This step adds the first real market-data vertical slice:
+
+- `app/data/schemas.py` defines the normalized internal market event model
+- `app/data/providers/base.py` defines the provider abstraction
+- `app/data/providers/binance.py` implements a minimal Binance public WebSocket ticker provider
+- `app/services/market_data_service.py` runs the provider, tracks the latest in-memory state, and exposes service health
+- `GET /api/v1/market-data/status` returns runtime status
+- `GET /api/v1/market-data/latest` returns the latest normalized event snapshot
+
+Current limitations:
+
+- only one provider is implemented: `binance`
+- only one symbol is streamed at a time
+- only one event type is normalized: ticker-style updates
+- market data is held only in memory and is lost on restart
+- there is no strategy execution, risk engine, real broker execution, or notifications yet
+
+## Market data configuration
+
+Add these variables to `.env` if you want to change the default feed:
+
+```bash
+MARKET_DATA_ENABLED=true
+MARKET_DATA_PROVIDER=binance
+MARKET_DATA_SYMBOL=BTCUSDT
+MARKET_DATA_WEBSOCKET_URL=wss://stream.binance.com:9443/ws
+MARKET_DATA_RECONNECT_DELAY_SECONDS=2
+MARKET_DATA_INCLUDE_RAW_PAYLOAD=false
+```
+
+Defaults:
+
+- provider: `binance`
+- symbol: `BTCUSDT`
+- stream: `<symbol>@ticker`
+
+## Market data endpoints
+
+Check service status:
+
+```bash
+curl http://127.0.0.1:8000/api/v1/market-data/status
+```
+
+Fetch all latest normalized events currently held in memory:
+
+```bash
+curl http://127.0.0.1:8000/api/v1/market-data/latest
+```
+
+Fetch the latest event for one symbol:
+
+```bash
+curl "http://127.0.0.1:8000/api/v1/market-data/latest?symbol=BTCUSDT"
+```
+
+Example status response before the first event arrives:
+
+```json
+{
+  "running": true,
+  "enabled": true,
+  "provider": "binance",
+  "symbol": "BTCUSDT",
+  "last_received_event_ts": null,
+  "last_received_at": null,
+  "received_event_count": 0
+}
+```
+
+## Portfolio and simulated execution slice
+
+This step adds the first persisted paper-trading foundation:
+
+- `portfolio_accounts` stores one virtual cash account
+- `positions` stores current long-only symbol state and realized PnL by symbol
+- `simulated_orders` stores accepted and rejected market order requests
+- `simulated_fills` stores one fill per accepted order
+- portfolio summary and positions endpoints expose current paper account state
+- simulated market orders use the latest price already held by the in-memory market data service
+
+How simulated execution works:
+
+- the app ensures one portfolio account row exists on startup
+- the default account starts with `1000.00 USD` and is not reset on restart
+- market buy and sell requests look up the latest in-memory price for the requested symbol
+- buy orders apply positive slippage and a fee, then reduce cash and increase the position
+- sell orders apply negative slippage and a fee, then increase cash and reduce the position
+- only long positions are supported, and sells larger than the current position are rejected
+- if no latest price is available, the order is rejected and stored as a rejected simulated order
+
+Simulation configuration:
+
+```bash
+SIMULATION_ENABLED=true
+SIMULATION_BASE_CURRENCY=USD
+SIMULATION_STARTING_CASH=1000.00
+SIMULATION_FEE_BPS=10
+SIMULATION_SLIPPAGE_BPS=5
+```
+
+Current limitations:
+
+- one account only
+- long-only positions only
+- market orders only
+- latest known price only
+- one fill per order
+- no strategy engine
+- no background trading loop
+- no stop-loss, take-profit, or risk controls yet
+- no advanced portfolio analytics or tax/accounting logic yet
+
+## Automated bot runner slice
+
+This step makes the existing `Strategy`, `Bot`, `ExecutionProfile`, `BotRun`, and `RunEvent` domain actually functional for one simple automated rule.
+
+Supported strategy type:
+
+- `price_threshold`
+
+Rule behavior:
+
+- if there is no open long position for the bot symbol and `latest_price <= entry_below`, the runner submits a simulated market buy
+- if there is an open long position for the bot symbol and `latest_price >= exit_above`, the runner submits a simulated market sell for the full open quantity
+
+Where configuration lives:
+
+- `Strategy.symbol` defines the trading symbol
+- `Bot.status` controls whether the bot is active or paused
+- `ExecutionProfile.is_enabled` acts as the execution enable flag
+- `ExecutionProfile.strategy_type`, `entry_below`, `exit_above`, and `order_quantity` hold the rule configuration
+
+How the bot runner works:
+
+- a background task scans active bots on a fixed polling interval
+- it reads the latest price from the existing in-memory market data service
+- it evaluates the `price_threshold` rule
+- it sends simulated buy/sell orders through the existing simulated execution service
+- it persists `BotRun` sessions and `RunEvent` timeline entries for start, stop, skipped evaluations, signals, fills, rejections, and errors
+
+Runner configuration:
+
+```bash
+BOT_RUNNER_ENABLED=true
+BOT_RUNNER_POLL_INTERVAL_SECONDS=2
+```
+
+Current limitations:
+
+- only one supported rule type: `price_threshold`
+- long-only
+- market orders only
+- no indicators
+- no scale-in or scale-out
+- no advanced risk engine
+- no stop-loss / take-profit framework
+- no multi-exchange logic
+- no real-money execution
+
+Start a bot:
+
+```bash
+curl -X POST http://127.0.0.1:8000/api/v1/bots/1/start
+```
+
+Stop a bot:
+
+```bash
+curl -X POST http://127.0.0.1:8000/api/v1/bots/1/stop
+```
+
+Check bot status:
+
+```bash
+curl http://127.0.0.1:8000/api/v1/bots/1/status
+```
+
+List bot runs:
+
+```bash
+curl "http://127.0.0.1:8000/api/v1/bot-runs?bot_id=1"
+```
+
+List bot run events:
+
+```bash
+curl "http://127.0.0.1:8000/api/v1/run-events?bot_id=1"
+```
+
+Portfolio summary:
+
+```bash
+curl http://127.0.0.1:8000/api/v1/portfolio/summary
+```
+
+Open positions:
+
+```bash
+curl http://127.0.0.1:8000/api/v1/portfolio/positions
+```
+
+Simulated market buy:
+
+```bash
+curl -X POST http://127.0.0.1:8000/api/v1/execution/market-order \
+  -H "Content-Type: application/json" \
+  -d '{
+    "symbol": "BTCUSDT",
+    "side": "buy",
+    "quantity": "0.001"
+  }'
+```
+
+Simulated market sell:
+
+```bash
+curl -X POST http://127.0.0.1:8000/api/v1/execution/market-order \
+  -H "Content-Type: application/json" \
+  -d '{
+    "symbol": "BTCUSDT",
+    "side": "sell",
+    "quantity": "0.001"
+  }'
+```
+
+Order and fill history:
+
+```bash
+curl http://127.0.0.1:8000/api/v1/execution/orders
+curl http://127.0.0.1:8000/api/v1/execution/fills
+```
 
 ## Strategy entity
 

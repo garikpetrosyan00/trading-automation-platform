@@ -1,6 +1,7 @@
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.models.bot_run import BotRun
 from app.models.run_event import RunEvent
 
 
@@ -27,4 +28,35 @@ class RunEventRepository:
 
     def get_by_id_for_run(self, bot_run_id: int, event_id: int) -> RunEvent | None:
         statement = select(RunEvent).where(RunEvent.bot_run_id == bot_run_id, RunEvent.id == event_id)
+        return self.db.scalar(statement)
+
+    def list_for_bot(self, bot_id: int, run_id: int | None = None) -> list[RunEvent]:
+        statement = select(RunEvent).join(BotRun).where(BotRun.bot_id == bot_id)
+        if run_id is not None:
+            statement = statement.where(BotRun.id == run_id)
+        statement = statement.order_by(RunEvent.created_at.asc(), RunEvent.id.asc())
+        return list(self.db.scalars(statement).all())
+
+    def get_latest_for_bot(self, bot_id: int) -> RunEvent | None:
+        statement = (
+            select(RunEvent)
+            .join(BotRun)
+            .where(BotRun.bot_id == bot_id)
+            .order_by(RunEvent.created_at.desc(), RunEvent.id.desc())
+            .limit(1)
+        )
+        return self.db.scalar(statement)
+
+    def get_latest_order_filled_for_bot(self, bot_id: int, side: str) -> RunEvent | None:
+        statement = (
+            select(RunEvent)
+            .join(BotRun)
+            .where(
+                BotRun.bot_id == bot_id,
+                RunEvent.message == "order_filled",
+                RunEvent.payload["side"].as_string() == side,
+            )
+            .order_by(RunEvent.created_at.desc(), RunEvent.id.desc())
+            .limit(1)
+        )
         return self.db.scalar(statement)

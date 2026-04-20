@@ -3,15 +3,23 @@ from fastapi import APIRouter
 from app.api.v1.endpoints.alert_events import router as alert_events_router
 from app.api.v1.endpoints.alert_rules import router as alert_rules_router
 from app.api.v1.endpoints.bots import router as bots_router
+from app.api.v1.endpoints.bot_runtime import router as bot_runtime_router
 from app.api.v1.endpoints.bot_runs import router as bot_runs_router
+from app.api.v1.endpoints.execution import router as execution_router
 from app.api.v1.endpoints.execution_profiles import router as execution_profiles_router
+from app.api.v1.endpoints.market_data import router as market_data_router
 from app.api.v1.endpoints.notification_rules import router as notification_rules_router
+from app.api.v1.endpoints.portfolio import router as portfolio_router
 from app.api.v1.endpoints.run_events import router as run_events_router
 from app.api.v1.endpoints.system import router as system_router
 from app.api.v1.endpoints.strategies import router as strategies_router
 
 router = APIRouter()
 router.include_router(system_router, prefix="/system", tags=["system"])
+router.include_router(market_data_router, tags=["market-data"])
+router.include_router(portfolio_router, tags=["portfolio"])
+router.include_router(execution_router, tags=["execution"])
+router.include_router(bot_runtime_router, tags=["bot-runtime"])
 router.include_router(strategies_router, prefix="/strategies", tags=["strategies"])
 router.include_router(bots_router, prefix="/bots", tags=["bots"])
 router.include_router(alert_events_router, tags=["alert-events"])

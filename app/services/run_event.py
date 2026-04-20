@@ -26,6 +26,26 @@ class RunEventService:
         bot_run = self._get_run_for_bot(bot_id, run_id)
         return self.repository.list_for_run(bot_run.id, event_type=event_type, level=level)
 
+    def list_for_bot(
+        self,
+        bot_id: int,
+        run_id: int | None = None,
+        event_type: str | None = None,
+        level: str | None = None,
+    ) -> list[RunEvent]:
+        if self.bot_repository.get_by_id(bot_id) is None:
+            raise NotFoundError(
+                f"Bot with id {bot_id} was not found",
+                error_code="bot_not_found",
+            )
+
+        run_events = self.repository.list_for_bot(bot_id, run_id=run_id)
+        if event_type is not None:
+            run_events = [event for event in run_events if event.event_type == event_type]
+        if level is not None:
+            run_events = [event for event in run_events if event.level == level]
+        return run_events
+
     def get_by_id_for_run(self, bot_id: int, run_id: int, event_id: int) -> RunEvent:
         bot_run = self._get_run_for_bot(bot_id, run_id)
         run_event = self.repository.get_by_id_for_run(bot_run.id, event_id)
