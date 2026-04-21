@@ -4,7 +4,7 @@ This repository provides the initial backend foundation for a production-style t
 
 The first business entities, `Strategy`, `Bot`, `ExecutionProfile`, `BotRun`, and `RunEvent`, are now included as stored metadata/configuration records. At this stage none of them executes trades. They are only persisted and managed through the REST API.
 
-Trading logic, broker integrations, Telegram notifications, dashboards, background jobs, authentication, and risk workflows are intentionally left for later steps.
+Broker integrations, Telegram notifications, production dashboards, background jobs, authentication, and risk workflows are intentionally left for later steps.
 
 ## What is included
 
@@ -101,6 +101,36 @@ curl http://127.0.0.1:8000/api/v1/market-data/status
 curl http://127.0.0.1:8000/api/v1/market-data/latest
 curl http://127.0.0.1:8000/api/v1/portfolio/summary
 ```
+
+## Dashboard MVP
+
+The current local dashboard is served by FastAPI at:
+
+```text
+http://127.0.0.1:8000/dashboard
+```
+
+It is a small static frontend for local simulator/demo usage. Current supported views and actions:
+
+- bots list with local search/filter and stable frontend sorting
+- selected bot summary with status, strategy, cooldown, last price, and last run time
+- recent activity for the selected bot
+- pause/resume for one bot
+- manual `Run now` for one bot
+- latest market price update form
+- manual refresh
+- optional auto-refresh every 10 seconds
+
+Run it locally:
+
+```bash
+alembic upgrade head
+uvicorn app.main:app --reload
+```
+
+Then open `http://127.0.0.1:8000/dashboard`.
+
+Important local note: app startup depends on the configured database being available. With the default settings this means PostgreSQL must be running; if PostgreSQL is unavailable, `uvicorn app.main:app --reload` will fail during startup.
 
 ## Docker run instructions
 
@@ -660,7 +690,7 @@ curl -X POST http://127.0.0.1:8000/api/v1/bots/1/runs/1/events \
 - Background workers and schedulers
 - Telegram integration
 - Risk management policies and limits
-- Configuration UI and web dashboard
+- Configuration UI and richer web dashboard
 - Metrics, tracing, and richer operational tooling
 
 ## Exact local commands

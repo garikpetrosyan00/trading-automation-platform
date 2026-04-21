@@ -1,0 +1,109 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Bots Dashboard</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <main class="dashboard-shell">
+      <header class="topbar">
+        <div>
+          <p class="eyebrow">Local Trading Simulator</p>
+          <h1>Bots Dashboard</h1>
+          <p id="header-meta" class="header-meta">0 bots · Last refreshed: —</p>
+        </div>
+        <div class="topbar-controls">
+          <button id="refresh-dashboard" type="button">Refresh</button>
+          <label class="auto-refresh-control">
+            <input id="auto-refresh" type="checkbox" />
+            Auto-refresh
+          </label>
+          <span id="refresh-message" class="refresh-message" role="status"></span>
+          <form id="price-form" class="price-form" aria-label="Market price update">
+            <label>
+              Symbol
+              <input
+                id="price-symbol"
+                name="symbol"
+                value="BTCUSDT"
+                placeholder="BTCUSDT"
+                autocomplete="off"
+              />
+            </label>
+            <label>
+              Price
+              <input
+                id="price-value"
+                name="price"
+                value="95.00000000"
+                placeholder="95.00000000"
+                inputmode="decimal"
+              />
+            </label>
+            <button id="price-submit" type="submit">Set price</button>
+            <span id="price-message" class="form-message" role="status"></span>
+          </form>
+        </div>
+      </header>
+
+      <section class="dashboard-grid" aria-label="Bot dashboard">
+        <aside class="bot-list-panel" aria-label="Bots">
+          <div class="panel-heading">
+            <h2>Bots</h2>
+            <span id="bot-count" class="count-pill"></span>
+          </div>
+          <div class="bot-search">
+            <input id="bot-search" type="search" placeholder="Search bots..." autocomplete="off" />
+          </div>
+          <div id="bot-list" class="bot-list"></div>
+        </aside>
+
+        <section class="detail-panel" aria-live="polite">
+          <div class="summary-header">
+            <div>
+              <p id="selected-symbol" class="eyebrow"></p>
+              <h2 id="selected-name"></h2>
+            </div>
+            <span id="selected-status" class="status-pill"></span>
+          </div>
+
+          <div class="summary-actions">
+            <button id="pause-resume" type="button" disabled>Pause</button>
+            <button id="run-now" type="button" disabled>Run now</button>
+            <span id="action-message" class="action-message" role="status"></span>
+          </div>
+
+          <dl class="summary-grid">
+            <div>
+              <dt>Strategy</dt>
+              <dd id="selected-strategy"></dd>
+            </div>
+            <div>
+              <dt>Cooldown</dt>
+              <dd id="selected-cooldown"></dd>
+            </div>
+            <div>
+              <dt>Last price</dt>
+              <dd id="selected-price"></dd>
+            </div>
+            <div>
+              <dt>Last run</dt>
+              <dd id="selected-last-run"></dd>
+            </div>
+          </dl>
+
+          <section class="activity-panel" aria-label="Recent activity">
+            <div class="panel-heading">
+              <h2>Recent Activity</h2>
+            </div>
+            <ul id="activity-list" class="activity-list"></ul>
+          </section>
+        </section>
+      </section>
+    </main>
+
+    <script src="./app.js"></script>
+  </body>
+</html>

@@ -1,6 +1,9 @@
 from contextlib import asynccontextmanager
+from pathlib import Path
 
 from fastapi import FastAPI
+from fastapi.responses import FileResponse
+from fastapi.staticfiles import StaticFiles
 
 from app.api.router import api_router
 from app.core.config import get_settings
@@ -16,6 +19,8 @@ from app.services.portfolio_account import PortfolioAccountService
 configure_logging()
 logger = get_logger(__name__)
 settings = get_settings()
+ROOT_DIR = Path(__file__).resolve().parents[1]
+FRONTEND_DIR = ROOT_DIR / "frontend"
 
 
 @asynccontextmanager
@@ -67,6 +72,13 @@ app = FastAPI(
 register_exception_handlers(app)
 app.middleware("http")(log_requests)
 app.include_router(api_router)
+
+app.mount("/frontend", StaticFiles(directory=FRONTEND_DIR), name="frontend")
+
+
+@app.get("/dashboard", tags=["frontend"])
+async def dashboard() -> FileResponse:
+    return FileResponse(FRONTEND_DIR / "index.html")
 
 
 @app.get("/health", tags=["health"])
