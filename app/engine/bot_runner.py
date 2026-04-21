@@ -18,8 +18,12 @@ from app.repositories.execution_profile import ExecutionProfileRepository
 from app.repositories.portfolio import PortfolioRepository
 from app.repositories.run_event import RunEventRepository
 from app.repositories.strategy import StrategyRepository
+from app.schemas.bot_activity import build_activity_item
+from app.schemas.bot_dashboard import BotDashboardItemRead, BotDashboardRead
+from app.schemas.bot_manual_run import BotManualRunRead
 from app.schemas.bot_run import BotRunCreate, BotRunUpdate
-from app.schemas.bot_runner import BotStatusRead
+from app.schemas.bot_runner import BotControlRead, BotStatusRead
+from app.schemas.bot_summary import BotSummaryRead
 from app.schemas.execution import MarketOrderRequest
 from app.services.bot_run import BotRunService
 from app.services.simulated_execution import SimulatedExecutionService
@@ -70,6 +74,10 @@ class BotRunner:
     async def run_cycle(self) -> None:
         async with self._cycle_lock:
             self._run_cycle_sync()
+
+    async def run_bot_once(self, bot_id: int) -> BotManualRunRead:
+        async with self._cycle_lock:
+            return self._run_bot_once_sync(bot_id)
 
     def start_bot(self, bot_id: int) -> BotStatusRead:
         with self.session_factory() as db:
@@ -143,9 +151,87 @@ class BotRunner:
 
             return self._build_status(db, bot_id)
 
+    def pause_bot(self, bot_id: int) -> BotControlRead:
+        with self.session_factory() as db:
+            bot_repository = BotRepository(db)
+            bot = bot_repository.get_by_id(bot_id)
+            if bot is None:
+                raise NotFoundError(f"Bot with id {bot_id} was not found", error_code="bot_not_found")
+
+            if bot.status != "paused":
+                bot.status = "paused"
+                bot_repository.update(bot)
+
+            active_run = BotRunRepository(db).get_active_for_bot(bot_id)
+            if active_run is not None:
+                self._record_event(
+                    db,
+                    active_run.id,
+                    event_type="system",
+                    level="info",
+                    message="bot_paused",
+                    payload={"bot_status": bot.status},
+                )
+                db.commit()
+
+            return BotControlRead(bot_id=bot.id, status=bot.status, is_paused=True)
+
+    def resume_bot(self, bot_id: int) -> BotControlRead:
+        with self.session_factory() as db:
+            bot_repository = BotRepository(db)
+            bot = bot_repository.get_by_id(bot_id)
+            if bot is None:
+                raise NotFoundError(f"Bot with id {bot_id} was not found", error_code="bot_not_found")
+
+            if bot.status != "active":
+                bot.status = "active"
+                bot_repository.update(bot)
+
+            bot_run = self._ensure_running_run(self._build_bot_run_service(db), bot_id, trigger_type="manual")
+            self._record_event(
+                db,
+                bot_run.id,
+                event_type="system",
+                level="info",
+                message="bot_resume_requested",
+                payload={"bot_status": bot.status},
+            )
+            db.commit()
+
+            return BotControlRead(bot_id=bot.id, status=bot.status, is_paused=False)
+
     def get_bot_status(self, bot_id: int) -> BotStatusRead:
         with self.session_factory() as db:
             return self._build_status(db, bot_id)
+
+    def list_bot_dashboard(self) -> BotDashboardRead:
+        with self.session_factory() as db:
+            bots = BotRepository(db).list_all()
+            items = [self._build_dashboard_item(db, bot) for bot in bots]
+            return BotDashboardRead(items=items)
+
+    def get_bot_summary(self, bot_id: int, activity_limit: int = 10) -> BotSummaryRead:
+        with self.session_factory() as db:
+            bot = BotRepository(db).get_by_id(bot_id)
+            if bot is None:
+                raise NotFoundError(f"Bot with id {bot_id} was not found", error_code="bot_not_found")
+            return self._build_summary(db, bot, activity_limit=activity_limit)
+
+    def _run_bot_once_sync(self, bot_id: int) -> BotManualRunRead:
+        with self.session_factory() as db:
+            bot_repository = BotRepository(db)
+            bot = bot_repository.get_by_id(bot_id)
+            if bot is None:
+                raise NotFoundError(f"Bot with id {bot_id} was not found", error_code="bot_not_found")
+
+            previous_event = RunEventRepository(db).get_latest_for_bot(bot_id)
+            self._evaluate_bot(db, bot_id)
+            latest_event = RunEventRepository(db).get_latest_for_bot(bot_id)
+            return self._build_manual_run_result(
+                db,
+                bot_id=bot_id,
+                latest_event=latest_event if latest_event is not None and latest_event != previous_event else None,
+            )
 
     def _run_cycle_sync(self) -> None:
         if not self.config.enabled:
@@ -153,7 +239,7 @@ class BotRunner:
 
         with self.session_factory() as db:
             bot_repository = BotRepository(db)
-            bots = bot_repository.list_all(status="active")
+            bots = bot_repository.list_all()
             for bot in bots:
                 try:
                     self._evaluate_bot(db, bot.id)
@@ -189,7 +275,12 @@ class BotRunner:
         bot_run_service = self._build_bot_run_service(db)
 
         bot = bot_repository.get_by_id(bot_id)
-        if bot is None or bot.status != "active":
+        if bot is None:
+            return
+        if bot.status == "paused":
+            self._record_paused_skip(db, bot.id)
+            return
+        if bot.status != "active":
             return
 
         profile = profile_repository.get_by_bot_id(bot_id)
@@ -340,6 +431,7 @@ class BotRunner:
             bot_id=bot.id,
             bot_name=bot.name,
             bot_status=bot.status,
+            is_paused=bot.status == "paused",
             execution_profile_enabled=profile.is_enabled,
             runner_enabled=self.config.enabled and bot.status == "active" and profile.is_enabled,
             strategy_type=profile.strategy_type,
@@ -355,6 +447,105 @@ class BotRunner:
             last_event_at=latest_event.created_at if latest_event is not None else None,
             poll_interval_seconds=self.config.poll_interval_seconds,
         )
+
+    def _build_dashboard_item(self, db, bot) -> BotDashboardItemRead:
+        strategy = StrategyRepository(db).get_by_id(bot.strategy_id)
+        if strategy is None:
+            raise NotFoundError(f"Strategy with id {bot.strategy_id} was not found", error_code="strategy_not_found")
+
+        profile = ExecutionProfileRepository(db).get_by_bot_id(bot.id)
+        position = PortfolioRepository(db).get_position_by_symbol(strategy.symbol)
+        run_event_repository = RunEventRepository(db)
+        latest_price = self._get_latest_price(strategy.symbol)
+        cooldown_until = None
+        if profile is not None:
+            cooldown_until = self._get_cooldown_until(run_event_repository, bot.id, profile.cooldown_seconds)
+        cooldown_active = cooldown_until is not None and self.now_provider() < cooldown_until
+
+        return BotDashboardItemRead(
+            bot_id=bot.id,
+            name=bot.name,
+            status=bot.status,
+            is_paused=bot.status == "paused",
+            strategy_type=profile.strategy_type if profile is not None else None,
+            symbol=strategy.symbol,
+            cooldown_active=cooldown_active,
+            cooldown_until=cooldown_until if cooldown_active else None,
+            current_position_qty=position.quantity if position is not None else ZERO,
+            last_price=latest_price,
+            updated_at=bot.updated_at,
+        )
+
+    def _build_summary(self, db, bot, activity_limit: int) -> BotSummaryRead:
+        dashboard_item = self._build_dashboard_item(db, bot)
+        profile = ExecutionProfileRepository(db).get_by_bot_id(bot.id)
+        portfolio_repository = PortfolioRepository(db)
+        recent_events = RunEventRepository(db).list_recent_for_bot(bot.id, limit=activity_limit)
+
+        return BotSummaryRead(
+            bot_id=dashboard_item.bot_id,
+            name=dashboard_item.name,
+            status=dashboard_item.status,
+            is_paused=dashboard_item.is_paused,
+            strategy_type=dashboard_item.strategy_type,
+            symbol=dashboard_item.symbol,
+            cooldown_seconds=profile.cooldown_seconds if profile is not None else None,
+            cooldown_active=dashboard_item.cooldown_active,
+            cooldown_until=dashboard_item.cooldown_until,
+            current_position_qty=dashboard_item.current_position_qty,
+            last_price=dashboard_item.last_price,
+            updated_at=dashboard_item.updated_at,
+            buy_below_price=profile.entry_below if profile is not None else None,
+            sell_above_price=profile.exit_above if profile is not None else None,
+            recent_activity=[build_activity_item(event, portfolio_repository) for event in recent_events],
+        )
+
+    def _build_manual_run_result(self, db, bot_id: int, latest_event) -> BotManualRunRead:
+        bot = BotRepository(db).get_by_id(bot_id)
+        if bot is None:
+            raise NotFoundError(f"Bot with id {bot_id} was not found", error_code="bot_not_found")
+
+        dashboard_item = self._build_dashboard_item(db, bot)
+        portfolio_repository = PortfolioRepository(db)
+        recent_events = RunEventRepository(db).list_recent_for_bot(bot_id, limit=3)
+        action, message = self._classify_manual_run_event(latest_event)
+
+        return BotManualRunRead(
+            bot_id=bot_id,
+            status=dashboard_item.status,
+            is_paused=dashboard_item.is_paused,
+            action=action,
+            message=message,
+            cooldown_active=dashboard_item.cooldown_active,
+            cooldown_until=dashboard_item.cooldown_until,
+            current_position_qty=dashboard_item.current_position_qty,
+            last_price=dashboard_item.last_price,
+            recent_activity_preview=[build_activity_item(event, portfolio_repository) for event in recent_events],
+        )
+
+    @staticmethod
+    def _classify_manual_run_event(run_event) -> tuple[str, str]:
+        if run_event is None:
+            return "no_action", "no_action"
+
+        if run_event.message == "order_filled":
+            side = (run_event.payload or {}).get("side")
+            if side == "buy":
+                return "bought", "buy_filled"
+            if side == "sell":
+                return "sold", "sell_filled"
+            return "no_action", run_event.message
+
+        if run_event.message in {"cooldown_active", "evaluation_skipped", "bot_skipped_paused", "order_rejected"}:
+            return "skipped", run_event.message
+
+        if run_event.message == "evaluation_no_signal":
+            return "no_action", run_event.message
+
+        if run_event.message.endswith("_signal"):
+            return "no_action", run_event.message
+
+        return "no_action", run_event.message
 
     def _cancel_active_runs(self, reason: str) -> None:
         with self.session_factory() as db:
@@ -385,6 +576,20 @@ class BotRunner:
                 payload=payload,
             )
         )
+
+    def _record_paused_skip(self, db, bot_id: int) -> None:
+        active_run = BotRunRepository(db).get_active_for_bot(bot_id)
+        if active_run is None:
+            return
+        self._record_event(
+            db,
+            active_run.id,
+            event_type="system",
+            level="info",
+            message="bot_skipped_paused",
+            payload={"bot_status": "paused"},
+        )
+        db.commit()
 
     def _build_bot_run_service(self, db) -> BotRunService:
         return BotRunService(

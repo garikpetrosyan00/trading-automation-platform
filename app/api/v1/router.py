@@ -6,6 +6,7 @@ from app.api.v1.endpoints.bots import router as bots_router
 from app.api.v1.endpoints.bot_runtime import router as bot_runtime_router
 from app.api.v1.endpoints.bot_runs import router as bot_runs_router
 from app.api.v1.endpoints.execution import router as execution_router
+from app.api.v1.endpoints.market import router as market_router
 from app.api.v1.endpoints.execution_profiles import router as execution_profiles_router
 from app.api.v1.endpoints.market_data import router as market_data_router
 from app.api.v1.endpoints.notification_rules import router as notification_rules_router
@@ -19,6 +20,7 @@ router.include_router(system_router, prefix="/system", tags=["system"])
 router.include_router(market_data_router, tags=["market-data"])
 router.include_router(portfolio_router, tags=["portfolio"])
 router.include_router(execution_router, tags=["execution"])
+router.include_router(market_router, tags=["market"])
 router.include_router(bot_runtime_router, tags=["bot-runtime"])
 router.include_router(strategies_router, prefix="/strategies", tags=["strategies"])
 router.include_router(bots_router, prefix="/bots", tags=["bots"])

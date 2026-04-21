@@ -1,9 +1,11 @@
-from fastapi import APIRouter, Query, Response, status
+from fastapi import APIRouter, Response, status
 
-from app.api.dependencies import DbSession
+from app.api.dependencies import BotRunnerDep, DbSession
 from app.repositories.bot import BotRepository
 from app.repositories.strategy import StrategyRepository
-from app.schemas.bot import BotCreate, BotRead, BotStatus, BotUpdate
+from app.schemas.bot import BotCreate, BotRead, BotUpdate
+from app.schemas.bot_dashboard import BotDashboardRead
+from app.schemas.bot_summary import BotSummaryRead
 from app.services.bot import BotService
 
 router = APIRouter()
@@ -20,15 +22,16 @@ async def create_bot(payload: BotCreate, db: DbSession) -> BotRead:
     return BotRead.model_validate(bot)
 
 
-@router.get("", response_model=list[BotRead])
+@router.get("", response_model=BotDashboardRead)
 async def list_bots(
-    db: DbSession,
-    strategy_id: int | None = Query(default=None),
-    status: BotStatus | None = Query(default=None),
-) -> list[BotRead]:
-    service = get_bot_service(db)
-    bots = service.list_all(strategy_id=strategy_id, status=status)
-    return [BotRead.model_validate(bot) for bot in bots]
+    bot_runner: BotRunnerDep,
+) -> BotDashboardRead:
+    return bot_runner.list_bot_dashboard()
+
+
+@router.get("/{bot_id}/summary", response_model=BotSummaryRead)
+async def get_bot_summary(bot_id: int, bot_runner: BotRunnerDep) -> BotSummaryRead:
+    return bot_runner.get_bot_summary(bot_id)
 
 
 @router.get("/{bot_id}", response_model=BotRead)

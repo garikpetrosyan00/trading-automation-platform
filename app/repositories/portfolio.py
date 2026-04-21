@@ -44,6 +44,10 @@ class PortfolioRepository:
         statement = select(SimulatedFill).order_by(SimulatedFill.created_at.desc(), SimulatedFill.id.desc())
         return list(self.db.scalars(statement).all())
 
+    def get_fill_by_id(self, fill_id: int) -> SimulatedFill | None:
+        statement = select(SimulatedFill).where(SimulatedFill.id == fill_id)
+        return self.db.scalar(statement)
+
     def save(self, instance) -> None:
         self.db.add(instance)
 

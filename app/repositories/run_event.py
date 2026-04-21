@@ -37,6 +37,16 @@ class RunEventRepository:
         statement = statement.order_by(RunEvent.created_at.asc(), RunEvent.id.asc())
         return list(self.db.scalars(statement).all())
 
+    def list_recent_for_bot(self, bot_id: int, limit: int) -> list[RunEvent]:
+        statement = (
+            select(RunEvent)
+            .join(BotRun)
+            .where(BotRun.bot_id == bot_id)
+            .order_by(RunEvent.created_at.desc(), RunEvent.id.desc())
+            .limit(limit)
+        )
+        return list(self.db.scalars(statement).all())
+
     def get_latest_for_bot(self, bot_id: int) -> RunEvent | None:
         statement = (
             select(RunEvent)

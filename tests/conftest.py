@@ -32,7 +32,7 @@ class StubMarketDataService:
 
     def set_price(self, symbol: str, price: str) -> None:
         normalized_symbol = symbol.upper()
-        self._latest_by_symbol[normalized_symbol] = MarketEvent(
+        event = MarketEvent(
             provider="stub",
             symbol=normalized_symbol,
             event_type=MarketEventType.TICKER,
@@ -40,6 +40,8 @@ class StubMarketDataService:
             price=Decimal(price),
             close=Decimal(price),
         )
+        self._latest_by_symbol[normalized_symbol] = event
+        return event
 
     def get_latest(self, symbol: str | None = None):
         if symbol is None:

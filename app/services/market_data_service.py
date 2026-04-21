@@ -3,11 +3,12 @@ from __future__ import annotations
 import asyncio
 from contextlib import suppress
 from datetime import datetime, timezone
+from decimal import Decimal
 
 from app.core.logging import get_logger
 from app.data.providers.base import BaseMarketDataProvider
 from app.data.providers.binance import BinanceMarketDataProvider
-from app.data.schemas import MarketDataProviderName, MarketDataStatus, MarketEvent
+from app.data.schemas import MarketDataProviderName, MarketDataStatus, MarketEvent, MarketEventType
 
 logger = get_logger(__name__)
 
@@ -101,3 +102,20 @@ class MarketDataService:
         if symbol is None:
             return dict(self._latest_by_symbol)
         return self._latest_by_symbol.get(symbol.upper())
+
+    def set_price(self, symbol: str, price: Decimal) -> MarketEvent:
+        now = datetime.now(timezone.utc)
+        normalized_symbol = symbol.strip().upper()
+        event = MarketEvent(
+            provider=self.provider.name,
+            symbol=normalized_symbol,
+            event_type=MarketEventType.TICKER,
+            event_ts=now,
+            received_at=now,
+            price=price,
+            close=price,
+        )
+        self._latest_by_symbol[normalized_symbol] = event
+        self._received_event_count += 1
+        self._last_received_at = now
+        return event
