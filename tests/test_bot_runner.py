@@ -7,6 +7,7 @@ from app.api.v1.endpoints.bots import get_bot_summary as get_bot_summary_endpoin
 from app.api.v1.endpoints.bot_runtime import pause_bot as pause_bot_endpoint
 from app.api.v1.endpoints.bot_runtime import resume_bot as resume_bot_endpoint
 from app.api.v1.endpoints.bot_runtime import run_bot_once as run_bot_once_endpoint
+from app.api.v1.endpoints.bot_runtime import list_run_events as list_run_events_endpoint
 from app.api.v1.endpoints.market import set_market_price as set_market_price_endpoint
 from app.core.errors import NotFoundError
 from app.engine.bot_runner import BotRunner, RunnerConfig
@@ -635,6 +636,32 @@ def test_manual_bot_run_returns_404_for_unknown_bot(db_session_factory, stub_mar
         assert exc.error_code == "bot_not_found"
     else:
         raise AssertionError("Expected NotFoundError for unknown bot")
+
+
+def test_manual_bot_run_draft_bot_records_recent_activity(
+    db_session,
+    db_session_factory,
+    stub_market_data_service,
+) -> None:
+    _, bot, _ = create_bot_stack(db_session)
+    runner = build_runner(db_session_factory, stub_market_data_service)
+
+    response = asyncio.run(run_bot_once_endpoint(bot.id, runner))
+    run_events = asyncio.run(
+        list_run_events_endpoint(
+            db_session,
+            bot_id=bot.id,
+            run_id=None,
+            event_type=None,
+            level=None,
+        )
+    )
+
+    assert response.action == "skipped"
+    assert response.message == "bot_not_active"
+    assert response.status == "draft"
+    assert response.recent_activity_preview[0].message == "bot_not_active"
+    assert [event.message for event in run_events] == ["bot_not_active"]
 
 
 def test_manual_bot_run_paused_bot_returns_skipped_result(

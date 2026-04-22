@@ -225,6 +225,40 @@ class BotRunner:
                 raise NotFoundError(f"Bot with id {bot_id} was not found", error_code="bot_not_found")
 
             previous_event = RunEventRepository(db).get_latest_for_bot(bot_id)
+            profile = ExecutionProfileRepository(db).get_by_bot_id(bot_id)
+            if bot.status == "paused":
+                latest_event = self._record_manual_skip(
+                    db,
+                    bot_id,
+                    message="bot_skipped_paused",
+                    payload={"bot_status": bot.status},
+                )
+                return self._build_manual_run_result(db, bot_id=bot_id, latest_event=latest_event)
+            if bot.status != "active":
+                latest_event = self._record_manual_skip(
+                    db,
+                    bot_id,
+                    message="bot_not_active",
+                    payload={"bot_status": bot.status},
+                )
+                return self._build_manual_run_result(db, bot_id=bot_id, latest_event=latest_event)
+            if profile is None:
+                latest_event = self._record_manual_skip(
+                    db,
+                    bot_id,
+                    message="execution_profile_missing",
+                    payload=None,
+                )
+                return self._build_manual_run_result(db, bot_id=bot_id, latest_event=latest_event)
+            if not profile.is_enabled:
+                latest_event = self._record_manual_skip(
+                    db,
+                    bot_id,
+                    message="execution_profile_disabled",
+                    payload={"execution_profile_enabled": False},
+                )
+                return self._build_manual_run_result(db, bot_id=bot_id, latest_event=latest_event)
+
             self._evaluate_bot(db, bot_id)
             latest_event = RunEventRepository(db).get_latest_for_bot(bot_id)
             return self._build_manual_run_result(
@@ -536,7 +570,15 @@ class BotRunner:
                 return "sold", "sell_filled"
             return "no_action", run_event.message
 
-        if run_event.message in {"cooldown_active", "evaluation_skipped", "bot_skipped_paused", "order_rejected"}:
+        if run_event.message in {
+            "cooldown_active",
+            "evaluation_skipped",
+            "bot_skipped_paused",
+            "bot_not_active",
+            "execution_profile_missing",
+            "execution_profile_disabled",
+            "order_rejected",
+        }:
             return "skipped", run_event.message
 
         if run_event.message == "evaluation_no_signal":
@@ -576,6 +618,33 @@ class BotRunner:
                 payload=payload,
             )
         )
+
+    def _record_manual_skip(self, db, bot_id: int, message: str, payload: dict | None) -> RunEvent:
+        bot_run = BotRunRepository(db).get_active_for_bot(bot_id)
+        if bot_run is None:
+            now = self.now_provider()
+            bot_run = BotRun(
+                bot_id=bot_id,
+                trigger_type="manual",
+                status="succeeded",
+                summary=message,
+                started_at=now,
+                finished_at=now,
+            )
+            db.add(bot_run)
+            db.flush()
+
+        run_event = RunEvent(
+            bot_run_id=bot_run.id,
+            event_type="system",
+            level="info",
+            message=message,
+            payload=payload,
+        )
+        db.add(run_event)
+        db.commit()
+        db.refresh(run_event)
+        return run_event
 
     def _record_paused_skip(self, db, bot_id: int) -> None:
         active_run = BotRunRepository(db).get_active_for_bot(bot_id)

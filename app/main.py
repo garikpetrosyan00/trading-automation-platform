@@ -73,7 +73,7 @@ register_exception_handlers(app)
 app.middleware("http")(log_requests)
 app.include_router(api_router)
 
-app.mount("/frontend", StaticFiles(directory=FRONTEND_DIR), name="frontend")
+app.mount("/static", StaticFiles(directory=FRONTEND_DIR), name="static")
 
 
 @app.get("/dashboard", tags=["frontend"])

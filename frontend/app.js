@@ -50,14 +50,21 @@ function normalizeBot(rawBot) {
   return {
     id: rawBot.bot_id ?? rawBot.id,
     name: rawBot.name ?? "Unnamed bot",
-    symbol: rawBot.symbol ?? null,
     status: rawBot.status ?? "idle",
-    strategy: rawBot.strategy_type ?? null,
-    lastPrice: rawBot.last_price ?? null,
-    cooldownActive: Boolean(rawBot.cooldown_active),
+    isPaused: rawBot.is_paused ?? false,
+    strategyType: rawBot.strategy_type ?? "",
+    symbol: rawBot.symbol ?? "",
+    cooldownActive: rawBot.cooldown_active ?? false,
     cooldownUntil: rawBot.cooldown_until ?? null,
+    currentPositionQty: rawBot.current_position_qty ?? "0",
+    lastPrice: rawBot.last_price ?? null,
     updatedAt: rawBot.updated_at ?? null,
   };
+}
+
+function normalizeBotsResponse(data) {
+  const rawBots = Array.isArray(data) ? data : data.items ?? [];
+  return Array.isArray(rawBots) ? rawBots.map(normalizeBot) : [];
 }
 
 function normalizeSummary(rawSummary) {
@@ -185,7 +192,7 @@ async function loadBots() {
 
   try {
     const data = await fetchJson("/api/v1/bots");
-    bots = Array.isArray(data.items) ? data.items.map(normalizeBot) : [];
+    bots = normalizeBotsResponse(data);
     if (selectedBotId && !bots.some((bot) => bot.id === selectedBotId)) {
       selectedBotId = null;
     }
@@ -211,7 +218,7 @@ async function loadBots() {
 async function refreshSelectedData() {
   const currentBotId = selectedBotId;
   const data = await fetchJson("/api/v1/bots");
-  bots = Array.isArray(data.items) ? data.items.map(normalizeBot) : [];
+  bots = normalizeBotsResponse(data);
 
   selectedBotId = bots.some((bot) => bot.id === currentBotId)
     ? currentBotId
@@ -238,7 +245,7 @@ async function refreshDashboardData({ silent = false } = {}) {
 
   try {
     const data = await fetchJson("/api/v1/bots");
-    bots = Array.isArray(data.items) ? data.items.map(normalizeBot) : [];
+    bots = normalizeBotsResponse(data);
     botListError = "";
 
     selectedBotId = bots.some((bot) => bot.id === currentBotId)
@@ -487,7 +494,7 @@ function renderSummary() {
     : formatValue(bot.name, "Unnamed bot");
   selectedStatus.textContent = formatStatus(bot.status);
   selectedStatus.className = `status-pill ${statusClass(bot.status)}`;
-  selectedStrategy.textContent = formatValue(bot.strategy);
+  selectedStrategy.textContent = formatValue(bot.strategyType);
   selectedCooldown.textContent = cooldownText(bot);
   selectedPrice.textContent = formatDecimal(bot.lastPrice);
   selectedLastRun.textContent = formatDateTime(bot.updatedAt);
