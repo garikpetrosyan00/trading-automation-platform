@@ -101,6 +101,13 @@ function formatValue(value, fallback = "—") {
   return value === null || value === undefined || value === "" ? fallback : String(value);
 }
 
+function humanizeMessage(value, fallback = "Update") {
+  const text = formatValue(value, fallback);
+  return text
+    .replaceAll("_", " ")
+    .replace(/\b\w/g, (character) => character.toUpperCase());
+}
+
 function formatStatus(status) {
   return formatValue(status, "draft").replaceAll("_", " ");
 }
@@ -179,10 +186,56 @@ function cooldownText(bot) {
 
 async function fetchJson(path, options = {}) {
   const response = await fetch(`${API_BASE_URL}${path}`, options);
-  if (!response.ok) {
-    throw new Error(`Request failed with ${response.status}`);
+  let data = null;
+
+  try {
+    data = await response.json();
+  } catch (error) {
+    data = null;
   }
-  return response.json();
+
+  if (!response.ok) {
+    const detail =
+      data?.detail?.message ??
+      data?.detail ??
+      data?.message ??
+      `Request failed with ${response.status}`;
+    const error = new Error(String(detail));
+    error.status = response.status;
+    error.data = data;
+    throw error;
+  }
+  return data;
+}
+
+function requestErrorMessage(error, fallback) {
+  if (error?.status === 404) return "The requested bot could not be found.";
+  if (error?.status === 422) return "Check the submitted values and try again.";
+  return error?.message || fallback;
+}
+
+function describeManualRunResult(result) {
+  const latestActivity = result?.recent_activity_preview?.[0]?.message;
+  const activityLabel = humanizeMessage(latestActivity || result?.message, "Recent activity updated");
+
+  if (result?.action === "bought" || result?.action === "sold") {
+    return {
+      text: `Manual run completed. ${activityLabel}.`,
+      type: "success",
+    };
+  }
+
+  if (result?.action === "skipped") {
+    return {
+      text: `Manual run skipped. ${activityLabel}.`,
+      type: "note",
+    };
+  }
+
+  return {
+    text: `Manual run checked the bot. ${activityLabel}.`,
+    type: "success",
+  };
 }
 
 async function loadBots() {
@@ -210,7 +263,7 @@ async function loadBots() {
     selectedBotId = null;
     selectedSummary = null;
     isLoadingBots = false;
-    botListError = "Could not load bots.";
+    botListError = requestErrorMessage(error, "Could not load bots.");
     render();
   }
 }
@@ -262,7 +315,9 @@ async function refreshDashboardData({ silent = false } = {}) {
     }
     lastRefreshedAt = new Date();
   } catch (error) {
-    refreshMessage = silent ? "Auto-refresh failed." : "Could not refresh.";
+    refreshMessage = silent
+      ? `Auto-refresh failed. ${requestErrorMessage(error, "Please try again.")}`
+      : requestErrorMessage(error, "Could not refresh.");
   } finally {
     isRefreshing = false;
     render();
@@ -307,7 +362,7 @@ async function togglePauseResume() {
     await fetchJson(`/api/v1/bots/${bot.id}/${action}`, { method: "POST" });
     await refreshSelectedData();
   } catch (error) {
-    actionMessage = `Could not ${action} bot.`;
+    actionMessage = requestErrorMessage(error, `Could not ${action} bot.`);
     actionMessageType = "error";
   } finally {
     isTogglingPause = false;
@@ -325,12 +380,13 @@ async function runSelectedBotNow() {
   render();
 
   try {
-    await fetchJson(`/api/v1/bots/${bot.id}/run`, { method: "POST" });
-    actionMessage = "Manual run created";
-    actionMessageType = "success";
+    const result = await fetchJson(`/api/v1/bots/${bot.id}/run`, { method: "POST" });
+    const feedback = describeManualRunResult(result);
+    actionMessage = feedback.text;
+    actionMessageType = feedback.type;
     await refreshSelectedData();
   } catch (error) {
-    actionMessage = "Could not run bot.";
+    actionMessage = requestErrorMessage(error, "Could not run bot.");
     actionMessageType = "error";
   } finally {
     isRunningNow = false;
@@ -339,9 +395,9 @@ async function runSelectedBotNow() {
 }
 
 function validationMessage(error) {
-  return error?.message?.startsWith("Request failed with 422")
+  return error?.status === 422
     ? "Check symbol and positive price."
-    : "Could not update price.";
+    : requestErrorMessage(error, "Could not update price.");
 }
 
 async function updateMarketPrice(event) {
@@ -391,7 +447,7 @@ async function loadSelectedSummary(botId) {
     selectedSummary = normalizeSummary(data);
   } catch (error) {
     selectedSummary = null;
-    summaryError = "Could not load bot details.";
+    summaryError = requestErrorMessage(error, "Could not load bot details.");
   } finally {
     isLoadingSummary = false;
   }
@@ -421,7 +477,7 @@ function renderBotList() {
     : `${bots.length} bots`;
 
   if (bots.length === 0) {
-    botList.innerHTML = `<div class="state-message">No bots yet.</div>`;
+    botList.innerHTML = `<div class="state-message">No bots yet. Create a bot to see it here.</div>`;
     return;
   }
 
@@ -463,13 +519,15 @@ function renderSummary() {
     selectedSymbol.textContent = "";
     selectedName.textContent = botListError
       ? "Details unavailable"
-      : "Select a bot to view details.";
+      : bots.length === 0
+        ? "No bots available yet."
+        : "Select a bot to view details.";
     selectedStatus.textContent = "idle";
     selectedStatus.className = "status-pill status-idle";
     selectedStrategy.textContent = "—";
-    selectedCooldown.textContent = "—";
+    selectedCooldown.textContent = bots.length === 0 ? "Add a bot to get started" : "—";
     selectedPrice.textContent = "—";
-    selectedLastRun.textContent = "—";
+    selectedLastRun.textContent = bots.length === 0 ? "No bot activity yet" : "—";
     pauseResume.textContent = "Pause";
     pauseResume.disabled = true;
     runNow.textContent = "Run now";
@@ -551,12 +609,16 @@ function renderActivity() {
   }
 
   if (selectedBotId && selectedSummary && activity.length === 0) {
-    activityList.innerHTML = `<li><span class="activity-empty">No recent activity yet.</span></li>`;
+    activityList.innerHTML = `<li><span class="activity-empty">No recent activity for this bot yet.</span></li>`;
     return;
   }
 
   if (!selectedBotId || !selectedSummary) {
-    activityList.innerHTML = `<li><span class="activity-empty">Select a bot to view activity.</span></li>`;
+    activityList.innerHTML = `<li><span class="activity-empty">${
+      bots.length === 0
+        ? "No bots available yet. Recent activity will appear here after a bot is created."
+        : "Select a bot to view activity."
+    }</span></li>`;
     return;
   }
 

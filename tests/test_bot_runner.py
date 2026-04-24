@@ -11,104 +11,10 @@ from app.api.v1.endpoints.bot_runtime import list_run_events as list_run_events_
 from app.api.v1.endpoints.market import set_market_price as set_market_price_endpoint
 from app.core.errors import NotFoundError
 from app.engine.bot_runner import BotRunner, RunnerConfig
-from app.models.bot import Bot
-from app.models.execution_profile import ExecutionProfile
-from app.models.strategy import Strategy
 from app.repositories.bot_run import BotRunRepository
 from app.repositories.portfolio import PortfolioRepository
 from app.repositories.run_event import RunEventRepository
 from app.schemas.market import MarketPriceUpdateRequest
-from app.services.portfolio_account import PortfolioAccountService
-
-
-def create_bot_stack(db_session, status: str = "draft", cooldown_seconds: int = 60) -> tuple[Strategy, Bot, ExecutionProfile]:
-    strategy = Strategy(
-        name="Threshold Strategy",
-        description="First rule-based bot",
-        symbol="BTCUSDT",
-        timeframe="1m",
-        is_active=True,
-    )
-    db_session.add(strategy)
-    db_session.commit()
-    db_session.refresh(strategy)
-
-    bot = Bot(
-        name="Threshold Bot",
-        strategy_id=strategy.id,
-        exchange_name="binance",
-        status=status,
-        is_paper=True,
-    )
-    db_session.add(bot)
-    db_session.commit()
-    db_session.refresh(bot)
-
-    profile = ExecutionProfile(
-        bot_id=bot.id,
-        max_position_size_usd=1000,
-        max_daily_loss_usd=1000,
-        max_open_positions=1,
-        strategy_type="price_threshold",
-        entry_below=Decimal("100"),
-        exit_above=Decimal("110"),
-        order_quantity=Decimal("0.1"),
-        cooldown_seconds=cooldown_seconds,
-        default_order_type="market",
-        is_enabled=True,
-    )
-    db_session.add(profile)
-    db_session.commit()
-    db_session.refresh(profile)
-    return strategy, bot, profile
-
-
-def create_named_bot_stack(
-    db_session,
-    name: str,
-    symbol: str,
-    status: str = "draft",
-    cooldown_seconds: int = 60,
-) -> tuple[Strategy, Bot, ExecutionProfile]:
-    strategy = Strategy(
-        name=f"{name} Strategy",
-        description="Dashboard test strategy",
-        symbol=symbol,
-        timeframe="1m",
-        is_active=True,
-    )
-    db_session.add(strategy)
-    db_session.commit()
-    db_session.refresh(strategy)
-
-    bot = Bot(
-        name=name,
-        strategy_id=strategy.id,
-        exchange_name="binance",
-        status=status,
-        is_paper=True,
-    )
-    db_session.add(bot)
-    db_session.commit()
-    db_session.refresh(bot)
-
-    profile = ExecutionProfile(
-        bot_id=bot.id,
-        max_position_size_usd=1000,
-        max_daily_loss_usd=1000,
-        max_open_positions=1,
-        strategy_type="price_threshold",
-        entry_below=Decimal("100"),
-        exit_above=Decimal("110"),
-        order_quantity=Decimal("0.1"),
-        cooldown_seconds=cooldown_seconds,
-        default_order_type="market",
-        is_enabled=True,
-    )
-    db_session.add(profile)
-    db_session.commit()
-    db_session.refresh(profile)
-    return strategy, bot, profile
 
 
 class FakeClock:
@@ -137,9 +43,9 @@ def build_runner(db_session_factory, stub_market_data_service, clock: FakeClock 
     )
 
 
-def test_bot_start_and_stop(db_session, db_session_factory, stub_market_data_service) -> None:
-    PortfolioAccountService(PortfolioRepository(db_session)).ensure_account("USD", Decimal("1000"))
-    _, bot, _ = create_bot_stack(db_session)
+def test_bot_start_and_stop(db_session, db_session_factory, stub_market_data_service, bot_stack_factory, funded_account) -> None:
+    funded_account(db_session)
+    _, bot, _ = bot_stack_factory(db_session)
     runner = build_runner(db_session_factory, stub_market_data_service)
 
     start_status = runner.start_bot(bot.id)
@@ -154,9 +60,15 @@ def test_bot_start_and_stop(db_session, db_session_factory, stub_market_data_ser
     assert stop_status.active_run_status is None
 
 
-def test_no_buy_when_latest_price_missing(db_session, db_session_factory, stub_market_data_service) -> None:
-    PortfolioAccountService(PortfolioRepository(db_session)).ensure_account("USD", Decimal("1000"))
-    _, bot, _ = create_bot_stack(db_session)
+def test_no_buy_when_latest_price_missing(
+    db_session,
+    db_session_factory,
+    stub_market_data_service,
+    bot_stack_factory,
+    funded_account,
+) -> None:
+    funded_account(db_session)
+    _, bot, _ = bot_stack_factory(db_session)
     runner = build_runner(db_session_factory, stub_market_data_service)
     runner.start_bot(bot.id)
 
@@ -173,9 +85,11 @@ def test_buy_signal_triggers_one_buy_and_no_duplicate_buy(
     db_session,
     db_session_factory,
     stub_market_data_service,
+    bot_stack_factory,
+    funded_account,
 ) -> None:
-    PortfolioAccountService(PortfolioRepository(db_session)).ensure_account("USD", Decimal("1000"))
-    _, bot, _ = create_bot_stack(db_session)
+    funded_account(db_session)
+    _, bot, _ = bot_stack_factory(db_session)
     runner = build_runner(db_session_factory, stub_market_data_service)
     runner.start_bot(bot.id)
     stub_market_data_service.set_price("BTCUSDT", "95")
@@ -193,9 +107,15 @@ def test_buy_signal_triggers_one_buy_and_no_duplicate_buy(
     assert position.quantity == Decimal("0.10000000")
 
 
-def test_sell_signal_triggers_full_sell(db_session, db_session_factory, stub_market_data_service) -> None:
-    PortfolioAccountService(PortfolioRepository(db_session)).ensure_account("USD", Decimal("1000"))
-    _, bot, _ = create_bot_stack(db_session)
+def test_sell_signal_triggers_full_sell(
+    db_session,
+    db_session_factory,
+    stub_market_data_service,
+    bot_stack_factory,
+    funded_account,
+) -> None:
+    funded_account(db_session)
+    _, bot, _ = bot_stack_factory(db_session)
     runner = build_runner(db_session_factory, stub_market_data_service)
     runner.start_bot(bot.id)
     stub_market_data_service.set_price("BTCUSDT", "95")
@@ -221,10 +141,16 @@ def test_sell_signal_triggers_full_sell(db_session, db_session_factory, stub_mar
     assert sum(1 for event in events if event.message == "order_filled") == 2
 
 
-def test_bot_does_not_rebuy_during_cooldown(db_session, db_session_factory, stub_market_data_service) -> None:
+def test_bot_does_not_rebuy_during_cooldown(
+    db_session,
+    db_session_factory,
+    stub_market_data_service,
+    bot_stack_factory,
+    funded_account,
+) -> None:
     clock = FakeClock()
-    PortfolioAccountService(PortfolioRepository(db_session)).ensure_account("USD", Decimal("1000"))
-    _, bot, _ = create_bot_stack(db_session, cooldown_seconds=60)
+    funded_account(db_session)
+    _, bot, _ = bot_stack_factory(db_session, cooldown_seconds=60)
     runner = build_runner(db_session_factory, stub_market_data_service, clock=clock)
     runner.start_bot(bot.id)
 
@@ -248,10 +174,16 @@ def test_bot_does_not_rebuy_during_cooldown(db_session, db_session_factory, stub
     assert status.current_position_quantity == Decimal("0E-8")
 
 
-def test_bot_can_buy_again_after_cooldown_expires(db_session, db_session_factory, stub_market_data_service) -> None:
+def test_bot_can_buy_again_after_cooldown_expires(
+    db_session,
+    db_session_factory,
+    stub_market_data_service,
+    bot_stack_factory,
+    funded_account,
+) -> None:
     clock = FakeClock()
-    PortfolioAccountService(PortfolioRepository(db_session)).ensure_account("USD", Decimal("1000"))
-    _, bot, _ = create_bot_stack(db_session, cooldown_seconds=60)
+    funded_account(db_session)
+    _, bot, _ = bot_stack_factory(db_session, cooldown_seconds=60)
     runner = build_runner(db_session_factory, stub_market_data_service, clock=clock)
     runner.start_bot(bot.id)
 
@@ -275,9 +207,15 @@ def test_bot_can_buy_again_after_cooldown_expires(db_session, db_session_factory
     assert status.cooldown_active is False
 
 
-def test_status_reflects_current_state(db_session, db_session_factory, stub_market_data_service) -> None:
-    PortfolioAccountService(PortfolioRepository(db_session)).ensure_account("USD", Decimal("1000"))
-    _, bot, _ = create_bot_stack(db_session)
+def test_status_reflects_current_state(
+    db_session,
+    db_session_factory,
+    stub_market_data_service,
+    bot_stack_factory,
+    funded_account,
+) -> None:
+    funded_account(db_session)
+    _, bot, _ = bot_stack_factory(db_session)
     runner = build_runner(db_session_factory, stub_market_data_service)
     runner.start_bot(bot.id)
     stub_market_data_service.set_price("BTCUSDT", "95")
@@ -297,9 +235,15 @@ def test_status_reflects_current_state(db_session, db_session_factory, stub_mark
     assert len(bot_runs) == 1
 
 
-def test_pause_endpoint_marks_bot_as_paused(db_session, db_session_factory, stub_market_data_service) -> None:
-    PortfolioAccountService(PortfolioRepository(db_session)).ensure_account("USD", Decimal("1000"))
-    _, bot, _ = create_bot_stack(db_session)
+def test_pause_endpoint_marks_bot_as_paused(
+    db_session,
+    db_session_factory,
+    stub_market_data_service,
+    bot_stack_factory,
+    funded_account,
+) -> None:
+    funded_account(db_session)
+    _, bot, _ = bot_stack_factory(db_session)
     runner = build_runner(db_session_factory, stub_market_data_service)
     runner.start_bot(bot.id)
 
@@ -315,9 +259,15 @@ def test_pause_endpoint_marks_bot_as_paused(db_session, db_session_factory, stub
     assert any(event.message == "bot_paused" for event in events)
 
 
-def test_resume_endpoint_marks_bot_as_active_again(db_session, db_session_factory, stub_market_data_service) -> None:
-    PortfolioAccountService(PortfolioRepository(db_session)).ensure_account("USD", Decimal("1000"))
-    _, bot, _ = create_bot_stack(db_session)
+def test_resume_endpoint_marks_bot_as_active_again(
+    db_session,
+    db_session_factory,
+    stub_market_data_service,
+    bot_stack_factory,
+    funded_account,
+) -> None:
+    funded_account(db_session)
+    _, bot, _ = bot_stack_factory(db_session)
     runner = build_runner(db_session_factory, stub_market_data_service)
     runner.start_bot(bot.id)
     asyncio.run(pause_bot_endpoint(bot.id, runner))
@@ -338,9 +288,11 @@ def test_paused_bot_is_skipped_by_runner_and_does_not_place_buy_orders(
     db_session,
     db_session_factory,
     stub_market_data_service,
+    bot_stack_factory,
+    funded_account,
 ) -> None:
-    PortfolioAccountService(PortfolioRepository(db_session)).ensure_account("USD", Decimal("1000"))
-    _, bot, _ = create_bot_stack(db_session)
+    funded_account(db_session)
+    _, bot, _ = bot_stack_factory(db_session)
     runner = build_runner(db_session_factory, stub_market_data_service)
     runner.start_bot(bot.id)
     asyncio.run(pause_bot_endpoint(bot.id, runner))
@@ -355,9 +307,15 @@ def test_paused_bot_is_skipped_by_runner_and_does_not_place_buy_orders(
     assert any(event.message == "bot_skipped_paused" for event in events)
 
 
-def test_resumed_bot_can_trade_again(db_session, db_session_factory, stub_market_data_service) -> None:
-    PortfolioAccountService(PortfolioRepository(db_session)).ensure_account("USD", Decimal("1000"))
-    _, bot, _ = create_bot_stack(db_session)
+def test_resumed_bot_can_trade_again(
+    db_session,
+    db_session_factory,
+    stub_market_data_service,
+    bot_stack_factory,
+    funded_account,
+) -> None:
+    funded_account(db_session)
+    _, bot, _ = bot_stack_factory(db_session)
     runner = build_runner(db_session_factory, stub_market_data_service)
     runner.start_bot(bot.id)
     asyncio.run(pause_bot_endpoint(bot.id, runner))
@@ -402,9 +360,10 @@ def test_bots_dashboard_returns_created_bots_in_deterministic_order(
     db_session,
     db_session_factory,
     stub_market_data_service,
+    bot_stack_factory,
 ) -> None:
-    _, first_bot, _ = create_named_bot_stack(db_session, "BTC threshold bot", "BTCUSDT")
-    _, second_bot, _ = create_named_bot_stack(db_session, "ETH threshold bot", "ETHUSDT")
+    _, first_bot, _ = bot_stack_factory(db_session, name="BTC threshold bot", symbol="BTCUSDT")
+    _, second_bot, _ = bot_stack_factory(db_session, name="ETH threshold bot", symbol="ETHUSDT")
     runner = build_runner(db_session_factory, stub_market_data_service)
 
     response = asyncio.run(list_bots_endpoint(runner))
@@ -417,8 +376,9 @@ def test_bots_dashboard_includes_paused_state(
     db_session,
     db_session_factory,
     stub_market_data_service,
+    bot_stack_factory,
 ) -> None:
-    _, bot, _ = create_named_bot_stack(db_session, "Paused bot", "BTCUSDT", status="paused")
+    _, bot, _ = bot_stack_factory(db_session, name="Paused bot", symbol="BTCUSDT", status="paused")
     runner = build_runner(db_session_factory, stub_market_data_service)
 
     response = asyncio.run(list_bots_endpoint(runner))
@@ -433,9 +393,11 @@ def test_bots_dashboard_includes_cooldown_state_when_active(
     db_session,
     db_session_factory,
     stub_market_data_service,
+    bot_stack_factory,
+    funded_account,
 ) -> None:
-    PortfolioAccountService(PortfolioRepository(db_session)).ensure_account("USD", Decimal("1000"))
-    _, bot, _ = create_named_bot_stack(db_session, "Cooldown bot", "BTCUSDT", cooldown_seconds=60)
+    funded_account(db_session)
+    _, bot, _ = bot_stack_factory(db_session, name="Cooldown bot", symbol="BTCUSDT", cooldown_seconds=60)
     runner = build_runner(db_session_factory, stub_market_data_service)
     runner.start_bot(bot.id)
     stub_market_data_service.set_price("BTCUSDT", "95")
@@ -455,9 +417,11 @@ def test_bots_dashboard_includes_current_position_quantity(
     db_session,
     db_session_factory,
     stub_market_data_service,
+    bot_stack_factory,
+    funded_account,
 ) -> None:
-    PortfolioAccountService(PortfolioRepository(db_session)).ensure_account("USD", Decimal("1000"))
-    _, bot, _ = create_named_bot_stack(db_session, "Position bot", "BTCUSDT")
+    funded_account(db_session)
+    _, bot, _ = bot_stack_factory(db_session, name="Position bot", symbol="BTCUSDT")
     runner = build_runner(db_session_factory, stub_market_data_service)
     runner.start_bot(bot.id)
     stub_market_data_service.set_price("BTCUSDT", "95")
@@ -473,8 +437,9 @@ def test_bots_dashboard_response_shape_stays_minimal_and_clean(
     db_session,
     db_session_factory,
     stub_market_data_service,
+    bot_stack_factory,
 ) -> None:
-    create_named_bot_stack(db_session, "Shape bot", "BTCUSDT", status="paused")
+    bot_stack_factory(db_session, name="Shape bot", symbol="BTCUSDT", status="paused")
     runner = build_runner(db_session_factory, stub_market_data_service)
 
     response = asyncio.run(list_bots_endpoint(runner))
@@ -512,8 +477,9 @@ def test_bot_summary_returns_existing_bot_summary(
     db_session,
     db_session_factory,
     stub_market_data_service,
+    bot_stack_factory,
 ) -> None:
-    _, bot, _ = create_named_bot_stack(db_session, "BTC threshold bot", "BTCUSDT")
+    _, bot, _ = bot_stack_factory(db_session, name="BTC threshold bot", symbol="BTCUSDT")
     runner = build_runner(db_session_factory, stub_market_data_service)
 
     response = asyncio.run(get_bot_summary_endpoint(bot.id, runner))
@@ -534,8 +500,9 @@ def test_bot_summary_includes_paused_state_when_paused(
     db_session,
     db_session_factory,
     stub_market_data_service,
+    bot_stack_factory,
 ) -> None:
-    _, bot, _ = create_named_bot_stack(db_session, "Paused summary bot", "BTCUSDT", status="paused")
+    _, bot, _ = bot_stack_factory(db_session, name="Paused summary bot", symbol="BTCUSDT", status="paused")
     runner = build_runner(db_session_factory, stub_market_data_service)
 
     response = asyncio.run(get_bot_summary_endpoint(bot.id, runner))
@@ -548,9 +515,11 @@ def test_bot_summary_includes_cooldown_state_when_active(
     db_session,
     db_session_factory,
     stub_market_data_service,
+    bot_stack_factory,
+    funded_account,
 ) -> None:
-    PortfolioAccountService(PortfolioRepository(db_session)).ensure_account("USD", Decimal("1000"))
-    _, bot, _ = create_named_bot_stack(db_session, "Cooldown summary bot", "BTCUSDT", cooldown_seconds=60)
+    funded_account(db_session)
+    _, bot, _ = bot_stack_factory(db_session, name="Cooldown summary bot", symbol="BTCUSDT", cooldown_seconds=60)
     runner = build_runner(db_session_factory, stub_market_data_service)
     runner.start_bot(bot.id)
     stub_market_data_service.set_price("BTCUSDT", "95")
@@ -570,9 +539,11 @@ def test_bot_summary_includes_current_position_quantity(
     db_session,
     db_session_factory,
     stub_market_data_service,
+    bot_stack_factory,
+    funded_account,
 ) -> None:
-    PortfolioAccountService(PortfolioRepository(db_session)).ensure_account("USD", Decimal("1000"))
-    _, bot, _ = create_named_bot_stack(db_session, "Position summary bot", "BTCUSDT")
+    funded_account(db_session)
+    _, bot, _ = bot_stack_factory(db_session, name="Position summary bot", symbol="BTCUSDT")
     runner = build_runner(db_session_factory, stub_market_data_service)
     runner.start_bot(bot.id)
     stub_market_data_service.set_price("BTCUSDT", "95")
@@ -588,9 +559,11 @@ def test_bot_summary_includes_recent_activity_newest_first(
     db_session,
     db_session_factory,
     stub_market_data_service,
+    bot_stack_factory,
+    funded_account,
 ) -> None:
-    PortfolioAccountService(PortfolioRepository(db_session)).ensure_account("USD", Decimal("1000"))
-    _, bot, _ = create_named_bot_stack(db_session, "Activity summary bot", "BTCUSDT")
+    funded_account(db_session)
+    _, bot, _ = bot_stack_factory(db_session, name="Activity summary bot", symbol="BTCUSDT")
     runner = build_runner(db_session_factory, stub_market_data_service)
     runner.start_bot(bot.id)
     stub_market_data_service.set_price("BTCUSDT", "95")
@@ -610,9 +583,11 @@ def test_bot_summary_recent_activity_preview_is_capped(
     db_session,
     db_session_factory,
     stub_market_data_service,
+    bot_stack_factory,
+    funded_account,
 ) -> None:
-    PortfolioAccountService(PortfolioRepository(db_session)).ensure_account("USD", Decimal("1000"))
-    _, bot, _ = create_named_bot_stack(db_session, "Capped summary bot", "BTCUSDT", cooldown_seconds=1)
+    funded_account(db_session)
+    _, bot, _ = bot_stack_factory(db_session, name="Capped summary bot", symbol="BTCUSDT", cooldown_seconds=1)
     runner = build_runner(db_session_factory, stub_market_data_service)
     runner.start_bot(bot.id)
     for _ in range(6):
@@ -642,8 +617,9 @@ def test_manual_bot_run_draft_bot_records_recent_activity(
     db_session,
     db_session_factory,
     stub_market_data_service,
+    draft_bot,
 ) -> None:
-    _, bot, _ = create_bot_stack(db_session)
+    bot = draft_bot
     runner = build_runner(db_session_factory, stub_market_data_service)
 
     response = asyncio.run(run_bot_once_endpoint(bot.id, runner))
@@ -668,9 +644,11 @@ def test_manual_bot_run_paused_bot_returns_skipped_result(
     db_session,
     db_session_factory,
     stub_market_data_service,
+    bot_stack_factory,
+    funded_account,
 ) -> None:
-    PortfolioAccountService(PortfolioRepository(db_session)).ensure_account("USD", Decimal("1000"))
-    _, bot, _ = create_bot_stack(db_session)
+    funded_account(db_session)
+    _, bot, _ = bot_stack_factory(db_session)
     runner = build_runner(db_session_factory, stub_market_data_service)
     runner.start_bot(bot.id)
     asyncio.run(pause_bot_endpoint(bot.id, runner))
@@ -690,9 +668,11 @@ def test_manual_bot_run_cooldown_active_returns_skipped_result(
     db_session,
     db_session_factory,
     stub_market_data_service,
+    bot_stack_factory,
+    funded_account,
 ) -> None:
-    PortfolioAccountService(PortfolioRepository(db_session)).ensure_account("USD", Decimal("1000"))
-    _, bot, _ = create_bot_stack(db_session, cooldown_seconds=60)
+    funded_account(db_session)
+    _, bot, _ = bot_stack_factory(db_session, cooldown_seconds=60)
     runner = build_runner(db_session_factory, stub_market_data_service)
     runner.start_bot(bot.id)
     stub_market_data_service.set_price("BTCUSDT", "95")
@@ -715,9 +695,11 @@ def test_manual_bot_run_buy_eligible_returns_bought_result(
     db_session,
     db_session_factory,
     stub_market_data_service,
+    bot_stack_factory,
+    funded_account,
 ) -> None:
-    PortfolioAccountService(PortfolioRepository(db_session)).ensure_account("USD", Decimal("1000"))
-    _, bot, _ = create_bot_stack(db_session)
+    funded_account(db_session)
+    _, bot, _ = bot_stack_factory(db_session)
     runner = build_runner(db_session_factory, stub_market_data_service)
     runner.start_bot(bot.id)
     stub_market_data_service.set_price("BTCUSDT", "95")
@@ -737,9 +719,11 @@ def test_manual_bot_run_sell_eligible_returns_sold_result(
     db_session,
     db_session_factory,
     stub_market_data_service,
+    bot_stack_factory,
+    funded_account,
 ) -> None:
-    PortfolioAccountService(PortfolioRepository(db_session)).ensure_account("USD", Decimal("1000"))
-    _, bot, _ = create_bot_stack(db_session)
+    funded_account(db_session)
+    _, bot, _ = bot_stack_factory(db_session)
     runner = build_runner(db_session_factory, stub_market_data_service)
     runner.start_bot(bot.id)
     stub_market_data_service.set_price("BTCUSDT", "95")
@@ -759,9 +743,11 @@ def test_manual_bot_run_no_signal_returns_no_action(
     db_session,
     db_session_factory,
     stub_market_data_service,
+    bot_stack_factory,
+    funded_account,
 ) -> None:
-    PortfolioAccountService(PortfolioRepository(db_session)).ensure_account("USD", Decimal("1000"))
-    _, bot, _ = create_bot_stack(db_session)
+    funded_account(db_session)
+    _, bot, _ = bot_stack_factory(db_session)
     runner = build_runner(db_session_factory, stub_market_data_service)
     runner.start_bot(bot.id)
     stub_market_data_service.set_price("BTCUSDT", "105")
@@ -779,9 +765,11 @@ def test_manual_bot_run_response_includes_consistent_bot_state_fields(
     db_session,
     db_session_factory,
     stub_market_data_service,
+    bot_stack_factory,
+    funded_account,
 ) -> None:
-    PortfolioAccountService(PortfolioRepository(db_session)).ensure_account("USD", Decimal("1000"))
-    _, bot, _ = create_bot_stack(db_session)
+    funded_account(db_session)
+    _, bot, _ = bot_stack_factory(db_session)
     runner = build_runner(db_session_factory, stub_market_data_service)
     runner.start_bot(bot.id)
     stub_market_data_service.set_price("BTCUSDT", "95")
@@ -856,9 +844,11 @@ def test_market_price_update_is_used_by_manual_bot_run(
     db_session,
     db_session_factory,
     stub_market_data_service,
+    bot_stack_factory,
+    funded_account,
 ) -> None:
-    PortfolioAccountService(PortfolioRepository(db_session)).ensure_account("USD", Decimal("1000"))
-    _, bot, _ = create_bot_stack(db_session)
+    funded_account(db_session)
+    _, bot, _ = bot_stack_factory(db_session)
     runner = build_runner(db_session_factory, stub_market_data_service)
     runner.start_bot(bot.id)
 

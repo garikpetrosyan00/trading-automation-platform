@@ -3,7 +3,6 @@ from decimal import Decimal
 
 from app.data.providers.base import BaseMarketDataProvider
 from app.data.schemas import MarketEvent, MarketEventType
-from app.db.base import Base
 from app.main import app
 from app.services.market_data_service import MarketDataService
 
@@ -18,7 +17,11 @@ class EmptyProvider(BaseMarketDataProvider):
             yield
 
 
-def test_market_data_status_and_latest_endpoints(db_session_factory, noop_bot_runner) -> None:
+def test_market_data_status_and_latest_endpoints(
+    db_session_factory,
+    noop_bot_runner,
+    configure_app_state,
+) -> None:
     service = MarketDataService(provider=EmptyProvider(symbol="BTCUSDT"), enabled=False)
     service._latest_by_symbol["BTCUSDT"] = MarketEvent(
         provider="fake",
@@ -30,9 +33,10 @@ def test_market_data_status_and_latest_endpoints(db_session_factory, noop_bot_ru
     )
     service._received_event_count = 1
     service._last_received_at = datetime(2026, 4, 20, 12, 0, 1, tzinfo=timezone.utc)
-    app.state.market_data_service = service
-    app.state.db_session_factory = db_session_factory
-    app.state.bot_runner = noop_bot_runner
+    configure_app_state(
+        market_data_service=service,
+        bot_runner=noop_bot_runner,
+    )
 
     from fastapi.testclient import TestClient
 

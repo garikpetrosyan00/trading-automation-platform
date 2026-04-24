@@ -1,11 +1,17 @@
 from app.main import app
 
 
-def test_portfolio_and_execution_endpoints(db_session_factory, stub_market_data_service, noop_bot_runner) -> None:
+def test_portfolio_and_execution_endpoints(
+    db_session_factory,
+    stub_market_data_service,
+    noop_bot_runner,
+    configure_app_state,
+) -> None:
     stub_market_data_service.set_price("BTCUSDT", "50000.00")
-    app.state.db_session_factory = db_session_factory
-    app.state.market_data_service = stub_market_data_service
-    app.state.bot_runner = noop_bot_runner
+    configure_app_state(
+        market_data_service=stub_market_data_service,
+        bot_runner=noop_bot_runner,
+    )
 
     from fastapi.testclient import TestClient
 
