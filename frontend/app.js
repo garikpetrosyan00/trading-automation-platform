@@ -184,6 +184,41 @@ function cooldownText(bot) {
   return "Not active";
 }
 
+function formatActivityMessage(item) {
+  return humanizeMessage(item?.message || item?.status || item?.type, "Activity update");
+}
+
+function activityToneClass(item) {
+  if (item?.message === "buy_filled" || item?.message === "sell_filled") return "activity-positive";
+  if (
+    ["bot_not_active", "bot_skipped_paused", "evaluation_no_signal", "cooldown_active"].includes(
+      item?.message,
+    )
+  ) {
+    return "activity-neutral";
+  }
+  return "";
+}
+
+function activityDetailParts(item) {
+  const parts = [];
+
+  if (item?.side) {
+    parts.push(`Side: ${humanizeMessage(item.side)}`);
+  }
+  if (item?.price !== null && item?.price !== undefined && item?.price !== "") {
+    parts.push(`Price: ${formatDecimal(item.price)}`);
+  }
+  if (item?.quantity !== null && item?.quantity !== undefined && item?.quantity !== "") {
+    parts.push(`Qty: ${formatDecimal(item.quantity)}`);
+  }
+  if (item?.cooldown_until) {
+    parts.push(`Cooldown until ${formatDateTime(item.cooldown_until)}`);
+  }
+
+  return parts;
+}
+
 async function fetchJson(path, options = {}) {
   const response = await fetch(`${API_BASE_URL}${path}`, options);
   let data = null;
@@ -624,8 +659,13 @@ function renderActivity() {
 
   activity.forEach((item) => {
     const row = document.createElement("li");
+    const details = activityDetailParts(item);
+    const toneClass = activityToneClass(item);
     row.innerHTML = `
-      <span class="activity-message">${item.message ?? item.status ?? item.type ?? "activity"}</span>
+      <span class="activity-main">
+        <span class="activity-message ${toneClass}">${formatActivityMessage(item)}</span>
+        ${details.length > 0 ? `<span class="activity-details">${details.join(" · ")}</span>` : ""}
+      </span>
       <span class="activity-time">${formatDateTime(item.timestamp ?? item.created_at)}</span>
     `;
     activityList.appendChild(row);

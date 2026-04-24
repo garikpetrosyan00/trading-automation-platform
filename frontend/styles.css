@@ -526,9 +526,30 @@ dd {
   border-bottom: 0;
 }
 
+.activity-main {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
 .activity-message {
   font-weight: 800;
   min-width: 0;
+}
+
+.activity-message.activity-positive {
+  color: var(--green);
+}
+
+.activity-message.activity-neutral {
+  color: var(--muted);
+}
+
+.activity-details {
+  color: var(--muted);
+  font-size: 0.82rem;
+  font-weight: 700;
+  line-height: 1.4;
 }
 
 .activity-empty {
