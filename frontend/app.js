@@ -2,16 +2,21 @@ const API_BASE_URL = "";
 const AUTO_REFRESH_MS = 10000;
 
 let bots = [];
+let strategies = [];
 let selectedBotId = null;
 let selectedSummary = null;
 let isLoadingBots = true;
 let isLoadingSummary = false;
+let isLoadingStrategies = false;
 let isTogglingPause = false;
 let isRunningNow = false;
 let isUpdatingPrice = false;
 let isRefreshing = false;
 let isCreatingBot = false;
 let isCreateBotOpen = false;
+let isEditBotOpen = false;
+let isLoadingEditBot = false;
+let isSavingEditBot = false;
 let symbolTouched = false;
 let botListError = "";
 let summaryError = "";
@@ -19,12 +24,16 @@ let actionMessage = "";
 let actionMessageType = "";
 let createBotMessage = "";
 let createBotMessageType = "";
+let editBotMessage = "";
+let editBotMessageType = "";
+let strategyLoadError = "";
 let priceMessage = "";
 let priceMessageType = "";
 let refreshMessage = "";
 let botSearchQuery = "";
 let lastRefreshedAt = null;
 let autoRefreshTimer = null;
+let selectedBotConfig = null;
 
 const headerMeta = document.querySelector("#header-meta");
 const botList = document.querySelector("#bot-list");
@@ -34,6 +43,7 @@ const toggleCreateBot = document.querySelector("#toggle-create-bot");
 const createBotForm = document.querySelector("#create-bot-form");
 const createBotName = document.querySelector("#create-bot-name");
 const createBotStrategyId = document.querySelector("#create-bot-strategy-id");
+const createBotStrategyHelp = document.querySelector("#create-bot-strategy-help");
 const createBotExchangeName = document.querySelector("#create-bot-exchange-name");
 const createBotNotes = document.querySelector("#create-bot-notes");
 const createBotSubmit = document.querySelector("#create-bot-submit");
@@ -47,6 +57,18 @@ const selectedPrice = document.querySelector("#selected-price");
 const selectedLastRun = document.querySelector("#selected-last-run");
 const pauseResume = document.querySelector("#pause-resume");
 const runNow = document.querySelector("#run-now");
+const editBot = document.querySelector("#edit-bot");
+const editBotForm = document.querySelector("#edit-bot-form");
+const editBotName = document.querySelector("#edit-bot-name");
+const editBotStrategyId = document.querySelector("#edit-bot-strategy-id");
+const editBotStrategyHelp = document.querySelector("#edit-bot-strategy-help");
+const editBotExchangeName = document.querySelector("#edit-bot-exchange-name");
+const editBotNotes = document.querySelector("#edit-bot-notes");
+const editBotStatus = document.querySelector("#edit-bot-status");
+const editBotMode = document.querySelector("#edit-bot-mode");
+const editBotSubmit = document.querySelector("#edit-bot-submit");
+const editBotCancel = document.querySelector("#edit-bot-cancel");
+const editBotMessageEl = document.querySelector("#edit-bot-message");
 const actionMessageEl = document.querySelector("#action-message");
 const refreshDashboard = document.querySelector("#refresh-dashboard");
 const autoRefresh = document.querySelector("#auto-refresh");
@@ -86,6 +108,28 @@ function normalizeSummary(rawSummary) {
     recentActivity: Array.isArray(rawSummary.recent_activity)
       ? rawSummary.recent_activity
       : [],
+  };
+}
+
+function normalizeStrategy(rawStrategy) {
+  return {
+    id: rawStrategy.id,
+    name: rawStrategy.name ?? "Unnamed strategy",
+    symbol: rawStrategy.symbol ?? "",
+    timeframe: rawStrategy.timeframe ?? "",
+    isActive: rawStrategy.is_active ?? true,
+  };
+}
+
+function normalizeBotConfig(rawBot) {
+  return {
+    id: rawBot.id,
+    name: rawBot.name ?? "",
+    strategyId: rawBot.strategy_id ?? null,
+    exchangeName: rawBot.exchange_name ?? "",
+    notes: rawBot.notes ?? "",
+    status: rawBot.status ?? "draft",
+    isPaper: rawBot.is_paper ?? true,
   };
 }
 
@@ -263,9 +307,69 @@ function requestErrorMessage(error, fallback) {
 
 function validationErrorsMessage(errors, fallback) {
   if (!Array.isArray(errors) || errors.length === 0) return fallback;
-  const fields = [...new Set(errors.map((item) => item.loc?.[item.loc.length - 1]).filter(Boolean))];
+  const fieldLabels = {
+    name: "name",
+    exchange_name: "exchange name",
+    strategy_id: "strategy",
+  };
+  const fields = [
+    ...new Set(
+      errors
+        .map((item) => item.loc?.[item.loc.length - 1])
+        .filter(Boolean)
+        .map((field) => fieldLabels[field] || field),
+    ),
+  ];
   if (fields.length === 0) return fallback;
   return `Check: ${fields.join(", ")}.`;
+}
+
+function strategyOptionLabel(strategy) {
+  const details = [strategy.symbol, strategy.timeframe].filter(Boolean).join(" · ");
+  return details ? `${strategy.name} (${details})` : strategy.name;
+}
+
+function renderStrategySelect(selectEl, selectedId) {
+  const strategyOptions = [];
+
+  if (isLoadingStrategies) {
+    strategyOptions.push('<option value="">Loading strategies…</option>');
+  } else if (strategyLoadError) {
+    strategyOptions.push('<option value="">Strategies unavailable</option>');
+  } else if (strategies.length === 0) {
+    strategyOptions.push('<option value="">No strategies available</option>');
+  } else {
+    strategies.forEach((strategy) => {
+      strategyOptions.push(
+        `<option value="${strategy.id}"${
+          String(strategy.id) === String(selectedId) ? " selected" : ""
+        }>${strategyOptionLabel(strategy)}</option>`,
+      );
+    });
+  }
+
+  selectEl.innerHTML = strategyOptions.join("");
+  if ((selectedId === null || selectedId === "" || selectedId === undefined) && strategies.length > 0) {
+    selectEl.value = String(strategies[0].id);
+  }
+  selectEl.disabled = isLoadingStrategies || strategies.length === 0 || Boolean(strategyLoadError);
+}
+
+async function loadStrategies() {
+  isLoadingStrategies = true;
+  strategyLoadError = "";
+  render();
+
+  try {
+    const data = await fetchJson("/api/v1/strategies");
+    strategies = Array.isArray(data) ? data.map(normalizeStrategy) : [];
+  } catch (error) {
+    strategies = [];
+    strategyLoadError = requestErrorMessage(error, "Could not load strategies.");
+  } finally {
+    isLoadingStrategies = false;
+    render();
+  }
 }
 
 function describeManualRunResult(result) {
@@ -302,6 +406,8 @@ async function loadBots() {
     bots = normalizeBotsResponse(data);
     if (selectedBotId && !bots.some((bot) => bot.id === selectedBotId)) {
       selectedBotId = null;
+      isEditBotOpen = false;
+      selectedBotConfig = null;
     }
     if (!selectedBotId && bots.length > 0) {
       selectedBotId = bots[0].id;
@@ -336,6 +442,8 @@ async function refreshSelectedData() {
     selectedSummary = normalizeSummary(summary);
   } else {
     selectedSummary = null;
+    isEditBotOpen = false;
+    selectedBotConfig = null;
   }
   lastRefreshedAt = new Date();
 }
@@ -461,16 +569,118 @@ function createBotValidationMessage(error) {
   return requestErrorMessage(error, "Could not create bot.");
 }
 
+function editBotValidationMessage(error) {
+  if (error?.status === 422) {
+    return validationErrorsMessage(error?.data?.errors, "Check the bot form fields and try again.");
+  }
+  return requestErrorMessage(error, "Could not update bot.");
+}
+
+function validateCreateBotForm() {
+  if (!createBotName.value.trim()) {
+    return "Enter a bot name.";
+  }
+  if (!createBotExchangeName.value.trim()) {
+    return "Enter an exchange name.";
+  }
+  if (strategyLoadError) {
+    return `Could not load strategies. ${strategyLoadError}`;
+  }
+  if (isLoadingStrategies) {
+    return "Strategies are still loading.";
+  }
+  if (strategies.length === 0) {
+    return "Create a strategy first, then create a bot.";
+  }
+  if (!createBotStrategyId.value) {
+    return "Select a strategy.";
+  }
+  return "";
+}
+
+function validateEditBotForm() {
+  if (!editBotName.value.trim()) {
+    return "Enter a bot name.";
+  }
+  if (!editBotExchangeName.value.trim()) {
+    return "Enter an exchange name.";
+  }
+  if (strategyLoadError) {
+    return `Could not load strategies. ${strategyLoadError}`;
+  }
+  if (isLoadingStrategies) {
+    return "Strategies are still loading.";
+  }
+  if (strategies.length === 0) {
+    return "Create a strategy first, then edit the bot strategy.";
+  }
+  if (!editBotStrategyId.value) {
+    return "Select a strategy.";
+  }
+  return "";
+}
+
 function resetCreateBotForm() {
   createBotName.value = "";
-  createBotStrategyId.value = "";
+  createBotStrategyId.value = strategies[0] ? String(strategies[0].id) : "";
   createBotExchangeName.value = "binance";
   createBotNotes.value = "";
+}
+
+function populateEditBotForm(botConfig) {
+  editBotName.value = botConfig?.name ?? "";
+  editBotStrategyId.value = botConfig?.strategyId ? String(botConfig.strategyId) : "";
+  editBotExchangeName.value = botConfig?.exchangeName ?? "";
+  editBotNotes.value = botConfig?.notes ?? "";
+}
+
+async function openEditBotForm() {
+  if (!selectedBotId || isLoadingEditBot) return;
+
+  if (strategies.length === 0 && !isLoadingStrategies && !strategyLoadError) {
+    await loadStrategies();
+  }
+
+  isLoadingEditBot = true;
+  isEditBotOpen = true;
+  editBotMessage = "";
+  editBotMessageType = "";
+  render();
+
+  try {
+    const data = await fetchJson(`/api/v1/bots/${selectedBotId}`);
+    selectedBotConfig = normalizeBotConfig(data);
+    populateEditBotForm(selectedBotConfig);
+  } catch (error) {
+    editBotMessage = requestErrorMessage(error, "Could not load bot settings.");
+    editBotMessageType = "error";
+  } finally {
+    isLoadingEditBot = false;
+    render();
+  }
+}
+
+function closeEditBotForm() {
+  isEditBotOpen = false;
+  isLoadingEditBot = false;
+  selectedBotConfig = null;
+  editBotMessage = "";
+  editBotMessageType = "";
+  render();
 }
 
 async function submitCreateBot(event) {
   event.preventDefault();
   if (isCreatingBot) return;
+
+  const validationError = validateCreateBotForm();
+  if (validationError) {
+    createBotMessage = validationError;
+    createBotMessageType = "error";
+    isCreateBotOpen = true;
+    render();
+    return;
+  }
 
   isCreatingBot = true;
   createBotMessage = "";
@@ -496,7 +706,7 @@ async function submitCreateBot(event) {
     });
     selectedBotId = createdBot.id;
     await refreshDashboardData();
-    createBotMessage = `Created ${createdBot.name}.`;
+    createBotMessage = `Created ${createdBot.name}. It is selected now and remains a draft paper bot until you activate it.`;
     createBotMessageType = "success";
     isCreateBotOpen = true;
     resetCreateBotForm();
@@ -506,6 +716,52 @@ async function submitCreateBot(event) {
     isCreateBotOpen = true;
   } finally {
     isCreatingBot = false;
+    render();
+  }
+}
+
+async function submitEditBot(event) {
+  event.preventDefault();
+  if (!selectedBotId || isSavingEditBot) return;
+
+  const validationError = validateEditBotForm();
+  if (validationError) {
+    editBotMessage = validationError;
+    editBotMessageType = "error";
+    isEditBotOpen = true;
+    render();
+    return;
+  }
+
+  isSavingEditBot = true;
+  editBotMessage = "";
+  editBotMessageType = "";
+  render();
+
+  const payload = {
+    name: editBotName.value.trim(),
+    strategy_id: Number(editBotStrategyId.value.trim()),
+    exchange_name: editBotExchangeName.value.trim(),
+    notes: editBotNotes.value.trim() || null,
+  };
+
+  try {
+    const updatedBot = await fetchJson(`/api/v1/bots/${selectedBotId}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+    await refreshDashboardData();
+    actionMessage = `Updated ${updatedBot.name}.`;
+    actionMessageType = "success";
+    closeEditBotForm();
+  } catch (error) {
+    editBotMessage = editBotValidationMessage(error);
+    editBotMessageType = "error";
+    isEditBotOpen = true;
+    render();
+  } finally {
+    isSavingEditBot = false;
     render();
   }
 }
@@ -603,6 +859,8 @@ function renderBotList() {
     row.setAttribute("aria-selected", String(bot.id === selectedBotId));
     row.addEventListener("click", async () => {
       selectedBotId = bot.id;
+      isEditBotOpen = false;
+      selectedBotConfig = null;
       await loadSelectedSummary(bot.id);
     });
 
@@ -626,10 +884,62 @@ function renderCreateBotForm() {
   toggleCreateBot.textContent = isCreateBotOpen ? "Close" : "Create Bot";
   toggleCreateBot.disabled = isCreatingBot;
   createBotSubmit.textContent = isCreatingBot ? "Creating…" : "Create draft bot";
-  createBotSubmit.disabled = isCreatingBot;
+  createBotSubmit.disabled =
+    isCreatingBot || isLoadingStrategies || strategies.length === 0 || Boolean(strategyLoadError);
+  renderStrategySelect(createBotStrategyId, createBotStrategyId.value);
+
+  createBotStrategyHelp.textContent = isLoadingStrategies
+    ? "Loading available strategies…"
+    : strategyLoadError
+      ? `Could not load strategies. ${strategyLoadError}`
+      : strategies.length === 0
+        ? "Create a strategy first, then you can create a bot."
+        : "";
+  createBotStrategyHelp.className = strategyLoadError
+    ? "create-bot-help error"
+    : "create-bot-help";
+
   createBotMessageEl.textContent = createBotMessage;
   createBotMessageEl.className = createBotMessageType
     ? `form-message ${createBotMessageType}`
+    : "form-message";
+}
+
+function renderEditBotForm() {
+  editBotForm.setAttribute("data-open", String(isEditBotOpen));
+  editBot.textContent = isLoadingEditBot ? "Loading…" : "Edit";
+  editBot.disabled = !selectedBotId || isLoadingSummary || isLoadingEditBot || isSavingEditBot;
+  editBotSubmit.textContent = isSavingEditBot ? "Saving…" : "Save changes";
+  editBotSubmit.disabled =
+    isSavingEditBot ||
+    isLoadingEditBot ||
+    isLoadingStrategies ||
+    strategies.length === 0 ||
+    Boolean(strategyLoadError) ||
+    !selectedBotId;
+  editBotCancel.disabled = isSavingEditBot;
+  editBotStatus.textContent = formatStatus(selectedBotConfig?.status ?? selectedSummary?.status ?? "draft");
+  editBotStatus.className = `status-pill ${statusClass(
+    selectedBotConfig?.status ?? selectedSummary?.status ?? "draft",
+  )}`;
+  editBotMode.textContent = selectedBotConfig?.isPaper === false ? "Live mode" : "Paper mode";
+
+  renderStrategySelect(editBotStrategyId, selectedBotConfig?.strategyId ?? editBotStrategyId.value);
+
+  editBotStrategyHelp.textContent = isLoadingStrategies
+    ? "Loading available strategies…"
+    : strategyLoadError
+      ? `Could not load strategies. ${strategyLoadError}`
+      : strategies.length === 0
+        ? "Create a strategy first, then you can update the bot strategy."
+        : "";
+  editBotStrategyHelp.className = strategyLoadError
+    ? "create-bot-help error"
+    : "create-bot-help";
+
+  editBotMessageEl.textContent = editBotMessage;
+  editBotMessageEl.className = editBotMessageType
+    ? `form-message ${editBotMessageType}`
     : "form-message";
 }
 
@@ -654,6 +964,8 @@ function renderSummary() {
     pauseResume.disabled = true;
     runNow.textContent = "Run now";
     runNow.disabled = true;
+    editBot.textContent = "Edit";
+    editBot.disabled = true;
     if (!symbolTouched) {
       priceSymbol.value = "";
     }
@@ -684,6 +996,8 @@ function renderSummary() {
   pauseResume.disabled = !selectedBotId || isTogglingPause;
   runNow.textContent = isRunningNow ? "Running…" : "Run now";
   runNow.disabled = !selectedBotId || isRunningNow;
+  editBot.textContent = isLoadingEditBot ? "Loading…" : "Edit";
+  editBot.disabled = !selectedBotId || isLoadingSummary || isLoadingEditBot || isSavingEditBot;
   if (!symbolTouched) {
     priceSymbol.value = formatValue(bot.symbol, "");
   }
@@ -765,6 +1079,7 @@ function render() {
   renderCreateBotForm();
   renderBotList();
   renderSummary();
+  renderEditBotForm();
   renderActivity();
 }
 
@@ -772,6 +1087,9 @@ refreshDashboard.addEventListener("click", () => refreshDashboardData());
 autoRefresh.addEventListener("change", updateAutoRefresh);
 toggleCreateBot.addEventListener("click", () => {
   isCreateBotOpen = !isCreateBotOpen;
+  if (isCreateBotOpen && strategies.length === 0 && !isLoadingStrategies && !strategyLoadError) {
+    loadStrategies();
+  }
   if (!isCreateBotOpen && !isCreatingBot) {
     createBotMessage = "";
     createBotMessageType = "";
@@ -786,10 +1104,14 @@ document.addEventListener("visibilitychange", updateAutoRefresh);
 window.addEventListener("beforeunload", stopAutoRefresh);
 pauseResume.addEventListener("click", togglePauseResume);
 runNow.addEventListener("click", runSelectedBotNow);
+editBot.addEventListener("click", openEditBotForm);
+editBotCancel.addEventListener("click", closeEditBotForm);
 createBotForm.addEventListener("submit", submitCreateBot);
+editBotForm.addEventListener("submit", submitEditBot);
 priceForm.addEventListener("submit", updateMarketPrice);
 priceSymbol.addEventListener("input", () => {
   symbolTouched = true;
 });
 
 loadBots();
+loadStrategies();
