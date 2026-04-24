@@ -52,8 +52,45 @@
         <aside class="bot-list-panel" aria-label="Bots">
           <div class="panel-heading">
             <h2>Bots</h2>
-            <span id="bot-count" class="count-pill"></span>
+            <div class="panel-heading-actions">
+              <span id="bot-count" class="count-pill"></span>
+              <button id="toggle-create-bot" type="button" class="secondary-button">Create Bot</button>
+            </div>
           </div>
+          <form id="create-bot-form" class="create-bot-form" aria-label="Create bot">
+            <label>
+              Name
+              <input id="create-bot-name" name="name" placeholder="Momentum Bot" autocomplete="off" />
+            </label>
+            <label>
+              Strategy ID
+              <input
+                id="create-bot-strategy-id"
+                name="strategy_id"
+                placeholder="1"
+                inputmode="numeric"
+                autocomplete="off"
+              />
+            </label>
+            <label>
+              Exchange
+              <input
+                id="create-bot-exchange-name"
+                name="exchange_name"
+                value="binance"
+                placeholder="binance"
+                autocomplete="off"
+              />
+            </label>
+            <label>
+              Notes
+              <input id="create-bot-notes" name="notes" placeholder="Optional notes" autocomplete="off" />
+            </label>
+            <div class="create-bot-actions">
+              <button id="create-bot-submit" type="submit">Create draft bot</button>
+              <span id="create-bot-message" class="form-message" role="status"></span>
+            </div>
+          </form>
           <div class="bot-search">
             <input id="bot-search" type="search" placeholder="Search bots..." autocomplete="off" />
           </div>

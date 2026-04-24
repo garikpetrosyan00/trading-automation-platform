@@ -270,6 +270,43 @@ button:disabled {
   padding: 0 18px;
 }
 
+.panel-heading-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.secondary-button {
+  border: 1px solid var(--line);
+  background: var(--surface);
+  color: var(--ink);
+}
+
+button.secondary-button:not(:disabled):hover {
+  background: var(--surface-muted);
+}
+
+.create-bot-form {
+  display: none;
+  gap: 10px;
+  border-bottom: 1px solid var(--line);
+  background: #fbfcfa;
+  padding: 14px;
+}
+
+.create-bot-form[data-open="true"] {
+  display: grid;
+}
+
+.create-bot-actions {
+  display: grid;
+  gap: 8px;
+}
+
+.create-bot-actions button {
+  justify-self: start;
+}
+
 .bot-search {
   border-bottom: 1px solid var(--line);
   padding: 12px 14px;
@@ -584,6 +621,15 @@ dd {
   .topbar-controls {
     grid-template-columns: auto auto;
     justify-items: stretch;
+  }
+
+  .panel-heading {
+    align-items: start;
+  }
+
+  .panel-heading-actions {
+    flex-wrap: wrap;
+    justify-content: flex-end;
   }
 
   .refresh-message {

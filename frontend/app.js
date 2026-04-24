@@ -10,11 +10,15 @@ let isTogglingPause = false;
 let isRunningNow = false;
 let isUpdatingPrice = false;
 let isRefreshing = false;
+let isCreatingBot = false;
+let isCreateBotOpen = false;
 let symbolTouched = false;
 let botListError = "";
 let summaryError = "";
 let actionMessage = "";
 let actionMessageType = "";
+let createBotMessage = "";
+let createBotMessageType = "";
 let priceMessage = "";
 let priceMessageType = "";
 let refreshMessage = "";
@@ -26,6 +30,14 @@ const headerMeta = document.querySelector("#header-meta");
 const botList = document.querySelector("#bot-list");
 const botCount = document.querySelector("#bot-count");
 const botSearch = document.querySelector("#bot-search");
+const toggleCreateBot = document.querySelector("#toggle-create-bot");
+const createBotForm = document.querySelector("#create-bot-form");
+const createBotName = document.querySelector("#create-bot-name");
+const createBotStrategyId = document.querySelector("#create-bot-strategy-id");
+const createBotExchangeName = document.querySelector("#create-bot-exchange-name");
+const createBotNotes = document.querySelector("#create-bot-notes");
+const createBotSubmit = document.querySelector("#create-bot-submit");
+const createBotMessageEl = document.querySelector("#create-bot-message");
 const selectedSymbol = document.querySelector("#selected-symbol");
 const selectedName = document.querySelector("#selected-name");
 const selectedStatus = document.querySelector("#selected-status");
@@ -249,6 +261,13 @@ function requestErrorMessage(error, fallback) {
   return error?.message || fallback;
 }
 
+function validationErrorsMessage(errors, fallback) {
+  if (!Array.isArray(errors) || errors.length === 0) return fallback;
+  const fields = [...new Set(errors.map((item) => item.loc?.[item.loc.length - 1]).filter(Boolean))];
+  if (fields.length === 0) return fallback;
+  return `Check: ${fields.join(", ")}.`;
+}
+
 function describeManualRunResult(result) {
   const latestActivity = result?.recent_activity_preview?.[0]?.message;
   const activityLabel = humanizeMessage(latestActivity || result?.message, "Recent activity updated");
@@ -435,6 +454,62 @@ function validationMessage(error) {
     : requestErrorMessage(error, "Could not update price.");
 }
 
+function createBotValidationMessage(error) {
+  if (error?.status === 422) {
+    return validationErrorsMessage(error?.data?.errors, "Check the bot form fields and try again.");
+  }
+  return requestErrorMessage(error, "Could not create bot.");
+}
+
+function resetCreateBotForm() {
+  createBotName.value = "";
+  createBotStrategyId.value = "";
+  createBotExchangeName.value = "binance";
+  createBotNotes.value = "";
+}
+
+async function submitCreateBot(event) {
+  event.preventDefault();
+  if (isCreatingBot) return;
+
+  isCreatingBot = true;
+  createBotMessage = "";
+  createBotMessageType = "";
+  render();
+
+  const payload = {
+    name: createBotName.value.trim(),
+    strategy_id: Number(createBotStrategyId.value.trim()),
+    exchange_name: createBotExchangeName.value.trim(),
+  };
+
+  const notes = createBotNotes.value.trim();
+  if (notes) {
+    payload.notes = notes;
+  }
+
+  try {
+    const createdBot = await fetchJson("/api/v1/bots", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+    selectedBotId = createdBot.id;
+    await refreshDashboardData();
+    createBotMessage = `Created ${createdBot.name}.`;
+    createBotMessageType = "success";
+    isCreateBotOpen = true;
+    resetCreateBotForm();
+  } catch (error) {
+    createBotMessage = createBotValidationMessage(error);
+    createBotMessageType = "error";
+    isCreateBotOpen = true;
+  } finally {
+    isCreatingBot = false;
+    render();
+  }
+}
+
 async function updateMarketPrice(event) {
   event.preventDefault();
   if (isUpdatingPrice) return;
@@ -544,6 +619,18 @@ function renderBotList() {
 
     botList.appendChild(row);
   });
+}
+
+function renderCreateBotForm() {
+  createBotForm.setAttribute("data-open", String(isCreateBotOpen));
+  toggleCreateBot.textContent = isCreateBotOpen ? "Close" : "Create Bot";
+  toggleCreateBot.disabled = isCreatingBot;
+  createBotSubmit.textContent = isCreatingBot ? "Creating…" : "Create draft bot";
+  createBotSubmit.disabled = isCreatingBot;
+  createBotMessageEl.textContent = createBotMessage;
+  createBotMessageEl.className = createBotMessageType
+    ? `form-message ${createBotMessageType}`
+    : "form-message";
 }
 
 function renderSummary() {
@@ -675,6 +762,7 @@ function renderActivity() {
 function render() {
   renderHeaderMeta();
   renderRefreshControl();
+  renderCreateBotForm();
   renderBotList();
   renderSummary();
   renderActivity();
@@ -682,6 +770,14 @@ function render() {
 
 refreshDashboard.addEventListener("click", () => refreshDashboardData());
 autoRefresh.addEventListener("change", updateAutoRefresh);
+toggleCreateBot.addEventListener("click", () => {
+  isCreateBotOpen = !isCreateBotOpen;
+  if (!isCreateBotOpen && !isCreatingBot) {
+    createBotMessage = "";
+    createBotMessageType = "";
+  }
+  render();
+});
 botSearch.addEventListener("input", () => {
   botSearchQuery = botSearch.value;
   renderBotList();
@@ -690,6 +786,7 @@ document.addEventListener("visibilitychange", updateAutoRefresh);
 window.addEventListener("beforeunload", stopAutoRefresh);
 pauseResume.addEventListener("click", togglePauseResume);
 runNow.addEventListener("click", runSelectedBotNow);
+createBotForm.addEventListener("submit", submitCreateBot);
 priceForm.addEventListener("submit", updateMarketPrice);
 priceSymbol.addEventListener("input", () => {
   symbolTouched = true;
