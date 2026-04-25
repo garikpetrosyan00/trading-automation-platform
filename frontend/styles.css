@@ -549,6 +549,13 @@ button.secondary-button:not(:disabled):hover {
   margin-bottom: 18px;
 }
 
+.selected-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 10px;
+}
+
 .summary-header h2 {
   font-size: clamp(1.45rem, 4vw, 2.25rem);
   line-height: 1.1;
@@ -559,6 +566,14 @@ button.secondary-button:not(:disabled):hover {
   justify-content: flex-start;
   gap: 10px;
   margin-bottom: 20px;
+}
+
+.action-help {
+  margin: -10px 0 18px;
+  color: var(--muted);
+  font-size: 0.82rem;
+  font-weight: 700;
+  line-height: 1.45;
 }
 
 .action-message {

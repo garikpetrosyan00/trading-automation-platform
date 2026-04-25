@@ -51,6 +51,8 @@ const createBotMessageEl = document.querySelector("#create-bot-message");
 const selectedSymbol = document.querySelector("#selected-symbol");
 const selectedName = document.querySelector("#selected-name");
 const selectedStatus = document.querySelector("#selected-status");
+const selectedState = document.querySelector("#selected-state");
+const selectedMode = document.querySelector("#selected-mode");
 const selectedStrategy = document.querySelector("#selected-strategy");
 const selectedCooldown = document.querySelector("#selected-cooldown");
 const selectedPrice = document.querySelector("#selected-price");
@@ -58,6 +60,7 @@ const selectedLastRun = document.querySelector("#selected-last-run");
 const pauseResume = document.querySelector("#pause-resume");
 const runNow = document.querySelector("#run-now");
 const editBot = document.querySelector("#edit-bot");
+const actionHelp = document.querySelector("#action-help");
 const editBotForm = document.querySelector("#edit-bot-form");
 const editBotName = document.querySelector("#edit-bot-name");
 const editBotStrategyId = document.querySelector("#edit-bot-strategy-id");
@@ -150,7 +153,12 @@ function shouldPause(status) {
 }
 
 function pauseResumeLabel(status) {
+  if (status === "draft") return "Pause/Resume";
   return shouldPause(status) ? "Pause" : "Resume";
+}
+
+function isRunnableStatus(status) {
+  return ["active", "running", "enabled"].includes(status);
 }
 
 function formatValue(value, fallback = "—") {
@@ -238,6 +246,42 @@ function cooldownText(bot) {
   }
   if (bot.cooldownSeconds) return `${formatDecimal(bot.cooldownSeconds)}s configured`;
   return "Not active";
+}
+
+function modeLabel(isPaper) {
+  if (isPaper === null || isPaper === undefined) return "Mode loading…";
+  return isPaper === false ? "Live mode" : "Paper mode";
+}
+
+function stateLabel(bot) {
+  if (!bot) return "Ready";
+  if (bot.isPaused || bot.status === "paused") return "Paused";
+  if (isRunnableStatus(bot.status)) return "Ready to run";
+  return "Not runnable";
+}
+
+function actionHelpText(bot) {
+  if (!bot) {
+    return "Select a bot to view its actions.";
+  }
+
+  if (isLoadingSummary && !selectedBotConfig) {
+    return "Loading bot actions...";
+  }
+
+  if (bot.status === "draft") {
+    return "Activate this draft bot before running it.";
+  }
+
+  if (bot.isPaused || bot.status === "paused") {
+    return "Resume to re-enable automatic checks.";
+  }
+
+  if (selectedBotConfig?.isPaper === false) {
+    return "Live mode places real orders.";
+  }
+
+  return "Paper mode uses simulated orders.";
 }
 
 function formatActivityMessage(item) {
@@ -874,13 +918,26 @@ async function loadSelectedSummary(botId) {
   actionMessageType = "";
   isLoadingSummary = true;
   selectedSummary = null;
+  selectedBotConfig = null;
   render();
 
   try {
-    const data = await fetchJson(`/api/v1/bots/${botId}/summary`);
-    selectedSummary = normalizeSummary(data);
+    const [summaryResult, configResult] = await Promise.allSettled([
+      fetchJson(`/api/v1/bots/${botId}/summary`),
+      fetchJson(`/api/v1/bots/${botId}`),
+    ]);
+
+    if (summaryResult.status !== "fulfilled") {
+      throw summaryResult.reason;
+    }
+
+    selectedSummary = normalizeSummary(summaryResult.value);
+    if (configResult.status === "fulfilled") {
+      selectedBotConfig = normalizeBotConfig(configResult.value);
+    }
   } catch (error) {
     selectedSummary = null;
+    selectedBotConfig = null;
     summaryError = requestErrorMessage(error, "Could not load bot details.");
   } finally {
     isLoadingSummary = false;
@@ -1016,6 +1073,9 @@ function renderEditBotForm() {
 function renderSummary() {
   const listBot = bots.find((bot) => bot.id === selectedBotId);
   const bot = selectedSummary || listBot;
+  const botMode = modeLabel(selectedBotConfig?.isPaper);
+  const canRunNow = Boolean(selectedBotId && bot && isRunnableStatus(bot.status) && !bot.isPaused);
+  const canPauseResume = Boolean(selectedBotId && bot && !["draft"].includes(bot.status));
 
   if (!bot) {
     selectedSymbol.textContent = "";
@@ -1026,6 +1086,8 @@ function renderSummary() {
         : "Select a bot to view details.";
     selectedStatus.textContent = "idle";
     selectedStatus.className = "status-pill status-idle";
+    selectedState.textContent = "Ready";
+    selectedMode.textContent = "Paper mode";
     selectedStrategy.textContent = "—";
     selectedCooldown.textContent = bots.length === 0 ? "Add a bot to get started" : "—";
     selectedPrice.textContent = "—";
@@ -1036,6 +1098,7 @@ function renderSummary() {
     runNow.disabled = true;
     editBot.textContent = "Edit";
     editBot.disabled = true;
+    actionHelp.textContent = actionHelpText(null);
     if (!symbolTouched) {
       priceSymbol.value = "";
     }
@@ -1056,6 +1119,8 @@ function renderSummary() {
     : formatValue(bot.name, "Unnamed bot");
   selectedStatus.textContent = formatStatus(bot.status);
   selectedStatus.className = `status-pill ${statusClass(bot.status)}`;
+  selectedState.textContent = stateLabel(bot);
+  selectedMode.textContent = botMode;
   selectedStrategy.textContent = formatValue(bot.strategyType);
   selectedCooldown.textContent = cooldownText(bot);
   selectedPrice.textContent = formatDecimal(bot.lastPrice);
@@ -1063,11 +1128,13 @@ function renderSummary() {
   pauseResume.textContent = isTogglingPause
     ? `${pauseResumeLabel(bot.status)}…`
     : pauseResumeLabel(bot.status);
-  pauseResume.disabled = !selectedBotId || isTogglingPause;
+  pauseResume.disabled = !canPauseResume || isTogglingPause || isLoadingSummary || isRunningNow;
   runNow.textContent = isRunningNow ? "Running…" : "Run now";
-  runNow.disabled = !selectedBotId || isRunningNow;
+  runNow.disabled = !canRunNow || isRunningNow || isLoadingSummary || isTogglingPause;
   editBot.textContent = isLoadingEditBot ? "Loading…" : "Edit";
-  editBot.disabled = !selectedBotId || isLoadingSummary || isLoadingEditBot || isSavingEditBot;
+  editBot.disabled =
+    !selectedBotId || isLoadingSummary || isLoadingEditBot || isSavingEditBot || isRunningNow || isTogglingPause;
+  actionHelp.textContent = actionHelpText(bot);
   if (!symbolTouched) {
     priceSymbol.value = formatValue(bot.symbol, "");
   }
