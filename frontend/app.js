@@ -396,12 +396,20 @@ function describeManualRunResult(result) {
   };
 }
 
+function clearSelectedBotMessages() {
+  actionMessage = "";
+  actionMessageType = "";
+  editBotMessage = "";
+  editBotMessageType = "";
+}
+
 async function loadBots() {
   isLoadingBots = true;
   botListError = "";
   render();
 
   try {
+    const previousSelectedBotId = selectedBotId;
     const data = await fetchJson("/api/v1/bots");
     bots = normalizeBotsResponse(data);
     if (selectedBotId && !bots.some((bot) => bot.id === selectedBotId)) {
@@ -411,6 +419,9 @@ async function loadBots() {
     }
     if (!selectedBotId && bots.length > 0) {
       selectedBotId = bots[0].id;
+    }
+    if (selectedBotId !== previousSelectedBotId) {
+      clearSelectedBotMessages();
     }
     lastRefreshedAt = new Date();
     isLoadingBots = false;
@@ -436,6 +447,10 @@ async function refreshSelectedData() {
   selectedBotId = bots.some((bot) => bot.id === currentBotId)
     ? currentBotId
     : bots[0]?.id ?? null;
+
+  if (selectedBotId !== currentBotId) {
+    clearSelectedBotMessages();
+  }
 
   if (selectedBotId) {
     const summary = await fetchJson(`/api/v1/bots/${selectedBotId}/summary`);
@@ -466,6 +481,10 @@ async function refreshDashboardData({ silent = false } = {}) {
     selectedBotId = bots.some((bot) => bot.id === currentBotId)
       ? currentBotId
       : null;
+
+    if (selectedBotId !== currentBotId) {
+      clearSelectedBotMessages();
+    }
 
     if (selectedBotId) {
       const summary = await fetchJson(`/api/v1/bots/${selectedBotId}/summary`);
@@ -704,6 +723,7 @@ async function submitCreateBot(event) {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(payload),
     });
+    clearSelectedBotMessages();
     selectedBotId = createdBot.id;
     await refreshDashboardData();
     createBotMessage = `Created ${createdBot.name}. It is selected now and remains a draft paper bot until you activate it.`;
@@ -858,6 +878,8 @@ function renderBotList() {
     row.className = "bot-row";
     row.setAttribute("aria-selected", String(bot.id === selectedBotId));
     row.addEventListener("click", async () => {
+      if (bot.id === selectedBotId) return;
+      clearSelectedBotMessages();
       selectedBotId = bot.id;
       isEditBotOpen = false;
       selectedBotConfig = null;
