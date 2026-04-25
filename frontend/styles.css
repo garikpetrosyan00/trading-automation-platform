@@ -647,17 +647,53 @@ dd {
   min-width: 0;
 }
 
-.activity-message {
-  font-weight: 800;
-  min-width: 0;
+.activity-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
 }
 
-.activity-message.activity-positive {
+.activity-status,
+.activity-type {
+  display: inline-flex;
+  align-items: center;
+  min-height: 24px;
+  border-radius: 999px;
+  padding: 0 10px;
+  font-size: 0.72rem;
+  font-weight: 800;
+}
+
+.activity-status-success {
+  background: var(--green-soft);
   color: var(--green);
 }
 
-.activity-message.activity-neutral {
+.activity-status-skipped {
+  background: var(--amber-soft);
+  color: var(--amber);
+}
+
+.activity-status-failed {
+  background: var(--danger-soft);
+  color: var(--danger);
+}
+
+.activity-status-running,
+.activity-status-neutral {
+  background: var(--blue-soft);
+  color: var(--blue);
+}
+
+.activity-type {
+  background: var(--surface-muted);
   color: var(--muted);
+}
+
+.activity-message {
+  font-weight: 800;
+  min-width: 0;
 }
 
 .activity-details {

@@ -244,16 +244,44 @@ function formatActivityMessage(item) {
   return humanizeMessage(item?.message || item?.status || item?.type, "Activity update");
 }
 
-function activityToneClass(item) {
-  if (item?.message === "buy_filled" || item?.message === "sell_filled") return "activity-positive";
+function activityStatus(item) {
+  const message = String(item?.message || "").toLowerCase();
+  const type = String(item?.type || "").toLowerCase();
+
+  if (message === "buy_filled" || message === "sell_filled" || type === "order_filled") {
+    return { label: "Success", className: "activity-status-success" };
+  }
   if (
     ["bot_not_active", "bot_skipped_paused", "evaluation_no_signal", "cooldown_active"].includes(
-      item?.message,
+      message,
     )
   ) {
-    return "activity-neutral";
+    return { label: "Skipped", className: "activity-status-skipped" };
   }
-  return "";
+  if (
+    message.includes("failed") ||
+    message.includes("error") ||
+    type.includes("failed") ||
+    type.includes("error")
+  ) {
+    return { label: "Failed", className: "activity-status-failed" };
+  }
+  if (
+    message.includes("pending") ||
+    message.includes("running") ||
+    message.includes("started") ||
+    type.includes("pending") ||
+    type.includes("running")
+  ) {
+    return { label: "Running", className: "activity-status-running" };
+  }
+  return { label: "Event", className: "activity-status-neutral" };
+}
+
+function formatActivityType(item) {
+  if (item?.type === "order_filled") return "Order filled";
+  if (item?.type === "run_event") return "Run event";
+  return humanizeMessage(item?.type, "Event");
 }
 
 function activityDetailParts(item) {
@@ -273,6 +301,11 @@ function activityDetailParts(item) {
   }
 
   return parts;
+}
+
+function activityBotName() {
+  const bot = selectedSummary || bots.find((item) => item.id === selectedBotId);
+  return bot?.name ? String(bot.name) : "";
 }
 
 async function fetchJson(path, options = {}) {
@@ -403,6 +436,18 @@ function clearSelectedBotMessages() {
   editBotMessageType = "";
 }
 
+function hasInFlightAction() {
+  return (
+    isLoadingSummary ||
+    isTogglingPause ||
+    isRunningNow ||
+    isUpdatingPrice ||
+    isCreatingBot ||
+    isLoadingEditBot ||
+    isSavingEditBot
+  );
+}
+
 async function loadBots() {
   isLoadingBots = true;
   botListError = "";
@@ -423,6 +468,7 @@ async function loadBots() {
     if (selectedBotId !== previousSelectedBotId) {
       clearSelectedBotMessages();
     }
+    refreshMessage = "";
     lastRefreshedAt = new Date();
     isLoadingBots = false;
     render();
@@ -460,6 +506,7 @@ async function refreshSelectedData() {
     isEditBotOpen = false;
     selectedBotConfig = null;
   }
+  refreshMessage = "";
   lastRefreshedAt = new Date();
 }
 
@@ -494,6 +541,7 @@ async function refreshDashboardData({ silent = false } = {}) {
       selectedSummary = null;
       summaryError = "";
     }
+    refreshMessage = "";
     lastRefreshedAt = new Date();
   } catch (error) {
     refreshMessage = silent
@@ -1040,7 +1088,7 @@ function renderSummary() {
 
 function renderRefreshControl() {
   refreshDashboard.textContent = isRefreshing ? "Refreshing…" : "Refresh";
-  refreshDashboard.disabled = isRefreshing;
+  refreshDashboard.disabled = isRefreshing || hasInFlightAction();
   refreshMessageEl.textContent = refreshMessage;
   refreshMessageEl.className = refreshMessage
     ? "refresh-message error"
@@ -1055,19 +1103,20 @@ function renderActivity() {
   activityList.innerHTML = "";
 
   if (summaryError) {
-    activityList.innerHTML = `<li><span class="activity-empty error">${summaryError}</span></li>`;
+    activityList.innerHTML = `<li><span class="activity-empty error">Failed to load recent activity. ${summaryError}</span></li>`;
     return;
   }
 
   const activity = selectedSummary?.recentActivity ?? [];
+  const botName = activityBotName();
 
   if (selectedBotId && isLoadingSummary) {
-    activityList.innerHTML = `<li><span class="activity-empty loading">Loading activity...</span></li>`;
+    activityList.innerHTML = `<li><span class="activity-empty loading">Loading recent activity...</span></li>`;
     return;
   }
 
   if (selectedBotId && selectedSummary && activity.length === 0) {
-    activityList.innerHTML = `<li><span class="activity-empty">No recent activity for this bot yet.</span></li>`;
+    activityList.innerHTML = `<li><span class="activity-empty">No recent activity yet.</span></li>`;
     return;
   }
 
@@ -1082,11 +1131,18 @@ function renderActivity() {
 
   activity.forEach((item) => {
     const row = document.createElement("li");
+    const status = activityStatus(item);
     const details = activityDetailParts(item);
-    const toneClass = activityToneClass(item);
+    if (botName) {
+      details.unshift(`Bot: ${botName}`);
+    }
     row.innerHTML = `
       <span class="activity-main">
-        <span class="activity-message ${toneClass}">${formatActivityMessage(item)}</span>
+        <span class="activity-meta">
+          <span class="activity-status ${status.className}">${status.label}</span>
+          <span class="activity-type">${formatActivityType(item)}</span>
+        </span>
+        <span class="activity-message">${formatActivityMessage(item)}</span>
         ${details.length > 0 ? `<span class="activity-details">${details.join(" · ")}</span>` : ""}
       </span>
       <span class="activity-time">${formatDateTime(item.timestamp ?? item.created_at)}</span>
