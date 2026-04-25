@@ -3,27 +3,31 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Bots Dashboard</title>
+    <title>Dashboard</title>
     <link rel="stylesheet" href="/static/styles.css" />
   </head>
   <body>
     <main class="dashboard-shell">
       <header class="topbar">
         <div>
-          <p class="eyebrow">Local Trading Simulator</p>
-          <h1>Bots Dashboard</h1>
+          <p id="topbar-eyebrow" class="eyebrow">Local Trading Simulator</p>
+          <h1 id="dashboard-title">Bots Dashboard</h1>
           <p id="header-meta" class="header-meta">0 bots · Last refreshed: —</p>
         </div>
         <div class="topbar-controls">
           <button id="refresh-dashboard" type="button">Refresh</button>
+          <div id="language-switcher" class="language-switcher" aria-label="Language switcher">
+            <button id="lang-en" type="button" class="language-button" aria-pressed="true">EN</button>
+            <button id="lang-am" type="button" class="language-button" aria-pressed="false">AM</button>
+          </div>
           <label class="auto-refresh-control">
             <input id="auto-refresh" type="checkbox" />
-            Auto-refresh
+            <span id="auto-refresh-label">Auto-refresh</span>
           </label>
           <span id="refresh-message" class="refresh-message" role="status"></span>
           <form id="price-form" class="price-form" aria-label="Market price update">
             <label>
-              Symbol
+              <span id="price-symbol-label">Symbol</span>
               <input
                 id="price-symbol"
                 name="symbol"
@@ -33,7 +37,7 @@
               />
             </label>
             <label>
-              Price
+              <span id="price-value-label">Price</span>
               <input
                 id="price-value"
                 name="price"
@@ -51,27 +55,27 @@
       <section class="dashboard-grid" aria-label="Bot dashboard">
         <aside class="bot-list-panel" aria-label="Bots">
           <div class="panel-heading">
-            <h2>Bots</h2>
+            <h2 id="bots-heading">Bots</h2>
             <div class="panel-heading-actions">
               <span id="bot-count" class="count-pill"></span>
               <button id="toggle-create-bot" type="button" class="secondary-button">Create Bot</button>
             </div>
           </div>
           <form id="create-bot-form" class="create-bot-form" aria-label="Create bot">
-            <p class="create-bot-defaults">
+            <p id="create-bot-defaults" class="create-bot-defaults">
               New bots are created as draft paper bots by default. They are saved, selected here, and not live yet.
             </p>
             <label>
-              Name
+              <span id="create-bot-name-label">Name</span>
               <input id="create-bot-name" name="name" placeholder="Momentum Bot" autocomplete="off" />
             </label>
             <label>
-              Strategy
+              <span id="create-bot-strategy-label">Strategy</span>
               <select id="create-bot-strategy-id" name="strategy_id"></select>
               <span id="create-bot-strategy-help" class="create-bot-help"></span>
             </label>
             <label>
-              Exchange
+              <span id="create-bot-exchange-label">Exchange</span>
               <input
                 id="create-bot-exchange-name"
                 name="exchange_name"
@@ -81,7 +85,7 @@
               />
             </label>
             <label>
-              Notes
+              <span id="create-bot-notes-label">Notes</span>
               <input id="create-bot-notes" name="notes" placeholder="Optional notes" autocomplete="off" />
             </label>
             <div class="create-bot-actions">
@@ -118,7 +122,7 @@
 
           <form id="edit-bot-form" class="edit-bot-form" aria-label="Edit bot">
             <div class="edit-bot-context">
-              <p class="edit-bot-summary">
+              <p id="edit-bot-summary" class="edit-bot-summary">
                 This form updates only basic bot details. Status and mode are shown here for context and are not editable in this form.
               </p>
               <div class="edit-bot-meta">
@@ -127,20 +131,20 @@
               </div>
             </div>
             <label>
-              Name
+              <span id="edit-bot-name-label">Name</span>
               <input id="edit-bot-name" name="name" autocomplete="off" />
             </label>
             <label>
-              Strategy
+              <span id="edit-bot-strategy-label">Strategy</span>
               <select id="edit-bot-strategy-id" name="strategy_id"></select>
               <span id="edit-bot-strategy-help" class="create-bot-help"></span>
             </label>
             <label>
-              Exchange
+              <span id="edit-bot-exchange-label">Exchange</span>
               <input id="edit-bot-exchange-name" name="exchange_name" autocomplete="off" />
             </label>
             <label>
-              Notes
+              <span id="edit-bot-notes-label">Notes</span>
               <input id="edit-bot-notes" name="notes" placeholder="Optional notes" autocomplete="off" />
             </label>
             <div class="edit-bot-actions">
@@ -152,26 +156,26 @@
 
           <dl class="summary-grid">
             <div>
-              <dt>Strategy</dt>
+              <dt id="selected-strategy-label">Strategy</dt>
               <dd id="selected-strategy"></dd>
             </div>
             <div>
-              <dt>Cooldown</dt>
+              <dt id="selected-cooldown-label">Cooldown</dt>
               <dd id="selected-cooldown"></dd>
             </div>
             <div>
-              <dt>Last price</dt>
+              <dt id="selected-price-label">Last price</dt>
               <dd id="selected-price"></dd>
             </div>
             <div>
-              <dt>Last run</dt>
+              <dt id="selected-last-run-label">Last run</dt>
               <dd id="selected-last-run"></dd>
             </div>
           </dl>
 
           <section class="activity-panel" aria-label="Recent activity">
             <div class="panel-heading">
-              <h2>Recent Activity</h2>
+              <h2 id="recent-activity-heading">Recent Activity</h2>
             </div>
             <ul id="activity-list" class="activity-list"></ul>
           </section>

@@ -53,7 +53,7 @@ select {
 
 .topbar-controls {
   display: grid;
-  grid-template-columns: auto auto minmax(0, 1fr);
+  grid-template-columns: auto auto auto minmax(0, 1fr);
   gap: 10px;
   align-items: center;
   justify-items: start;
@@ -61,6 +61,38 @@ select {
 
 .topbar-controls .price-form {
   grid-column: 1 / -1;
+}
+
+.language-switcher {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-height: 40px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface);
+  padding: 4px;
+}
+
+.language-button {
+  min-height: 30px;
+  min-width: 42px;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--muted);
+  padding: 0 10px;
+  font-size: 0.78rem;
+  font-weight: 800;
+}
+
+.language-button:not(:disabled):hover {
+  background: var(--surface-muted);
+  color: var(--ink);
+}
+
+.language-button.active {
+  background: var(--ink);
+  color: #fff;
 }
 
 .eyebrow {
@@ -748,7 +780,7 @@ dd {
   }
 
   .topbar-controls {
-    grid-template-columns: auto auto;
+    grid-template-columns: auto auto auto;
     justify-items: stretch;
   }
 
