@@ -327,6 +327,18 @@ class BotRunner:
             raise NotFoundError(f"Strategy with id {bot.strategy_id} was not found", error_code="strategy_not_found")
 
         bot_run = self._ensure_running_run(bot_run_service, bot_id, trigger_type="system")
+        if not strategy.is_active:
+            self._record_event(
+                db,
+                bot_run.id,
+                event_type="system",
+                level="info",
+                message="strategy_inactive",
+                payload={"symbol": strategy.symbol, "strategy_id": strategy.id},
+            )
+            db.commit()
+            return
+
         latest_price = self._get_latest_price(strategy.symbol)
         position = portfolio_repository.get_position_by_symbol(strategy.symbol)
         position_quantity = position.quantity if position is not None else ZERO
@@ -393,6 +405,18 @@ class BotRunner:
             payload={"reason": decision.reason, "symbol": strategy.symbol, "quantity": str(quantity)},
         )
         db.commit()
+
+        if not bot.is_paper:
+            self._record_event(
+                db,
+                bot_run.id,
+                event_type="system",
+                level="warning",
+                message="live_mode_not_implemented",
+                payload={"side": decision.action, "symbol": strategy.symbol, "quantity": str(quantity)},
+            )
+            db.commit()
+            return
 
         execution_service = SimulatedExecutionService(
             repository=portfolio_repository,
@@ -577,6 +601,8 @@ class BotRunner:
             "bot_not_active",
             "execution_profile_missing",
             "execution_profile_disabled",
+            "strategy_inactive",
+            "live_mode_not_implemented",
             "order_rejected",
         }:
             return "skipped", run_event.message

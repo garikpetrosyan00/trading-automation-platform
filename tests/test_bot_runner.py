@@ -141,6 +141,61 @@ def test_sell_signal_triggers_full_sell(
     assert sum(1 for event in events if event.message == "order_filled") == 2
 
 
+def test_live_mode_bot_does_not_use_simulated_execution_for_buy_or_sell(
+    db_session,
+    db_session_factory,
+    stub_market_data_service,
+    bot_stack_factory,
+    funded_account,
+) -> None:
+    funded_account(db_session)
+    _, bot, _ = bot_stack_factory(db_session, is_paper=False)
+    runner = build_runner(db_session_factory, stub_market_data_service)
+    runner.start_bot(bot.id)
+
+    stub_market_data_service.set_price("BTCUSDT", "95")
+    buy_response = asyncio.run(run_bot_once_endpoint(bot.id, runner))
+    stub_market_data_service.set_price("BTCUSDT", "115")
+    sell_response = asyncio.run(run_bot_once_endpoint(bot.id, runner))
+
+    repository = PortfolioRepository(db_session)
+    events = RunEventRepository(db_session).list_for_bot(bot.id)
+
+    assert buy_response.action == "skipped"
+    assert buy_response.message == "live_mode_not_implemented"
+    assert sell_response.action == "no_action"
+    assert sell_response.message == "evaluation_no_signal"
+    assert repository.list_orders() == []
+    assert repository.list_fills() == []
+    assert repository.get_position_by_symbol("BTCUSDT") is None
+    assert any(event.message == "buy_signal" for event in events)
+    assert any(event.message == "live_mode_not_implemented" for event in events)
+    assert not any(event.message == "order_filled" for event in events)
+
+
+def test_inactive_strategy_is_skipped_without_placing_orders(
+    db_session,
+    db_session_factory,
+    stub_market_data_service,
+    bot_stack_factory,
+    funded_account,
+) -> None:
+    funded_account(db_session)
+    _, bot, _ = bot_stack_factory(db_session, strategy_is_active=False)
+    runner = build_runner(db_session_factory, stub_market_data_service)
+    runner.start_bot(bot.id)
+    stub_market_data_service.set_price("BTCUSDT", "95")
+
+    response = asyncio.run(run_bot_once_endpoint(bot.id, runner))
+    events = RunEventRepository(db_session).list_for_bot(bot.id)
+
+    assert response.action == "skipped"
+    assert response.message == "strategy_inactive"
+    assert PortfolioRepository(db_session).list_orders() == []
+    assert any(event.message == "strategy_inactive" for event in events)
+    assert not any(event.message == "order_filled" for event in events)
+
+
 def test_bot_does_not_rebuy_during_cooldown(
     db_session,
     db_session_factory,
@@ -662,6 +717,66 @@ def test_manual_bot_run_paused_bot_returns_skipped_result(
     assert response.is_paused is True
     assert response.recent_activity_preview[0].message == "bot_skipped_paused"
     assert PortfolioRepository(db_session).list_orders() == []
+
+
+def test_manual_bot_run_missing_execution_profile_creates_expected_event(
+    db_session,
+    db_session_factory,
+    stub_market_data_service,
+    bot_stack_factory,
+) -> None:
+    _, bot, _ = bot_stack_factory(db_session, create_execution_profile=False)
+    runner = build_runner(db_session_factory, stub_market_data_service)
+    bot.status = "active"
+    db_session.add(bot)
+    db_session.commit()
+    db_session.refresh(bot)
+
+    response = asyncio.run(run_bot_once_endpoint(bot.id, runner))
+    run_events = asyncio.run(
+        list_run_events_endpoint(
+            db_session,
+            bot_id=bot.id,
+            run_id=None,
+            event_type=None,
+            level=None,
+        )
+    )
+
+    assert response.action == "skipped"
+    assert response.message == "execution_profile_missing"
+    assert response.recent_activity_preview[0].message == "execution_profile_missing"
+    assert [event.message for event in run_events] == ["execution_profile_missing"]
+
+
+def test_manual_bot_run_disabled_execution_profile_creates_expected_event(
+    db_session,
+    db_session_factory,
+    stub_market_data_service,
+    bot_stack_factory,
+) -> None:
+    _, bot, _ = bot_stack_factory(db_session, execution_profile_enabled=False)
+    runner = build_runner(db_session_factory, stub_market_data_service)
+    bot.status = "active"
+    db_session.add(bot)
+    db_session.commit()
+    db_session.refresh(bot)
+
+    response = asyncio.run(run_bot_once_endpoint(bot.id, runner))
+    run_events = asyncio.run(
+        list_run_events_endpoint(
+            db_session,
+            bot_id=bot.id,
+            run_id=None,
+            event_type=None,
+            level=None,
+        )
+    )
+
+    assert response.action == "skipped"
+    assert response.message == "execution_profile_disabled"
+    assert response.recent_activity_preview[0].message == "execution_profile_disabled"
+    assert [event.message for event in run_events] == ["execution_profile_disabled"]
 
 
 def test_manual_bot_run_cooldown_active_returns_skipped_result(

@@ -112,15 +112,19 @@ def bot_stack_factory():
         name: str = "Threshold Bot",
         symbol: str = "BTCUSDT",
         status: str = "draft",
+        is_paper: bool = True,
+        strategy_is_active: bool = True,
         cooldown_seconds: int = 60,
         description: str = "Test strategy",
-    ) -> tuple[Strategy, Bot, ExecutionProfile]:
+        create_execution_profile: bool = True,
+        execution_profile_enabled: bool = True,
+    ) -> tuple[Strategy, Bot, ExecutionProfile | None]:
         strategy = Strategy(
             name=f"{name} Strategy",
             description=description,
             symbol=symbol,
             timeframe="1m",
-            is_active=True,
+            is_active=strategy_is_active,
         )
         session.add(strategy)
         session.commit()
@@ -131,11 +135,14 @@ def bot_stack_factory():
             strategy_id=strategy.id,
             exchange_name="binance",
             status=status,
-            is_paper=True,
+            is_paper=is_paper,
         )
         session.add(bot)
         session.commit()
         session.refresh(bot)
+
+        if not create_execution_profile:
+            return strategy, bot, None
 
         profile = ExecutionProfile(
             bot_id=bot.id,
@@ -148,7 +155,7 @@ def bot_stack_factory():
             order_quantity=Decimal("0.1"),
             cooldown_seconds=cooldown_seconds,
             default_order_type="market",
-            is_enabled=True,
+            is_enabled=execution_profile_enabled,
         )
         session.add(profile)
         session.commit()
