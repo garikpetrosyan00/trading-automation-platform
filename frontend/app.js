@@ -79,6 +79,7 @@ const translations = {
     selected_last_run_label: "Last run",
     strategy_parameters: "Strategy Parameters",
     strategy_name_label: "Strategy",
+    strategy_type_label: "Type",
     timeframe_label: "Timeframe",
     buy_below_label: "Buy below",
     sell_above_label: "Sell above",
@@ -243,6 +244,7 @@ const translations = {
     selected_last_run_label: "Վերջին գործարկում",
     strategy_parameters: "Strategy Parameters",
     strategy_name_label: "Strategy",
+    strategy_type_label: "Type",
     timeframe_label: "Timeframe",
     buy_below_label: "Buy below",
     sell_above_label: "Sell above",
@@ -1836,6 +1838,10 @@ function renderStrategyParameters(bot) {
     {
       label: t("strategy_name_label"),
       value: formatValue(selectedSummary.strategyName, t("unnamed_strategy")),
+    },
+    {
+      label: t("strategy_type_label"),
+      value: humanizeMessage(selectedSummary.strategyType),
     },
     {
       label: t("symbol"),

@@ -111,7 +111,7 @@ class BotRunner:
                     f"Strategy with id {bot.strategy_id} was not found",
                     error_code="strategy_not_found",
                 )
-            self._validate_profile_config(profile)
+            self._validate_strategy_config(strategy)
 
             if bot.status != "active":
                 bot.status = "active"
@@ -124,7 +124,7 @@ class BotRunner:
                 event_type="lifecycle",
                 level="info",
                 message="started",
-                payload={"symbol": strategy.symbol, "strategy_type": profile.strategy_type},
+                payload={"symbol": strategy.symbol, "strategy_type": strategy.strategy_type},
             )
             db.commit()
             return self._build_status(db, bot_id)
@@ -328,13 +328,12 @@ class BotRunner:
             return
 
         profile = profile_repository.get_by_bot_id(bot_id)
-        if profile is None or not profile.is_enabled:
-            return
-        self._validate_profile_config(profile)
-
         strategy = strategy_repository.get_by_id(bot.strategy_id)
         if strategy is None:
             raise NotFoundError(f"Strategy with id {bot.strategy_id} was not found", error_code="strategy_not_found")
+        if profile is None or not profile.is_enabled:
+            return
+        self._validate_strategy_config(strategy)
         threshold_config = self._resolve_price_threshold_config(strategy.parameters, profile)
 
         bot_run = self._ensure_running_run(bot_run_service, bot_id, trigger_type="system")
@@ -561,7 +560,7 @@ class BotRunner:
             is_paused=bot.status == "paused",
             execution_profile_enabled=profile.is_enabled,
             runner_enabled=self.config.enabled and bot.status == "active" and profile.is_enabled,
-            strategy_type=profile.strategy_type,
+            strategy_type=strategy.strategy_type,
             symbol=strategy.symbol,
             active_run_id=active_run.id if active_run is not None else None,
             active_run_status=active_run.status if active_run is not None else None,
@@ -594,7 +593,7 @@ class BotRunner:
             name=bot.name,
             status=bot.status,
             is_paused=bot.status == "paused",
-            strategy_type=profile.strategy_type if profile is not None else None,
+            strategy_type=strategy.strategy_type,
             symbol=strategy.symbol,
             cooldown_active=cooldown_active,
             cooldown_until=cooldown_until if cooldown_active else None,
@@ -892,6 +891,6 @@ class BotRunner:
         return reason
 
     @staticmethod
-    def _validate_profile_config(profile) -> None:
-        if profile.strategy_type != "price_threshold":
+    def _validate_strategy_config(strategy) -> None:
+        if strategy.strategy_type != "price_threshold":
             raise ConflictError("Only price_threshold strategy is supported", error_code="unsupported_strategy_type")
