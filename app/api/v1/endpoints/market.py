@@ -6,6 +6,8 @@ from app.api.dependencies import DbSession, MarketDataServiceDep
 from app.core.config import get_settings
 from app.repositories.market_candle import MarketCandleRepository
 from app.schemas.market import (
+    BinanceMarketCandlesRead,
+    BinanceMarketCandlesRequest,
     BinanceMarketPriceRead,
     MarketCandleCreate,
     MarketCandleRead,
@@ -50,6 +52,25 @@ async def fetch_binance_market_price(
         price=event.price,
         source="binance",
         updated_at=event.received_at,
+    )
+
+
+@router.post("/binance/candles", response_model=BinanceMarketCandlesRead)
+async def fetch_binance_market_candles(
+    payload: BinanceMarketCandlesRequest,
+    db: DbSession,
+    binance_client: BinanceMarketDataClient = Depends(get_binance_market_data_client),
+) -> BinanceMarketCandlesRead:
+    fetched_candles = await binance_client.fetch_candles(payload.symbol, payload.timeframe, payload.limit)
+    service = get_market_candle_service(db)
+    stored_candles = service.upsert_many(fetched_candles)
+    return BinanceMarketCandlesRead(
+        symbol=payload.symbol,
+        timeframe=payload.timeframe,
+        source="binance",
+        requested_limit=payload.limit,
+        stored_count=len(stored_candles),
+        candles=[MarketCandleRead.model_validate(candle) for candle in stored_candles],
     )
 
 

@@ -43,6 +43,28 @@ class BinanceMarketPriceRead(MarketPriceRead):
     source: str
 
 
+class BinanceMarketCandlesRequest(BaseModel):
+    symbol: str
+    timeframe: str
+    limit: int = Field(default=100, ge=1, le=500)
+
+    @field_validator("symbol")
+    @classmethod
+    def normalize_symbol(cls, value: str) -> str:
+        normalized = value.strip().upper()
+        if not normalized:
+            raise ValueError("Symbol must not be empty")
+        return normalized
+
+    @field_validator("timeframe")
+    @classmethod
+    def normalize_timeframe(cls, value: str) -> str:
+        normalized = value.strip()
+        if not normalized:
+            raise ValueError("Timeframe must not be empty")
+        return normalized
+
+
 class MarketCandleBase(BaseModel):
     symbol: str
     timeframe: str
@@ -94,3 +116,12 @@ class MarketCandleRead(MarketCandleBase):
     created_at: datetime
 
     model_config = ConfigDict(from_attributes=True)
+
+
+class BinanceMarketCandlesRead(BaseModel):
+    symbol: str
+    timeframe: str
+    source: str
+    requested_limit: int
+    stored_count: int
+    candles: list[MarketCandleRead]

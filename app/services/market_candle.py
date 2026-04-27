@@ -11,5 +11,8 @@ class MarketCandleService:
         candle = MarketCandle(**payload.model_dump())
         return self.repository.upsert(candle)
 
+    def upsert_many(self, payloads: list[MarketCandleCreate]) -> list[MarketCandle]:
+        return [self.upsert(payload) for payload in payloads]
+
     def list_recent(self, *, symbol: str, timeframe: str, limit: int) -> list[MarketCandle]:
         return self.repository.list_recent(symbol=symbol, timeframe=timeframe, limit=limit)
