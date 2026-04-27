@@ -4,7 +4,8 @@ import asyncio
 from contextlib import suppress
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
-from decimal import Decimal
+from decimal import Decimal, InvalidOperation
+from typing import Any
 
 from app.core.errors import ConflictError, NotFoundError
 from app.core.logging import get_logger
@@ -40,6 +41,15 @@ class RunnerConfig:
     simulation_enabled: bool
     simulation_fee_bps: Decimal
     simulation_slippage_bps: Decimal
+
+
+@dataclass(frozen=True)
+class PriceThresholdConfig:
+    entry_below: Decimal | None
+    exit_above: Decimal | None
+    order_quantity: Decimal | None
+    invalid_parameter: str | None = None
+    invalid_reason: str | None = None
 
 
 class BotRunner:
@@ -325,6 +335,7 @@ class BotRunner:
         strategy = strategy_repository.get_by_id(bot.strategy_id)
         if strategy is None:
             raise NotFoundError(f"Strategy with id {bot.strategy_id} was not found", error_code="strategy_not_found")
+        threshold_config = self._resolve_price_threshold_config(strategy.parameters, profile)
 
         bot_run = self._ensure_running_run(bot_run_service, bot_id, trigger_type="system")
         if not strategy.is_active:
@@ -339,6 +350,23 @@ class BotRunner:
             db.commit()
             return
 
+        if threshold_config.invalid_parameter is not None:
+            self._record_event(
+                db,
+                bot_run.id,
+                event_type="system",
+                level="warning",
+                message="evaluation_skipped",
+                payload={
+                    "reason": "invalid_strategy_parameter",
+                    "detail": threshold_config.invalid_reason,
+                    "parameter": threshold_config.invalid_parameter,
+                    "symbol": strategy.symbol,
+                },
+            )
+            db.commit()
+            return
+
         latest_price = self._get_latest_price(strategy.symbol)
         position = portfolio_repository.get_position_by_symbol(strategy.symbol)
         position_quantity = position.quantity if position is not None else ZERO
@@ -347,8 +375,13 @@ class BotRunner:
         decision = StrategyEvaluator.evaluate_price_threshold(
             latest_price=latest_price,
             position_quantity=position_quantity,
-            entry_below=profile.entry_below,
-            exit_above=profile.exit_above,
+            entry_below=threshold_config.entry_below,
+            exit_above=threshold_config.exit_above,
+        )
+        decision_detail = self._price_threshold_decision_detail(
+            decision.reason,
+            entry_below=threshold_config.entry_below,
+            exit_above=threshold_config.exit_above,
         )
 
         if (
@@ -375,7 +408,7 @@ class BotRunner:
                 event_type="system",
                 level="warning",
                 message="evaluation_skipped",
-                payload={"reason": decision.reason, "symbol": strategy.symbol},
+                payload={"reason": decision.reason, "detail": decision_detail, "symbol": strategy.symbol},
             )
             db.commit()
             return
@@ -387,12 +420,33 @@ class BotRunner:
                 event_type="log",
                 level="info",
                 message="evaluation_no_signal",
-                payload={"reason": decision.reason, "symbol": strategy.symbol, "latest_price": str(latest_price)},
+                payload={
+                    "reason": decision.reason,
+                    "detail": decision_detail,
+                    "symbol": strategy.symbol,
+                    "latest_price": str(latest_price),
+                },
             )
             db.commit()
             return
 
-        quantity = profile.order_quantity
+        quantity = threshold_config.order_quantity
+        if quantity is None:
+            self._record_event(
+                db,
+                bot_run.id,
+                event_type="system",
+                level="warning",
+                message="evaluation_skipped",
+                payload={
+                    "reason": "order_quantity_not_configured",
+                    "detail": "strategy quantity is missing and execution profile order_quantity is not configured",
+                    "symbol": strategy.symbol,
+                },
+            )
+            db.commit()
+            return
+
         if decision.action == "sell":
             quantity = position_quantity
 
@@ -402,7 +456,12 @@ class BotRunner:
             event_type="system",
             level="info",
             message=f"{decision.action}_signal",
-            payload={"reason": decision.reason, "symbol": strategy.symbol, "quantity": str(quantity)},
+            payload={
+                "reason": decision.reason,
+                "detail": decision_detail,
+                "symbol": strategy.symbol,
+                "quantity": str(quantity),
+            },
         )
         db.commit()
 
@@ -536,6 +595,9 @@ class BotRunner:
 
     def _build_summary(self, db, bot, activity_limit: int) -> BotSummaryRead:
         dashboard_item = self._build_dashboard_item(db, bot)
+        strategy = StrategyRepository(db).get_by_id(bot.strategy_id)
+        if strategy is None:
+            raise NotFoundError(f"Strategy with id {bot.strategy_id} was not found", error_code="strategy_not_found")
         profile = ExecutionProfileRepository(db).get_by_bot_id(bot.id)
         portfolio_repository = PortfolioRepository(db)
         recent_events = RunEventRepository(db).list_recent_for_bot(bot.id, limit=activity_limit)
@@ -546,6 +608,9 @@ class BotRunner:
             status=dashboard_item.status,
             is_paused=dashboard_item.is_paused,
             strategy_type=dashboard_item.strategy_type,
+            strategy_name=strategy.name,
+            strategy_timeframe=strategy.timeframe,
+            strategy_parameters=strategy.parameters or {},
             symbol=dashboard_item.symbol,
             cooldown_seconds=profile.cooldown_seconds if profile is not None else None,
             cooldown_active=dashboard_item.cooldown_active,
@@ -712,13 +777,68 @@ class BotRunner:
             return value.replace(tzinfo=timezone.utc)
         return value
 
+    @classmethod
+    def _resolve_price_threshold_config(cls, parameters: dict[str, Any] | None, profile) -> PriceThresholdConfig:
+        parsed_parameters: dict[str, Decimal | None] = {}
+        for key in ("buy_below", "sell_above", "quantity"):
+            value, invalid_reason = cls._parse_strategy_decimal_parameter(parameters, key)
+            if invalid_reason is not None:
+                return PriceThresholdConfig(
+                    entry_below=None,
+                    exit_above=None,
+                    order_quantity=None,
+                    invalid_parameter=key,
+                    invalid_reason=invalid_reason,
+                )
+            parsed_parameters[key] = value
+
+        return PriceThresholdConfig(
+            entry_below=parsed_parameters["buy_below"] if parsed_parameters["buy_below"] is not None else profile.entry_below,
+            exit_above=parsed_parameters["sell_above"] if parsed_parameters["sell_above"] is not None else profile.exit_above,
+            order_quantity=parsed_parameters["quantity"] if parsed_parameters["quantity"] is not None else profile.order_quantity,
+        )
+
+    @staticmethod
+    def _parse_strategy_decimal_parameter(parameters: dict[str, Any] | None, key: str) -> tuple[Decimal | None, str | None]:
+        if not parameters or key not in parameters:
+            return None, None
+
+        raw_value = parameters[key]
+        if raw_value is None or raw_value == "":
+            return None, None
+
+        try:
+            value = Decimal(str(raw_value))
+        except (InvalidOperation, ValueError):
+            return None, f"strategy parameter {key} must be a positive number"
+
+        if not value.is_finite() or value <= ZERO:
+            return None, f"strategy parameter {key} must be a positive number"
+
+        return value, None
+
+    @staticmethod
+    def _price_threshold_decision_detail(
+        reason: str,
+        *,
+        entry_below: Decimal | None,
+        exit_above: Decimal | None,
+    ) -> str:
+        if reason == "entry_threshold_reached":
+            return "price is below strategy buy_below"
+        if reason == "entry_threshold_not_met":
+            return "price is above strategy buy_below"
+        if reason == "exit_threshold_reached":
+            return "price is above strategy sell_above"
+        if reason == "exit_threshold_not_met":
+            return "price is below strategy sell_above"
+        if reason == "entry_below_not_configured" and entry_below is None:
+            return "strategy buy_below is missing and execution profile entry_below is not configured"
+        if reason == "exit_above_not_configured" and exit_above is None:
+            return "strategy sell_above is missing and execution profile exit_above is not configured"
+        return reason
+
     @staticmethod
     def _validate_profile_config(profile) -> None:
         if profile.strategy_type != "price_threshold":
             raise ConflictError("Only price_threshold strategy is supported", error_code="unsupported_strategy_type")
-        if profile.entry_below is None:
-            raise ConflictError("Execution profile entry_below is required", error_code="missing_entry_below")
-        if profile.exit_above is None:
-            raise ConflictError("Execution profile exit_above is required", error_code="missing_exit_above")
-        if profile.order_quantity is None:
-            raise ConflictError("Execution profile order_quantity is required", error_code="missing_order_quantity")

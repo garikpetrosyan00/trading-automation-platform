@@ -20,6 +20,8 @@ let isCreateBotOpen = false;
 let isEditBotOpen = false;
 let isLoadingEditBot = false;
 let isSavingEditBot = false;
+let isEditingStrategyParameters = false;
+let isSavingStrategyParameters = false;
 let symbolTouched = false;
 let botListError = "";
 let summaryError = "";
@@ -29,6 +31,8 @@ let createBotMessage = "";
 let createBotMessageType = "";
 let editBotMessage = "";
 let editBotMessageType = "";
+let strategyParametersMessage = "";
+let strategyParametersMessageType = "";
 let strategyLoadError = "";
 let priceMessage = "";
 let priceMessageType = "";
@@ -71,6 +75,21 @@ const translations = {
     selected_cooldown_label: "Cooldown",
     selected_price_label: "Last price",
     selected_last_run_label: "Last run",
+    strategy_parameters: "Strategy Parameters",
+    strategy_name_label: "Strategy",
+    timeframe_label: "Timeframe",
+    buy_below_label: "Buy below",
+    sell_above_label: "Sell above",
+    no_strategy_selected: "No strategy selected",
+    no_strategy_parameters_configured: "No strategy parameters configured",
+    strategy_details_unavailable: "Strategy details unavailable",
+    edit_strategy_parameters: "Edit",
+    edit_strategy_parameters_aria: "Edit strategy parameters",
+    save: "Save",
+    strategy_parameters_updated: "Strategy parameters updated.",
+    strategy_parameters_save_failed: "Could not update Strategy parameters.",
+    enter_strategy_parameters: "Enter buy below, sell above, and quantity.",
+    strategy_parameters_must_be_numbers: "Strategy parameters must be positive numbers.",
     recent_activity: "Recent Activity",
     set_price: "Set price",
     updating: "Updating…",
@@ -208,6 +227,21 @@ const translations = {
     selected_cooldown_label: "Cooldown",
     selected_price_label: "Վերջին գին",
     selected_last_run_label: "Վերջին գործարկում",
+    strategy_parameters: "Strategy Parameters",
+    strategy_name_label: "Strategy",
+    timeframe_label: "Timeframe",
+    buy_below_label: "Buy below",
+    sell_above_label: "Sell above",
+    no_strategy_selected: "Strategy ընտրված չէ",
+    no_strategy_parameters_configured: "Strategy-ի parameters-ները կարգավորված չեն",
+    strategy_details_unavailable: "Strategy-ի մանրամասները հասանելի չեն",
+    edit_strategy_parameters: "Խմբագրել",
+    edit_strategy_parameters_aria: "Խմբագրել Strategy-ի parameters-ները",
+    save: "Պահպանել",
+    strategy_parameters_updated: "Strategy-ի parameters-ները թարմացվեցին։",
+    strategy_parameters_save_failed: "Չհաջողվեց թարմացնել Strategy-ի parameters-ները։",
+    enter_strategy_parameters: "Մուտքագրիր buy below, sell above և quantity։",
+    strategy_parameters_must_be_numbers: "Strategy-ի parameters-ները պետք է լինեն դրական թվեր։",
     recent_activity: "Վերջին ակտիվություն",
     set_price: "Սահմանել գինը",
     updating: "Թարմացվում է…",
@@ -380,6 +414,19 @@ const selectedStrategyLabel = document.querySelector("#selected-strategy-label")
 const selectedCooldownLabel = document.querySelector("#selected-cooldown-label");
 const selectedPriceLabel = document.querySelector("#selected-price-label");
 const selectedLastRunLabel = document.querySelector("#selected-last-run-label");
+const strategyParametersHeading = document.querySelector("#strategy-parameters-heading");
+const strategyParametersContent = document.querySelector("#strategy-parameters-content");
+const editStrategyParameters = document.querySelector("#edit-strategy-parameters");
+const strategyParametersForm = document.querySelector("#strategy-parameters-form");
+const strategyBuyBelowLabel = document.querySelector("#strategy-buy-below-label");
+const strategySellAboveLabel = document.querySelector("#strategy-sell-above-label");
+const strategyQuantityLabel = document.querySelector("#strategy-quantity-label");
+const strategyBuyBelow = document.querySelector("#strategy-buy-below");
+const strategySellAbove = document.querySelector("#strategy-sell-above");
+const strategyQuantity = document.querySelector("#strategy-quantity");
+const strategyParametersSubmit = document.querySelector("#strategy-parameters-submit");
+const strategyParametersCancel = document.querySelector("#strategy-parameters-cancel");
+const strategyParametersMessageEl = document.querySelector("#strategy-parameters-message");
 const recentActivityHeading = document.querySelector("#recent-activity-heading");
 const activityList = document.querySelector("#activity-list");
 const priceForm = document.querySelector("#price-form");
@@ -454,6 +501,18 @@ function applyStaticTranslations() {
   selectedCooldownLabel.textContent = t("selected_cooldown_label");
   selectedPriceLabel.textContent = t("selected_price_label");
   selectedLastRunLabel.textContent = t("selected_last_run_label");
+  strategyParametersHeading.textContent = t("strategy_parameters");
+  editStrategyParameters.textContent = t("edit_strategy_parameters");
+  editStrategyParameters.setAttribute("aria-label", t("edit_strategy_parameters_aria"));
+  strategyParametersForm.setAttribute("aria-label", t("edit_strategy_parameters_aria"));
+  strategyBuyBelowLabel.textContent = t("buy_below_label");
+  strategySellAboveLabel.textContent = t("sell_above_label");
+  strategyQuantityLabel.textContent = t("quantity");
+  strategyParametersSubmit.textContent = isSavingStrategyParameters ? t("saving") : t("save");
+  strategyParametersCancel.textContent = t("cancel");
+  document
+    .querySelector(".strategy-parameters-panel")
+    ?.setAttribute("aria-label", t("strategy_parameters"));
   recentActivityHeading.textContent = t("recent_activity");
   toggleCreateBot.textContent = isCreateBotOpen ? t("close") : t("create_bot");
   createBotSubmit.textContent = isCreatingBot ? t("creating") : t("create_draft_bot");
@@ -487,6 +546,12 @@ function normalizeBotsResponse(data) {
 function normalizeSummary(rawSummary) {
   return {
     ...normalizeBot(rawSummary),
+    strategyName: rawSummary.strategy_name ?? "",
+    strategyTimeframe: rawSummary.strategy_timeframe ?? "",
+    strategyParameters:
+      rawSummary.strategy_parameters && typeof rawSummary.strategy_parameters === "object"
+        ? rawSummary.strategy_parameters
+        : {},
     cooldownSeconds: rawSummary.cooldown_seconds ?? null,
     recentActivity: Array.isArray(rawSummary.recent_activity)
       ? rawSummary.recent_activity
@@ -500,6 +565,10 @@ function normalizeStrategy(rawStrategy) {
     name: rawStrategy.name ?? "",
     symbol: rawStrategy.symbol ?? "",
     timeframe: rawStrategy.timeframe ?? "",
+    parameters:
+      rawStrategy.parameters && typeof rawStrategy.parameters === "object"
+        ? rawStrategy.parameters
+        : {},
     isActive: rawStrategy.is_active ?? true,
   };
 }
@@ -615,6 +684,109 @@ function formatDecimal(value, fallback = "—") {
     minimumFractionDigits: 0,
     maximumFractionDigits: 8,
   }).format(parsed);
+}
+
+function formatParameterValue(value) {
+  if (value === null || value === undefined || value === "") return "—";
+  if (typeof value === "number" || typeof value === "bigint") return formatDecimal(value);
+  if (typeof value === "boolean") return value ? t("active") : t("not_active");
+  if (typeof value === "string") return formatDecimal(value, value);
+  return JSON.stringify(value);
+}
+
+function strategyParameterLabel(key) {
+  const knownLabels = {
+    buy_below: t("buy_below_label"),
+    sell_above: t("sell_above_label"),
+    quantity: t("quantity"),
+  };
+  return knownLabels[key] ?? humanizeMessage(key, key);
+}
+
+function orderedStrategyParameters(parameters) {
+  const safeParameters =
+    parameters && typeof parameters === "object" && !Array.isArray(parameters)
+      ? parameters
+      : {};
+  const knownOrder = ["buy_below", "sell_above", "quantity"];
+  const knownKeys = knownOrder.filter((key) =>
+    Object.prototype.hasOwnProperty.call(safeParameters, key),
+  );
+  const customKeys = Object.keys(safeParameters)
+    .filter((key) => !knownOrder.includes(key))
+    .sort((left, right) => left.localeCompare(right));
+
+  return [...knownKeys, ...customKeys].map((key) => ({
+    key,
+    label: strategyParameterLabel(key),
+    value: safeParameters[key],
+  }));
+}
+
+function strategyIdForSelectedBot() {
+  return selectedBotConfig?.strategyId ?? null;
+}
+
+function strategyParameterInputValue(key) {
+  const value = selectedSummary?.strategyParameters?.[key];
+  return value === null || value === undefined ? "" : String(value);
+}
+
+function populateStrategyParametersForm() {
+  strategyBuyBelow.value = strategyParameterInputValue("buy_below");
+  strategySellAbove.value = strategyParameterInputValue("sell_above");
+  strategyQuantity.value = strategyParameterInputValue("quantity");
+}
+
+function parsePositiveParameter(value) {
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+  const parsed = Number(trimmed);
+  return Number.isFinite(parsed) && parsed > 0 ? trimmed : null;
+}
+
+function validateStrategyParametersForm() {
+  if (!strategyIdForSelectedBot()) return t("strategy_details_unavailable");
+
+  const values = [
+    strategyBuyBelow.value.trim(),
+    strategySellAbove.value.trim(),
+    strategyQuantity.value.trim(),
+  ];
+  if (values.some((value) => !value)) return t("enter_strategy_parameters");
+  if (
+    parsePositiveParameter(strategyBuyBelow.value) === null ||
+    parsePositiveParameter(strategySellAbove.value) === null ||
+    parsePositiveParameter(strategyQuantity.value) === null
+  ) {
+    return t("strategy_parameters_must_be_numbers");
+  }
+  return "";
+}
+
+function renderStrategyParametersForm() {
+  const hasStrategyDetails = Boolean(selectedBotId && selectedSummary && strategyIdForSelectedBot());
+  const shouldDisable =
+    !hasStrategyDetails ||
+    isLoadingSummary ||
+    isSavingStrategyParameters ||
+    isRunningNow ||
+    isTogglingPause;
+
+  editStrategyParameters.textContent = t("edit_strategy_parameters");
+  editStrategyParameters.disabled = shouldDisable || isEditingStrategyParameters;
+  strategyParametersForm.setAttribute("data-open", String(isEditingStrategyParameters));
+  strategyParametersSubmit.textContent = isSavingStrategyParameters ? t("saving") : t("save");
+  strategyParametersSubmit.disabled = shouldDisable;
+  strategyParametersCancel.textContent = t("cancel");
+  strategyParametersCancel.disabled = isSavingStrategyParameters;
+  strategyBuyBelow.disabled = shouldDisable;
+  strategySellAbove.disabled = shouldDisable;
+  strategyQuantity.disabled = shouldDisable;
+  strategyParametersMessageEl.textContent = strategyParametersMessage;
+  strategyParametersMessageEl.className = strategyParametersMessageType
+    ? `form-message ${strategyParametersMessageType}`
+    : "form-message";
 }
 
 function cooldownText(bot) {
@@ -858,6 +1030,9 @@ function clearSelectedBotMessages() {
   actionMessageType = "";
   editBotMessage = "";
   editBotMessageType = "";
+  strategyParametersMessage = "";
+  strategyParametersMessageType = "";
+  isEditingStrategyParameters = false;
 }
 
 function hasInFlightAction() {
@@ -868,7 +1043,8 @@ function hasInFlightAction() {
     isUpdatingPrice ||
     isCreatingBot ||
     isLoadingEditBot ||
-    isSavingEditBot
+    isSavingEditBot ||
+    isSavingStrategyParameters
   );
 }
 
@@ -1163,6 +1339,30 @@ function closeEditBotForm() {
   render();
 }
 
+function openStrategyParametersForm() {
+  if (!selectedBotId || !selectedSummary || !strategyIdForSelectedBot() || isSavingStrategyParameters) {
+    strategyParametersMessage = t("strategy_details_unavailable");
+    strategyParametersMessageType = "error";
+    render();
+    return;
+  }
+
+  populateStrategyParametersForm();
+  isEditingStrategyParameters = true;
+  strategyParametersMessage = "";
+  strategyParametersMessageType = "";
+  render();
+}
+
+function closeStrategyParametersForm() {
+  isEditingStrategyParameters = false;
+  isSavingStrategyParameters = false;
+  strategyParametersMessage = "";
+  strategyParametersMessageType = "";
+  populateStrategyParametersForm();
+  render();
+}
+
 async function submitCreateBot(event) {
   event.preventDefault();
   if (isCreatingBot) return;
@@ -1257,6 +1457,52 @@ async function submitEditBot(event) {
     render();
   } finally {
     isSavingEditBot = false;
+    render();
+  }
+}
+
+async function submitStrategyParameters(event) {
+  event.preventDefault();
+  if (isSavingStrategyParameters) return;
+
+  const strategyId = strategyIdForSelectedBot();
+  const validationError = validateStrategyParametersForm();
+  if (validationError) {
+    strategyParametersMessage = validationError;
+    strategyParametersMessageType = "error";
+    isEditingStrategyParameters = true;
+    render();
+    return;
+  }
+
+  isSavingStrategyParameters = true;
+  strategyParametersMessage = "";
+  strategyParametersMessageType = "";
+  render();
+
+  const parameters = {
+    ...(selectedSummary?.strategyParameters ?? {}),
+    buy_below: strategyBuyBelow.value.trim(),
+    sell_above: strategySellAbove.value.trim(),
+    quantity: strategyQuantity.value.trim(),
+  };
+
+  try {
+    await fetchJson(`/api/v1/strategies/${strategyId}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ parameters }),
+    });
+    await loadSelectedSummary(selectedBotId);
+    isEditingStrategyParameters = false;
+    strategyParametersMessage = t("strategy_parameters_updated");
+    strategyParametersMessageType = "success";
+  } catch (error) {
+    strategyParametersMessage = requestErrorMessage(error, t("strategy_parameters_save_failed"));
+    strategyParametersMessageType = "error";
+    isEditingStrategyParameters = true;
+  } finally {
+    isSavingStrategyParameters = false;
     render();
   }
 }
@@ -1454,6 +1700,70 @@ function renderEditBotForm() {
     : "form-message";
 }
 
+function renderStrategyParameters(bot) {
+  strategyParametersContent.innerHTML = "";
+
+  if (!bot) {
+    strategyParametersContent.textContent = selectedBotId
+      ? t("strategy_details_unavailable")
+      : t("no_strategy_selected");
+    strategyParametersContent.className = "strategy-parameters-content empty";
+    return;
+  }
+
+  if (selectedBotId && isLoadingSummary && !selectedSummary) {
+    strategyParametersContent.textContent = t("loading_details");
+    strategyParametersContent.className = "strategy-parameters-content empty loading";
+    return;
+  }
+
+  if (!selectedSummary) {
+    strategyParametersContent.textContent = t("strategy_details_unavailable");
+    strategyParametersContent.className = summaryError
+      ? "strategy-parameters-content empty error"
+      : "strategy-parameters-content empty";
+    return;
+  }
+
+  const strategyRows = [
+    {
+      label: t("strategy_name_label"),
+      value: formatValue(selectedSummary.strategyName, t("unnamed_strategy")),
+    },
+    {
+      label: t("symbol"),
+      value: formatValue(selectedSummary.symbol),
+    },
+    {
+      label: t("timeframe_label"),
+      value: formatValue(selectedSummary.strategyTimeframe),
+    },
+  ];
+  const parameterRows = orderedStrategyParameters(selectedSummary.strategyParameters);
+  const grid = document.createElement("dl");
+  grid.className = "strategy-parameters-grid";
+
+  [...strategyRows, ...parameterRows].forEach((item) => {
+    const row = document.createElement("div");
+    const label = document.createElement("dt");
+    const value = document.createElement("dd");
+    label.textContent = item.label;
+    value.textContent = formatParameterValue(item.value);
+    row.append(label, value);
+    grid.append(row);
+  });
+
+  strategyParametersContent.className = "strategy-parameters-content";
+  strategyParametersContent.append(grid);
+
+  if (parameterRows.length === 0) {
+    const empty = document.createElement("p");
+    empty.className = "strategy-parameters-empty";
+    empty.textContent = t("no_strategy_parameters_configured");
+    strategyParametersContent.append(empty);
+  }
+}
+
 function renderSummary() {
   const listBot = bots.find((bot) => bot.id === selectedBotId);
   const bot = selectedSummary || listBot;
@@ -1462,6 +1772,7 @@ function renderSummary() {
   const canPauseResume = Boolean(selectedBotId && bot && !["draft"].includes(bot.status));
 
   if (!bot) {
+    isEditingStrategyParameters = false;
     selectedSymbol.textContent = "";
     selectedName.textContent = botListError
       ? t("details_unavailable")
@@ -1476,6 +1787,7 @@ function renderSummary() {
     selectedCooldown.textContent = bots.length === 0 ? t("add_bot_to_get_started") : "—";
     selectedPrice.textContent = "—";
     selectedLastRun.textContent = bots.length === 0 ? t("no_bot_activity_yet") : "—";
+    renderStrategyParameters(null);
     pauseResume.textContent = t("pause");
     pauseResume.disabled = true;
     runNow.textContent = t("run_now");
@@ -1509,6 +1821,7 @@ function renderSummary() {
   selectedCooldown.textContent = cooldownText(bot);
   selectedPrice.textContent = formatDecimal(bot.lastPrice);
   selectedLastRun.textContent = formatDateTime(bot.updatedAt);
+  renderStrategyParameters(bot);
   pauseResume.textContent = isTogglingPause
     ? `${pauseResumeLabel(bot.status)}…`
     : pauseResumeLabel(bot.status);
@@ -1608,6 +1921,7 @@ function render() {
   renderCreateBotForm();
   renderBotList();
   renderSummary();
+  renderStrategyParametersForm();
   renderEditBotForm();
   renderActivity();
 }
@@ -1637,8 +1951,11 @@ pauseResume.addEventListener("click", togglePauseResume);
 runNow.addEventListener("click", runSelectedBotNow);
 editBot.addEventListener("click", openEditBotForm);
 editBotCancel.addEventListener("click", closeEditBotForm);
+editStrategyParameters.addEventListener("click", openStrategyParametersForm);
+strategyParametersCancel.addEventListener("click", closeStrategyParametersForm);
 createBotForm.addEventListener("submit", submitCreateBot);
 editBotForm.addEventListener("submit", submitEditBot);
+strategyParametersForm.addEventListener("submit", submitStrategyParameters);
 priceForm.addEventListener("submit", updateMarketPrice);
 priceSymbol.addEventListener("input", () => {
   symbolTouched = true;

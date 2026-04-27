@@ -664,6 +664,94 @@ dd {
   font-weight: 800;
 }
 
+.strategy-parameters-panel {
+  margin: 0 0 18px;
+  padding: 0;
+  box-shadow: none;
+}
+
+.compact-heading {
+  align-items: center;
+  margin-bottom: 10px;
+}
+
+.compact-heading h2 {
+  font-size: 0.92rem;
+}
+
+.compact-heading button {
+  min-height: 34px;
+}
+
+.strategy-parameters-content {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fbfcfa;
+  padding: 14px;
+}
+
+.strategy-parameters-content.empty {
+  color: var(--muted);
+  font-size: 0.86rem;
+  font-weight: 800;
+}
+
+.strategy-parameters-content.error {
+  background: var(--danger-soft);
+  color: var(--danger);
+}
+
+.strategy-parameters-content.loading {
+  color: var(--muted);
+}
+
+.strategy-parameters-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+  margin: 0;
+}
+
+.strategy-parameters-grid div {
+  display: grid;
+  gap: 5px;
+  min-width: 0;
+}
+
+.strategy-parameters-empty {
+  margin: 12px 0 0;
+  color: var(--muted);
+  font-size: 0.84rem;
+  font-weight: 800;
+}
+
+.strategy-parameters-form {
+  display: none;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+  margin-top: 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fbfcfa;
+  padding: 14px;
+}
+
+.strategy-parameters-form[data-open="true"] {
+  display: grid;
+}
+
+.strategy-parameters-actions {
+  grid-column: 1 / -1;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.strategy-parameters-panel > .form-message {
+  margin-top: 8px;
+}
+
 .activity-panel {
   box-shadow: none;
 }
@@ -779,6 +867,14 @@ dd {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
+  .strategy-parameters-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .strategy-parameters-form {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
   .topbar-controls {
     grid-template-columns: auto auto auto;
     justify-items: stretch;
@@ -809,7 +905,9 @@ dd {
 }
 
 @media (max-width: 720px) {
-  .summary-grid {
+  .summary-grid,
+  .strategy-parameters-grid,
+  .strategy-parameters-form {
     grid-template-columns: 1fr;
   }
 }

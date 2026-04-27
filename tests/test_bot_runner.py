@@ -141,6 +141,140 @@ def test_sell_signal_triggers_full_sell(
     assert sum(1 for event in events if event.message == "order_filled") == 2
 
 
+def test_buy_decision_and_quantity_use_strategy_parameters(
+    db_session,
+    db_session_factory,
+    stub_market_data_service,
+    bot_stack_factory,
+    funded_account,
+) -> None:
+    funded_account(db_session)
+    strategy, bot, profile = bot_stack_factory(db_session)
+    assert profile is not None
+    strategy.parameters = {
+        "buy_below": "100",
+        "sell_above": "110",
+        "quantity": "0.2",
+    }
+    profile.entry_below = Decimal("90")
+    profile.order_quantity = Decimal("0.1")
+    db_session.add_all([strategy, profile])
+    db_session.commit()
+
+    runner = build_runner(db_session_factory, stub_market_data_service)
+    runner.start_bot(bot.id)
+    stub_market_data_service.set_price("BTCUSDT", "95")
+
+    asyncio.run(runner.run_cycle())
+
+    repository = PortfolioRepository(db_session)
+    orders = repository.list_orders()
+    events = RunEventRepository(db_session).list_for_bot(bot.id)
+
+    assert len(orders) == 1
+    assert orders[0].side == "buy"
+    assert orders[0].quantity == Decimal("0.20000000")
+    assert any(event.message == "order_filled" for event in events)
+    buy_signal = next(event for event in events if event.message == "buy_signal")
+    assert buy_signal.payload["detail"] == "price is below strategy buy_below"
+    assert buy_signal.payload["quantity"] == "0.2"
+
+
+def test_sell_decision_uses_strategy_parameters_sell_above(
+    db_session,
+    db_session_factory,
+    stub_market_data_service,
+    bot_stack_factory,
+    funded_account,
+) -> None:
+    funded_account(db_session)
+    strategy, bot, profile = bot_stack_factory(db_session)
+    assert profile is not None
+    strategy.parameters = {
+        "buy_below": "100",
+        "sell_above": "110",
+        "quantity": "0.2",
+    }
+    profile.exit_above = Decimal("120")
+    db_session.add_all([strategy, profile])
+    db_session.commit()
+
+    runner = build_runner(db_session_factory, stub_market_data_service)
+    runner.start_bot(bot.id)
+    stub_market_data_service.set_price("BTCUSDT", "95")
+    asyncio.run(runner.run_cycle())
+    stub_market_data_service.set_price("BTCUSDT", "115")
+
+    asyncio.run(runner.run_cycle())
+
+    orders = PortfolioRepository(db_session).list_orders()
+    events = RunEventRepository(db_session).list_for_bot(bot.id)
+
+    assert len(orders) == 2
+    assert orders[0].side == "sell"
+    assert orders[0].quantity == Decimal("0.20000000")
+    sell_signal = next(event for event in events if event.message == "sell_signal")
+    assert sell_signal.payload["detail"] == "price is above strategy sell_above"
+
+
+def test_missing_strategy_parameters_fall_back_to_execution_profile_fields(
+    db_session,
+    db_session_factory,
+    stub_market_data_service,
+    bot_stack_factory,
+    funded_account,
+) -> None:
+    funded_account(db_session)
+    strategy, bot, _ = bot_stack_factory(db_session)
+    strategy.parameters = {}
+    db_session.add(strategy)
+    db_session.commit()
+
+    runner = build_runner(db_session_factory, stub_market_data_service)
+    runner.start_bot(bot.id)
+    stub_market_data_service.set_price("BTCUSDT", "95")
+
+    asyncio.run(runner.run_cycle())
+
+    orders = PortfolioRepository(db_session).list_orders()
+
+    assert len(orders) == 1
+    assert orders[0].side == "buy"
+    assert orders[0].quantity == Decimal("0.10000000")
+
+
+def test_invalid_strategy_parameter_is_safe_skipped_evaluation(
+    db_session,
+    db_session_factory,
+    stub_market_data_service,
+    bot_stack_factory,
+    funded_account,
+) -> None:
+    funded_account(db_session)
+    strategy, bot, _ = bot_stack_factory(db_session)
+    strategy.parameters = {
+        "buy_below": "not-a-number",
+        "sell_above": "110",
+        "quantity": "0.1",
+    }
+    db_session.add(strategy)
+    db_session.commit()
+
+    runner = build_runner(db_session_factory, stub_market_data_service)
+    runner.start_bot(bot.id)
+    stub_market_data_service.set_price("BTCUSDT", "95")
+
+    response = asyncio.run(run_bot_once_endpoint(bot.id, runner))
+    events = RunEventRepository(db_session).list_for_bot(bot.id)
+
+    assert response.action == "skipped"
+    assert response.message == "evaluation_skipped"
+    assert PortfolioRepository(db_session).list_orders() == []
+    skipped_event = next(event for event in events if event.message == "evaluation_skipped")
+    assert skipped_event.payload["reason"] == "invalid_strategy_parameter"
+    assert skipped_event.payload["parameter"] == "buy_below"
+
+
 def test_live_mode_bot_does_not_use_simulated_execution_for_buy_or_sell(
     db_session,
     db_session_factory,
@@ -534,7 +668,14 @@ def test_bot_summary_returns_existing_bot_summary(
     stub_market_data_service,
     bot_stack_factory,
 ) -> None:
-    _, bot, _ = bot_stack_factory(db_session, name="BTC threshold bot", symbol="BTCUSDT")
+    strategy, bot, _ = bot_stack_factory(db_session, name="BTC threshold bot", symbol="BTCUSDT")
+    strategy.parameters = {
+        "buy_below": "100",
+        "sell_above": "110",
+        "quantity": "0.1",
+    }
+    db_session.add(strategy)
+    db_session.commit()
     runner = build_runner(db_session_factory, stub_market_data_service)
 
     response = asyncio.run(get_bot_summary_endpoint(bot.id, runner))
@@ -544,6 +685,13 @@ def test_bot_summary_returns_existing_bot_summary(
     assert response.status == "draft"
     assert response.is_paused is False
     assert response.strategy_type == "price_threshold"
+    assert response.strategy_name == "BTC threshold bot Strategy"
+    assert response.strategy_timeframe == "1m"
+    assert response.strategy_parameters == {
+        "buy_below": "100",
+        "sell_above": "110",
+        "quantity": "0.1",
+    }
     assert response.symbol == "BTCUSDT"
     assert response.cooldown_seconds == 60
     assert response.buy_below_price == Decimal("100.00000000")

@@ -173,6 +173,35 @@
             </div>
           </dl>
 
+          <section class="strategy-parameters-panel" aria-label="Strategy parameters">
+            <div class="panel-heading compact-heading">
+              <h2 id="strategy-parameters-heading">Strategy Parameters</h2>
+              <button id="edit-strategy-parameters" type="button" class="secondary-button" disabled>
+                Edit
+              </button>
+            </div>
+            <div id="strategy-parameters-content" class="strategy-parameters-content"></div>
+            <form id="strategy-parameters-form" class="strategy-parameters-form" aria-label="Edit strategy parameters">
+              <label>
+                <span id="strategy-buy-below-label">Buy below</span>
+                <input id="strategy-buy-below" name="buy_below" inputmode="decimal" autocomplete="off" />
+              </label>
+              <label>
+                <span id="strategy-sell-above-label">Sell above</span>
+                <input id="strategy-sell-above" name="sell_above" inputmode="decimal" autocomplete="off" />
+              </label>
+              <label>
+                <span id="strategy-quantity-label">Quantity</span>
+                <input id="strategy-quantity" name="quantity" inputmode="decimal" autocomplete="off" />
+              </label>
+              <div class="strategy-parameters-actions">
+                <button id="strategy-parameters-submit" type="submit">Save</button>
+                <button id="strategy-parameters-cancel" type="button" class="secondary-button">Cancel</button>
+              </div>
+            </form>
+            <span id="strategy-parameters-message" class="form-message" role="status"></span>
+          </section>
+
           <section class="activity-panel" aria-label="Recent activity">
             <div class="panel-heading">
               <h2 id="recent-activity-heading">Recent Activity</h2>

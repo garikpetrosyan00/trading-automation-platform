@@ -1,5 +1,6 @@
 from datetime import datetime
 from decimal import Decimal
+from typing import Any
 
 from pydantic import BaseModel
 
@@ -12,6 +13,9 @@ class BotSummaryRead(BaseModel):
     status: str
     is_paused: bool
     strategy_type: str | None = None
+    strategy_name: str | None = None
+    strategy_timeframe: str | None = None
+    strategy_parameters: dict[str, Any]
     symbol: str
     cooldown_seconds: int | None = None
     cooldown_active: bool

@@ -1,7 +1,7 @@
 from datetime import datetime
-from typing import Annotated
+from typing import Annotated, Any
 
-from pydantic import BaseModel, ConfigDict, StringConstraints
+from pydantic import BaseModel, ConfigDict, Field, StringConstraints
 
 NonEmptyStr = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1)]
 
@@ -11,6 +11,7 @@ class StrategyBase(BaseModel):
     description: str | None = None
     symbol: NonEmptyStr
     timeframe: NonEmptyStr
+    parameters: dict[str, Any] = Field(default_factory=dict)
     is_active: bool = True
 
 
@@ -23,6 +24,7 @@ class StrategyUpdate(BaseModel):
     description: str | None = None
     symbol: NonEmptyStr | None = None
     timeframe: NonEmptyStr | None = None
+    parameters: dict[str, Any] | None = None
     is_active: bool | None = None
 
 
