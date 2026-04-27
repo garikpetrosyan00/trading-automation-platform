@@ -16,6 +16,7 @@ from app.models.run_event import RunEvent
 from app.repositories.bot import BotRepository
 from app.repositories.bot_run import BotRunRepository
 from app.repositories.execution_profile import ExecutionProfileRepository
+from app.repositories.market_candle import MarketCandleRepository
 from app.repositories.portfolio import PortfolioRepository
 from app.repositories.run_event import RunEventRepository
 from app.repositories.strategy import StrategyRepository
@@ -33,6 +34,7 @@ logger = get_logger(__name__)
 
 ZERO = Decimal("0")
 PRICE_THRESHOLD_STRATEGY_TYPE = "price_threshold"
+MOVING_AVERAGE_CROSS_STRATEGY_TYPE = "moving_average_cross"
 
 
 @dataclass
@@ -48,6 +50,15 @@ class RunnerConfig:
 class PriceThresholdConfig:
     entry_below: Decimal | None
     exit_above: Decimal | None
+    order_quantity: Decimal | None
+    invalid_parameter: str | None = None
+    invalid_reason: str | None = None
+
+
+@dataclass(frozen=True)
+class MovingAverageCrossConfig:
+    short_window: int | None
+    long_window: int | None
     order_quantity: Decimal | None
     invalid_parameter: str | None = None
     invalid_reason: str | None = None
@@ -347,6 +358,17 @@ class BotRunner:
             return
 
         strategy_type = self._strategy_type(strategy)
+        if strategy_type == MOVING_AVERAGE_CROSS_STRATEGY_TYPE:
+            self._evaluate_moving_average_cross(
+                db,
+                bot=bot,
+                strategy=strategy,
+                profile=profile,
+                bot_run=bot_run,
+                portfolio_repository=portfolio_repository,
+            )
+            return
+
         if strategy_type != PRICE_THRESHOLD_STRATEGY_TYPE:
             self._record_event(
                 db,
@@ -531,6 +553,214 @@ class BotRunner:
         )
         db.commit()
 
+    def _evaluate_moving_average_cross(self, db, *, bot, strategy, profile, bot_run, portfolio_repository) -> None:
+        config = self._resolve_moving_average_cross_config(strategy.parameters)
+        if config.invalid_parameter is not None:
+            self._record_event(
+                db,
+                bot_run.id,
+                event_type="system",
+                level="warning",
+                message="evaluation_skipped",
+                payload={
+                    "reason": "invalid_strategy_parameter",
+                    "detail": config.invalid_reason,
+                    "decision": "skipped",
+                    "parameter": config.invalid_parameter,
+                    "symbol": strategy.symbol,
+                    "strategy_type": MOVING_AVERAGE_CROSS_STRATEGY_TYPE,
+                },
+            )
+            db.commit()
+            return
+
+        assert config.short_window is not None
+        assert config.long_window is not None
+        required_candles = config.long_window + 1
+        candles = MarketCandleRepository(db).list_recent(
+            symbol=strategy.symbol,
+            timeframe=strategy.timeframe,
+            limit=required_candles,
+        )
+        position = portfolio_repository.get_position_by_symbol(strategy.symbol)
+        position_quantity = position.quantity if position is not None else ZERO
+
+        if len(candles) < required_candles:
+            payload = self._moving_average_cross_decision_payload(
+                decision="skipped",
+                reason="insufficient_candles",
+                current_price=candles[-1].close_price if candles else None,
+                position_quantity=position_quantity,
+                short_window=config.short_window,
+                long_window=config.long_window,
+                previous_short_ma=None,
+                previous_long_ma=None,
+                current_short_ma=None,
+                current_long_ma=None,
+                candles_used=len(candles),
+            )
+            self._record_event(
+                db,
+                bot_run.id,
+                event_type="system",
+                level="warning",
+                message="evaluation_skipped",
+                payload={"symbol": strategy.symbol, "timeframe": strategy.timeframe, **payload},
+            )
+            db.commit()
+            return
+
+        previous_window = candles[-required_candles:-1]
+        current_window = candles[-config.long_window :]
+        previous_short_ma = self._moving_average([candle.close_price for candle in previous_window[-config.short_window :]])
+        previous_long_ma = self._moving_average([candle.close_price for candle in previous_window])
+        current_short_ma = self._moving_average([candle.close_price for candle in current_window[-config.short_window :]])
+        current_long_ma = self._moving_average([candle.close_price for candle in current_window])
+        current_price = candles[-1].close_price
+
+        if (
+            position_quantity <= ZERO
+            and previous_short_ma <= previous_long_ma
+            and current_short_ma > current_long_ma
+        ):
+            decision = "buy"
+            reason = "short moving average crossed above long moving average"
+        elif (
+            position_quantity > ZERO
+            and previous_short_ma >= previous_long_ma
+            and current_short_ma < current_long_ma
+        ):
+            decision = "sell"
+            reason = "short moving average crossed below long moving average"
+        elif position_quantity <= ZERO:
+            decision = "hold"
+            reason = "moving averages did not cross bullish, so no buy signal"
+        else:
+            decision = "hold"
+            reason = "moving averages did not cross bearish, so no sell signal"
+
+        decision_payload = self._moving_average_cross_decision_payload(
+            decision=decision if decision != "hold" else "no_action",
+            reason=reason,
+            current_price=current_price,
+            position_quantity=position_quantity,
+            short_window=config.short_window,
+            long_window=config.long_window,
+            previous_short_ma=previous_short_ma,
+            previous_long_ma=previous_long_ma,
+            current_short_ma=current_short_ma,
+            current_long_ma=current_long_ma,
+            candles_used=len(candles),
+        )
+
+        cooldown_until = self._get_cooldown_until(RunEventRepository(db), bot.id, profile.cooldown_seconds)
+        if (
+            decision == "buy"
+            and position_quantity <= ZERO
+            and cooldown_until is not None
+            and self.now_provider() < cooldown_until
+        ):
+            self._record_event(
+                db,
+                bot_run.id,
+                event_type="system",
+                level="info",
+                message="cooldown_active",
+                payload={"symbol": strategy.symbol, "cooldown_until": cooldown_until.isoformat(), **decision_payload},
+            )
+            db.commit()
+            return
+
+        if decision == "hold":
+            self._record_event(
+                db,
+                bot_run.id,
+                event_type="log",
+                level="info",
+                message="evaluation_no_signal",
+                payload={"symbol": strategy.symbol, "timeframe": strategy.timeframe, **decision_payload},
+            )
+            db.commit()
+            return
+
+        quantity = config.order_quantity
+        if quantity is None:
+            self._record_event(
+                db,
+                bot_run.id,
+                event_type="system",
+                level="warning",
+                message="evaluation_skipped",
+                payload={
+                    "reason": "order_quantity_not_configured",
+                    "detail": "strategy quantity is missing",
+                    "decision": "skipped",
+                    "symbol": strategy.symbol,
+                    "strategy_type": MOVING_AVERAGE_CROSS_STRATEGY_TYPE,
+                    **decision_payload,
+                },
+            )
+            db.commit()
+            return
+
+        if decision == "sell":
+            quantity = position_quantity
+
+        self._record_event(
+            db,
+            bot_run.id,
+            event_type="system",
+            level="info",
+            message=f"{decision}_signal",
+            payload={
+                "symbol": strategy.symbol,
+                "timeframe": strategy.timeframe,
+                "quantity": str(quantity),
+                **decision_payload,
+            },
+        )
+        db.commit()
+
+        if not bot.is_paper:
+            self._record_event(
+                db,
+                bot_run.id,
+                event_type="system",
+                level="warning",
+                message="live_mode_not_implemented",
+                payload={"side": decision, "symbol": strategy.symbol, "quantity": str(quantity), **decision_payload},
+            )
+            db.commit()
+            return
+
+        execution_service = SimulatedExecutionService(
+            repository=portfolio_repository,
+            market_data_service=self.market_data_service,
+            simulation_enabled=self.config.simulation_enabled,
+            fee_bps=self.config.simulation_fee_bps,
+            slippage_bps=self.config.simulation_slippage_bps,
+        )
+        result = execution_service.submit_market_order(
+            MarketOrderRequest(symbol=strategy.symbol, side=decision, quantity=quantity)
+        )
+
+        self._record_event(
+            db,
+            bot_run.id,
+            event_type="system",
+            level="info" if result.accepted else "warning",
+            message="order_filled" if result.accepted else "order_rejected",
+            payload={
+                "side": decision,
+                "symbol": strategy.symbol,
+                "message": result.message,
+                "order_id": result.order.id,
+                "fill_id": result.fill.id if result.fill is not None else None,
+                **decision_payload,
+            },
+        )
+        db.commit()
+
     def _ensure_running_run(self, bot_run_service: BotRunService, bot_id: int, trigger_type: str) -> BotRun:
         existing = bot_run_service.repository.get_active_for_bot(bot_id)
         if existing is not None:
@@ -688,6 +918,13 @@ class BotRunner:
             buy_below=payload.get("buy_below"),
             sell_above=payload.get("sell_above"),
             position_qty=payload.get("position_qty"),
+            short_window=payload.get("short_window"),
+            long_window=payload.get("long_window"),
+            previous_short_ma=payload.get("previous_short_ma"),
+            previous_long_ma=payload.get("previous_long_ma"),
+            current_short_ma=payload.get("current_short_ma"),
+            current_long_ma=payload.get("current_long_ma"),
+            candles_used=payload.get("candles_used"),
             decision=decision,
             reason=reason,
         )
@@ -845,6 +1082,33 @@ class BotRunner:
             order_quantity=parsed_parameters["quantity"] if parsed_parameters["quantity"] is not None else profile.order_quantity,
         )
 
+    @classmethod
+    def _resolve_moving_average_cross_config(cls, parameters: dict[str, Any] | None) -> MovingAverageCrossConfig:
+        short_window, invalid_reason = cls._parse_strategy_integer_parameter(parameters, "short_window")
+        if invalid_reason is not None:
+            return MovingAverageCrossConfig(None, None, None, "short_window", invalid_reason)
+        long_window, invalid_reason = cls._parse_strategy_integer_parameter(parameters, "long_window")
+        if invalid_reason is not None:
+            return MovingAverageCrossConfig(None, None, None, "long_window", invalid_reason)
+        quantity, invalid_reason = cls._parse_strategy_decimal_parameter(parameters, "quantity")
+        if invalid_reason is not None:
+            return MovingAverageCrossConfig(None, None, None, "quantity", invalid_reason)
+
+        if short_window is None:
+            return MovingAverageCrossConfig(None, None, None, "short_window", "strategy parameter short_window is required")
+        if long_window is None:
+            return MovingAverageCrossConfig(None, None, None, "long_window", "strategy parameter long_window is required")
+        if short_window >= long_window:
+            return MovingAverageCrossConfig(
+                None,
+                None,
+                None,
+                "short_window",
+                "strategy parameter short_window must be less than long_window",
+            )
+
+        return MovingAverageCrossConfig(short_window, long_window, quantity)
+
     @staticmethod
     def _parse_strategy_decimal_parameter(parameters: dict[str, Any] | None, key: str) -> tuple[Decimal | None, str | None]:
         if not parameters or key not in parameters:
@@ -863,6 +1127,19 @@ class BotRunner:
             return None, f"strategy parameter {key} must be a positive number"
 
         return value, None
+
+    @classmethod
+    def _parse_strategy_integer_parameter(cls, parameters: dict[str, Any] | None, key: str) -> tuple[int | None, str | None]:
+        value, invalid_reason = cls._parse_strategy_decimal_parameter(parameters, key)
+        if invalid_reason is not None or value is None:
+            return None, invalid_reason
+        if value != value.to_integral_value():
+            return None, f"strategy parameter {key} must be a positive integer"
+        return int(value), None
+
+    @staticmethod
+    def _moving_average(values: list[Decimal]) -> Decimal:
+        return (sum(values, ZERO) / Decimal(len(values))).quantize(Decimal("0.00000001"))
 
     @staticmethod
     def _price_threshold_decision_payload(
@@ -908,6 +1185,43 @@ class BotRunner:
         if reason == "exit_above_not_configured" and exit_above is None:
             return "strategy sell_above is missing and execution profile exit_above is not configured"
         return reason
+
+    @staticmethod
+    def _moving_average_cross_decision_payload(
+        *,
+        decision: str,
+        reason: str,
+        current_price: Decimal | None,
+        position_quantity: Decimal,
+        short_window: int,
+        long_window: int,
+        previous_short_ma: Decimal | None,
+        previous_long_ma: Decimal | None,
+        current_short_ma: Decimal | None,
+        current_long_ma: Decimal | None,
+        candles_used: int,
+    ) -> dict[str, str | int]:
+        payload: dict[str, str | int] = {
+            "decision": decision,
+            "reason": reason,
+            "detail": reason,
+            "position_qty": str(position_quantity),
+            "short_window": short_window,
+            "long_window": long_window,
+            "candles_used": candles_used,
+            "strategy_type": MOVING_AVERAGE_CROSS_STRATEGY_TYPE,
+        }
+        if current_price is not None:
+            payload["current_price"] = str(current_price)
+        if previous_short_ma is not None:
+            payload["previous_short_ma"] = str(previous_short_ma)
+        if previous_long_ma is not None:
+            payload["previous_long_ma"] = str(previous_long_ma)
+        if current_short_ma is not None:
+            payload["current_short_ma"] = str(current_short_ma)
+        if current_long_ma is not None:
+            payload["current_long_ma"] = str(current_long_ma)
+        return payload
 
     @staticmethod
     def _strategy_type(strategy) -> str:

@@ -14,6 +14,13 @@ class BotDecisionExplanationRead(BaseModel):
     buy_below: Decimal | None = None
     sell_above: Decimal | None = None
     position_qty: Decimal | None = None
+    short_window: int | None = None
+    long_window: int | None = None
+    previous_short_ma: Decimal | None = None
+    previous_long_ma: Decimal | None = None
+    current_short_ma: Decimal | None = None
+    current_long_ma: Decimal | None = None
+    candles_used: int | None = None
     decision: str
     reason: str
 

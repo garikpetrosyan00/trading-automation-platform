@@ -13,6 +13,8 @@ from app.api.v1.endpoints.bot_runtime import list_run_events as list_run_events_
 from app.api.v1.endpoints.market import set_market_price as set_market_price_endpoint
 from app.core.errors import NotFoundError
 from app.engine.bot_runner import BotRunner, RunnerConfig
+from app.models.market_candle import MarketCandle
+from app.models.position import Position
 from app.repositories.bot_run import BotRunRepository
 from app.repositories.portfolio import PortfolioRepository
 from app.repositories.run_event import RunEventRepository
@@ -43,6 +45,36 @@ def build_runner(db_session_factory, stub_market_data_service, clock: FakeClock 
         ),
         now_provider=clock.now if clock is not None else None,
     )
+
+
+def add_candles(session, *, symbol: str = "BTCUSDT", timeframe: str = "1m", closes: list[str]) -> None:
+    start = datetime(2026, 4, 28, 12, 0, tzinfo=timezone.utc)
+    for index, close in enumerate(closes):
+        close_price = Decimal(close)
+        open_time = start + timedelta(minutes=index)
+        candle = MarketCandle(
+            symbol=symbol,
+            timeframe=timeframe,
+            open_time=open_time,
+            close_time=open_time + timedelta(minutes=1),
+            open_price=close_price,
+            high_price=close_price,
+            low_price=close_price,
+            close_price=close_price,
+            volume=Decimal("1"),
+            source="manual",
+        )
+        session.add(candle)
+    session.commit()
+
+
+def configure_moving_average_strategy(strategy, *, short_window: str = "2", long_window: str = "3", quantity: str = "0.1") -> None:
+    strategy.strategy_type = "moving_average_cross"
+    strategy.parameters = {
+        "short_window": short_window,
+        "long_window": long_window,
+        "quantity": quantity,
+    }
 
 
 def test_bot_start_and_stop(db_session, db_session_factory, stub_market_data_service, bot_stack_factory, funded_account) -> None:
@@ -321,7 +353,7 @@ def test_unsupported_strategy_type_is_skipped_without_orders_or_position(
     assert unsupported_event.payload["reason"] == "unsupported strategy type: rsi"
 
 
-def test_moving_average_cross_strategy_is_skipped_until_runner_logic_exists(
+def test_moving_average_cross_buy_crossover_creates_buy_paper_order(
     db_session,
     db_session_factory,
     stub_market_data_service,
@@ -330,34 +362,170 @@ def test_moving_average_cross_strategy_is_skipped_until_runner_logic_exists(
 ) -> None:
     funded_account(db_session)
     strategy, bot, _ = bot_stack_factory(db_session)
-    strategy.strategy_type = "moving_average_cross"
-    strategy.parameters = {
-        "short_window": 9,
-        "long_window": 21,
-        "quantity": "0.1",
-    }
+    configure_moving_average_strategy(strategy)
     db_session.add(strategy)
     db_session.commit()
+    add_candles(db_session, closes=["10", "10", "10", "20"])
 
     runner = build_runner(db_session_factory, stub_market_data_service)
     runner.start_bot(bot.id)
-    stub_market_data_service.set_price("BTCUSDT", "95")
+    stub_market_data_service.set_price("BTCUSDT", "20")
 
     response = asyncio.run(run_bot_once_endpoint(bot.id, runner))
     repository = PortfolioRepository(db_session)
     events = RunEventRepository(db_session).list_for_bot(bot.id)
 
+    assert response.action == "bought"
+    assert response.message == "buy_filled"
+    assert response.decision_explanation is not None
+    assert response.decision_explanation.decision == "buy"
+    assert response.decision_explanation.reason == "short moving average crossed above long moving average"
+    assert response.decision_explanation.short_window == 2
+    assert response.decision_explanation.long_window == 3
+    assert response.decision_explanation.previous_short_ma == Decimal("10.00000000")
+    assert response.decision_explanation.current_short_ma == Decimal("15.00000000")
+    assert response.decision_explanation.candles_used == 4
+    orders = repository.list_orders()
+    assert len(orders) == 1
+    assert orders[0].side == "buy"
+    assert orders[0].quantity == Decimal("0.10000000")
+    assert repository.get_position_by_symbol("BTCUSDT") is not None
+
+    buy_signal = next(event for event in events if event.message == "buy_signal")
+    assert buy_signal.payload["strategy_type"] == "moving_average_cross"
+    assert buy_signal.payload["previous_long_ma"] == "10.00000000"
+    assert buy_signal.payload["current_long_ma"] == "13.33333333"
+
+
+def test_moving_average_cross_sell_crossover_sells_existing_position(
+    db_session,
+    db_session_factory,
+    stub_market_data_service,
+    bot_stack_factory,
+    funded_account,
+) -> None:
+    funded_account(db_session)
+    strategy, bot, _ = bot_stack_factory(db_session)
+    configure_moving_average_strategy(strategy)
+    db_session.add(strategy)
+    db_session.add(
+        Position(
+            symbol="BTCUSDT",
+            quantity=Decimal("0.1"),
+            average_entry_price=Decimal("20"),
+            realized_pnl=Decimal("0"),
+        )
+    )
+    db_session.commit()
+    add_candles(db_session, closes=["20", "20", "20", "10"])
+
+    runner = build_runner(db_session_factory, stub_market_data_service)
+    runner.start_bot(bot.id)
+    stub_market_data_service.set_price("BTCUSDT", "10")
+
+    response = asyncio.run(run_bot_once_endpoint(bot.id, runner))
+    repository = PortfolioRepository(db_session)
+
+    assert response.action == "sold"
+    assert response.message == "sell_filled"
+    assert response.decision_explanation is not None
+    assert response.decision_explanation.decision == "sell"
+    assert response.decision_explanation.reason == "short moving average crossed below long moving average"
+    assert response.decision_explanation.previous_short_ma == Decimal("20.00000000")
+    assert response.decision_explanation.current_short_ma == Decimal("15.00000000")
+    orders = repository.list_orders()
+    assert len(orders) == 1
+    assert orders[0].side == "sell"
+    assert orders[0].quantity == Decimal("0.10000000")
+    assert repository.get_position_by_symbol("BTCUSDT").quantity == Decimal("0E-8")
+
+
+def test_moving_average_cross_hold_when_no_crossover(
+    db_session,
+    db_session_factory,
+    stub_market_data_service,
+    bot_stack_factory,
+    funded_account,
+) -> None:
+    funded_account(db_session)
+    strategy, bot, _ = bot_stack_factory(db_session)
+    configure_moving_average_strategy(strategy)
+    db_session.add(strategy)
+    db_session.commit()
+    add_candles(db_session, closes=["10", "11", "12", "13"])
+
+    runner = build_runner(db_session_factory, stub_market_data_service)
+    runner.start_bot(bot.id)
+    stub_market_data_service.set_price("BTCUSDT", "13")
+
+    response = asyncio.run(run_bot_once_endpoint(bot.id, runner))
+
+    assert response.action == "no_action"
+    assert response.message == "evaluation_no_signal"
+    assert response.decision_explanation is not None
+    assert response.decision_explanation.decision == "no_action"
+    assert response.decision_explanation.reason == "moving averages did not cross bullish, so no buy signal"
+    assert PortfolioRepository(db_session).list_orders() == []
+
+
+def test_moving_average_cross_insufficient_candles_skips_safely(
+    db_session,
+    db_session_factory,
+    stub_market_data_service,
+    bot_stack_factory,
+    funded_account,
+) -> None:
+    funded_account(db_session)
+    strategy, bot, _ = bot_stack_factory(db_session)
+    configure_moving_average_strategy(strategy)
+    db_session.add(strategy)
+    db_session.commit()
+    add_candles(db_session, closes=["10", "10", "20"])
+
+    runner = build_runner(db_session_factory, stub_market_data_service)
+    runner.start_bot(bot.id)
+    stub_market_data_service.set_price("BTCUSDT", "20")
+
+    response = asyncio.run(run_bot_once_endpoint(bot.id, runner))
+
     assert response.action == "skipped"
-    assert response.message == "unsupported_strategy_type"
+    assert response.message == "evaluation_skipped"
     assert response.decision_explanation is not None
     assert response.decision_explanation.decision == "skipped"
-    assert response.decision_explanation.reason == "unsupported strategy type: moving_average_cross"
-    assert repository.list_orders() == []
-    assert repository.get_position_by_symbol("BTCUSDT") is None
+    assert response.decision_explanation.reason == "insufficient_candles"
+    assert response.decision_explanation.candles_used == 3
+    assert PortfolioRepository(db_session).list_orders() == []
 
-    skipped_event = next(event for event in events if event.message == "unsupported_strategy_type")
-    assert skipped_event.payload["strategy_type"] == "moving_average_cross"
-    assert skipped_event.payload["reason"] == "unsupported strategy type: moving_average_cross"
+
+def test_moving_average_cross_invalid_parameters_skip_safely(
+    db_session,
+    db_session_factory,
+    stub_market_data_service,
+    bot_stack_factory,
+    funded_account,
+) -> None:
+    funded_account(db_session)
+    strategy, bot, _ = bot_stack_factory(db_session)
+    configure_moving_average_strategy(strategy, short_window="2.5")
+    db_session.add(strategy)
+    db_session.commit()
+    add_candles(db_session, closes=["10", "10", "10", "20"])
+
+    runner = build_runner(db_session_factory, stub_market_data_service)
+    runner.start_bot(bot.id)
+    stub_market_data_service.set_price("BTCUSDT", "20")
+
+    response = asyncio.run(run_bot_once_endpoint(bot.id, runner))
+    events = RunEventRepository(db_session).list_for_bot(bot.id)
+
+    assert response.action == "skipped"
+    assert response.message == "evaluation_skipped"
+    assert response.decision_explanation is not None
+    assert response.decision_explanation.decision == "skipped"
+    assert response.decision_explanation.reason == "strategy parameter short_window must be a positive integer"
+    assert PortfolioRepository(db_session).list_orders() == []
+    skipped_event = next(event for event in events if event.message == "evaluation_skipped")
+    assert skipped_event.payload["parameter"] == "short_window"
 
 
 def test_live_mode_bot_does_not_use_simulated_execution_for_buy_or_sell(
