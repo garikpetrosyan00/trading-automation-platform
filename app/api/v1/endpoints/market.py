@@ -1,9 +1,20 @@
-from fastapi import APIRouter, Depends
+from typing import Annotated
 
-from app.api.dependencies import MarketDataServiceDep
+from fastapi import APIRouter, Depends, HTTPException, Query, status
+
+from app.api.dependencies import DbSession, MarketDataServiceDep
 from app.core.config import get_settings
-from app.schemas.market import BinanceMarketPriceRead, MarketPriceRead, MarketPriceUpdateRequest, MarketSymbolRequest
+from app.repositories.market_candle import MarketCandleRepository
+from app.schemas.market import (
+    BinanceMarketPriceRead,
+    MarketCandleCreate,
+    MarketCandleRead,
+    MarketPriceRead,
+    MarketPriceUpdateRequest,
+    MarketSymbolRequest,
+)
 from app.services.binance_market_data import BinanceMarketDataClient
+from app.services.market_candle import MarketCandleService
 
 router = APIRouter(prefix="/market")
 
@@ -11,6 +22,10 @@ router = APIRouter(prefix="/market")
 def get_binance_market_data_client() -> BinanceMarketDataClient:
     settings = get_settings()
     return BinanceMarketDataClient(base_url=settings.binance_market_data_base_url)
+
+
+def get_market_candle_service(db: DbSession) -> MarketCandleService:
+    return MarketCandleService(MarketCandleRepository(db))
 
 
 @router.post("/price", response_model=MarketPriceRead)
@@ -36,3 +51,28 @@ async def fetch_binance_market_price(
         source="binance",
         updated_at=event.received_at,
     )
+
+
+@router.post("/candles", response_model=MarketCandleRead, status_code=status.HTTP_201_CREATED)
+async def create_market_candle(payload: MarketCandleCreate, db: DbSession) -> MarketCandleRead:
+    service = get_market_candle_service(db)
+    candle = service.upsert(payload)
+    return MarketCandleRead.model_validate(candle)
+
+
+@router.get("/candles", response_model=list[MarketCandleRead])
+async def list_market_candles(
+    db: DbSession,
+    symbol: str,
+    timeframe: str,
+    limit: Annotated[int, Query(ge=1, le=500)] = 100,
+) -> list[MarketCandleRead]:
+    normalized_symbol = symbol.strip().upper()
+    normalized_timeframe = timeframe.strip()
+    if not normalized_symbol:
+        raise HTTPException(status_code=422, detail="Symbol must not be empty")
+    if not normalized_timeframe:
+        raise HTTPException(status_code=422, detail="Timeframe must not be empty")
+    service = get_market_candle_service(db)
+    candles = service.list_recent(symbol=normalized_symbol, timeframe=normalized_timeframe, limit=limit)
+    return [MarketCandleRead.model_validate(candle) for candle in candles]
