@@ -321,6 +321,45 @@ def test_unsupported_strategy_type_is_skipped_without_orders_or_position(
     assert unsupported_event.payload["reason"] == "unsupported strategy type: rsi"
 
 
+def test_moving_average_cross_strategy_is_skipped_until_runner_logic_exists(
+    db_session,
+    db_session_factory,
+    stub_market_data_service,
+    bot_stack_factory,
+    funded_account,
+) -> None:
+    funded_account(db_session)
+    strategy, bot, _ = bot_stack_factory(db_session)
+    strategy.strategy_type = "moving_average_cross"
+    strategy.parameters = {
+        "short_window": 9,
+        "long_window": 21,
+        "quantity": "0.1",
+    }
+    db_session.add(strategy)
+    db_session.commit()
+
+    runner = build_runner(db_session_factory, stub_market_data_service)
+    runner.start_bot(bot.id)
+    stub_market_data_service.set_price("BTCUSDT", "95")
+
+    response = asyncio.run(run_bot_once_endpoint(bot.id, runner))
+    repository = PortfolioRepository(db_session)
+    events = RunEventRepository(db_session).list_for_bot(bot.id)
+
+    assert response.action == "skipped"
+    assert response.message == "unsupported_strategy_type"
+    assert response.decision_explanation is not None
+    assert response.decision_explanation.decision == "skipped"
+    assert response.decision_explanation.reason == "unsupported strategy type: moving_average_cross"
+    assert repository.list_orders() == []
+    assert repository.get_position_by_symbol("BTCUSDT") is None
+
+    skipped_event = next(event for event in events if event.message == "unsupported_strategy_type")
+    assert skipped_event.payload["strategy_type"] == "moving_average_cross"
+    assert skipped_event.payload["reason"] == "unsupported strategy type: moving_average_cross"
+
+
 def test_live_mode_bot_does_not_use_simulated_execution_for_buy_or_sell(
     db_session,
     db_session_factory,

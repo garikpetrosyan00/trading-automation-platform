@@ -83,6 +83,8 @@ const translations = {
     timeframe_label: "Timeframe",
     buy_below_label: "Buy below",
     sell_above_label: "Sell above",
+    short_window_label: "Short window",
+    long_window_label: "Long window",
     no_strategy_selected: "No strategy selected",
     no_strategy_parameters_configured: "No strategy parameters configured",
     strategy_details_unavailable: "Strategy details unavailable",
@@ -93,6 +95,7 @@ const translations = {
     strategy_parameters_save_failed: "Could not update Strategy parameters.",
     enter_strategy_parameters: "Enter buy below, sell above, and quantity.",
     strategy_parameters_must_be_numbers: "Strategy parameters must be positive numbers.",
+    strategy_parameters_edit_unavailable: "Editing is available for Price Threshold strategies only.",
     recent_activity: "Recent Activity",
     set_price: "Set price",
     fetch_binance_price: "Fetch Binance price",
@@ -248,6 +251,8 @@ const translations = {
     timeframe_label: "Timeframe",
     buy_below_label: "Buy below",
     sell_above_label: "Sell above",
+    short_window_label: "Short window",
+    long_window_label: "Long window",
     no_strategy_selected: "Strategy ընտրված չէ",
     no_strategy_parameters_configured: "Strategy-ի parameters-ները կարգավորված չեն",
     strategy_details_unavailable: "Strategy-ի մանրամասները հասանելի չեն",
@@ -258,6 +263,7 @@ const translations = {
     strategy_parameters_save_failed: "Չհաջողվեց թարմացնել Strategy-ի parameters-ները։",
     enter_strategy_parameters: "Մուտքագրիր buy below, sell above և quantity։",
     strategy_parameters_must_be_numbers: "Strategy-ի parameters-ները պետք է լինեն դրական թվեր։",
+    strategy_parameters_edit_unavailable: "Խմբագրումը հասանելի է միայն Price Threshold strategies-ի համար։",
     recent_activity: "Վերջին ակտիվություն",
     set_price: "Սահմանել գինը",
     fetch_binance_price: "Բեռնել Binance գինը",
@@ -743,6 +749,8 @@ function strategyParameterLabel(key) {
   const knownLabels = {
     buy_below: t("buy_below_label"),
     sell_above: t("sell_above_label"),
+    short_window: t("short_window_label"),
+    long_window: t("long_window_label"),
     quantity: t("quantity"),
   };
   return knownLabels[key] ?? humanizeMessage(key, key);
@@ -753,7 +761,7 @@ function orderedStrategyParameters(parameters) {
     parameters && typeof parameters === "object" && !Array.isArray(parameters)
       ? parameters
       : {};
-  const knownOrder = ["buy_below", "sell_above", "quantity"];
+  const knownOrder = ["buy_below", "sell_above", "short_window", "long_window", "quantity"];
   const knownKeys = knownOrder.filter((key) =>
     Object.prototype.hasOwnProperty.call(safeParameters, key),
   );
@@ -770,6 +778,14 @@ function orderedStrategyParameters(parameters) {
 
 function strategyIdForSelectedBot() {
   return selectedBotConfig?.strategyId ?? null;
+}
+
+function selectedStrategyType() {
+  return selectedSummary?.strategyType || "price_threshold";
+}
+
+function canEditSelectedStrategyParameters() {
+  return selectedStrategyType() === "price_threshold";
 }
 
 function selectedBotSymbol() {
@@ -797,6 +813,7 @@ function parsePositiveParameter(value) {
 
 function validateStrategyParametersForm() {
   if (!strategyIdForSelectedBot()) return t("strategy_details_unavailable");
+  if (!canEditSelectedStrategyParameters()) return t("strategy_parameters_edit_unavailable");
 
   const values = [
     strategyBuyBelow.value.trim(),
@@ -816,12 +833,19 @@ function validateStrategyParametersForm() {
 
 function renderStrategyParametersForm() {
   const hasStrategyDetails = Boolean(selectedBotId && selectedSummary && strategyIdForSelectedBot());
+  const canEditParameters = hasStrategyDetails && canEditSelectedStrategyParameters();
   const shouldDisable =
     !hasStrategyDetails ||
+    !canEditParameters ||
     isLoadingSummary ||
     isSavingStrategyParameters ||
     isRunningNow ||
     isTogglingPause;
+  const visibleMessage =
+    strategyParametersMessage ||
+    (hasStrategyDetails && !canEditParameters ? t("strategy_parameters_edit_unavailable") : "");
+  const visibleMessageType =
+    strategyParametersMessageType || (visibleMessage && visibleMessage !== strategyParametersMessage ? "note" : "");
 
   editStrategyParameters.textContent = t("edit_strategy_parameters");
   editStrategyParameters.disabled = shouldDisable || isEditingStrategyParameters;
@@ -833,9 +857,9 @@ function renderStrategyParametersForm() {
   strategyBuyBelow.disabled = shouldDisable;
   strategySellAbove.disabled = shouldDisable;
   strategyQuantity.disabled = shouldDisable;
-  strategyParametersMessageEl.textContent = strategyParametersMessage;
-  strategyParametersMessageEl.className = strategyParametersMessageType
-    ? `form-message ${strategyParametersMessageType}`
+  strategyParametersMessageEl.textContent = visibleMessage;
+  strategyParametersMessageEl.className = visibleMessageType
+    ? `form-message ${visibleMessageType}`
     : "form-message";
 }
 
@@ -1404,6 +1428,14 @@ function openStrategyParametersForm() {
   if (!selectedBotId || !selectedSummary || !strategyIdForSelectedBot() || isSavingStrategyParameters) {
     strategyParametersMessage = t("strategy_details_unavailable");
     strategyParametersMessageType = "error";
+    render();
+    return;
+  }
+
+  if (!canEditSelectedStrategyParameters()) {
+    isEditingStrategyParameters = false;
+    strategyParametersMessage = t("strategy_parameters_edit_unavailable");
+    strategyParametersMessageType = "note";
     render();
     return;
   }

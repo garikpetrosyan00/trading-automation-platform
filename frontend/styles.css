@@ -203,6 +203,12 @@ h2 {
   padding: 6px 8px;
 }
 
+.form-message.note {
+  background: #eef2f0;
+  color: var(--muted);
+  padding: 6px 8px;
+}
+
 label {
   display: grid;
   gap: 6px;

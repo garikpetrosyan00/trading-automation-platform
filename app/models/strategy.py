@@ -14,7 +14,7 @@ class Strategy(Base):
     __tablename__ = "strategies"
     __table_args__ = (
         CheckConstraint(
-            "strategy_type IN ('price_threshold')",
+            "strategy_type IN ('price_threshold', 'moving_average_cross')",
             name="ck_strategies_strategy_type",
         ),
     )

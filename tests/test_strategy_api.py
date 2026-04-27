@@ -120,6 +120,126 @@ def test_create_strategy_with_unsupported_strategy_type_fails_cleanly(
     assert response.json()["detail"] == "Request validation failed"
 
 
+def test_create_moving_average_cross_strategy_with_valid_parameters_succeeds(
+    stub_market_data_service,
+    bot_runner_factory,
+    configure_app_state,
+) -> None:
+    configure_app_state(
+        market_data_service=stub_market_data_service,
+        bot_runner=bot_runner_factory(),
+    )
+
+    payload = {
+        "name": "Moving Average Cross Strategy",
+        "symbol": "BTCUSDT",
+        "timeframe": "1m",
+        "strategy_type": "moving_average_cross",
+        "parameters": {
+            "short_window": 9,
+            "long_window": 21,
+            "quantity": "0.01",
+        },
+    }
+
+    with TestClient(app) as client:
+        response = client.post("/api/v1/strategies", json=payload)
+
+    assert response.status_code == 201
+    assert response.json()["strategy_type"] == "moving_average_cross"
+    assert response.json()["parameters"] == payload["parameters"]
+
+
+def test_create_moving_average_cross_strategy_with_invalid_window_order_fails_cleanly(
+    stub_market_data_service,
+    bot_runner_factory,
+    configure_app_state,
+) -> None:
+    configure_app_state(
+        market_data_service=stub_market_data_service,
+        bot_runner=bot_runner_factory(),
+    )
+
+    with TestClient(app) as client:
+        response = client.post(
+            "/api/v1/strategies",
+            json={
+                "name": "Invalid MA Strategy",
+                "symbol": "BTCUSDT",
+                "timeframe": "1m",
+                "strategy_type": "moving_average_cross",
+                "parameters": {
+                    "short_window": 21,
+                    "long_window": 21,
+                    "quantity": "0.01",
+                },
+            },
+        )
+
+    assert response.status_code == 422
+    assert response.json()["detail"] == "Request validation failed"
+
+
+def test_create_moving_average_cross_strategy_with_non_integer_window_fails_cleanly(
+    stub_market_data_service,
+    bot_runner_factory,
+    configure_app_state,
+) -> None:
+    configure_app_state(
+        market_data_service=stub_market_data_service,
+        bot_runner=bot_runner_factory(),
+    )
+
+    with TestClient(app) as client:
+        response = client.post(
+            "/api/v1/strategies",
+            json={
+                "name": "Invalid MA Strategy",
+                "symbol": "BTCUSDT",
+                "timeframe": "1m",
+                "strategy_type": "moving_average_cross",
+                "parameters": {
+                    "short_window": "9.5",
+                    "long_window": 21,
+                    "quantity": "0.01",
+                },
+            },
+        )
+
+    assert response.status_code == 422
+    assert response.json()["detail"] == "Request validation failed"
+
+
+def test_create_moving_average_cross_strategy_with_non_positive_quantity_fails_cleanly(
+    stub_market_data_service,
+    bot_runner_factory,
+    configure_app_state,
+) -> None:
+    configure_app_state(
+        market_data_service=stub_market_data_service,
+        bot_runner=bot_runner_factory(),
+    )
+
+    with TestClient(app) as client:
+        response = client.post(
+            "/api/v1/strategies",
+            json={
+                "name": "Invalid MA Strategy",
+                "symbol": "BTCUSDT",
+                "timeframe": "1m",
+                "strategy_type": "moving_average_cross",
+                "parameters": {
+                    "short_window": 9,
+                    "long_window": 21,
+                    "quantity": "0",
+                },
+            },
+        )
+
+    assert response.status_code == 422
+    assert response.json()["detail"] == "Request validation failed"
+
+
 def test_create_price_threshold_strategy_with_invalid_parameters_fails_cleanly(
     stub_market_data_service,
     bot_runner_factory,
