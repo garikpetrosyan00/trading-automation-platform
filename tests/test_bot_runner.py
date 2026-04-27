@@ -2,6 +2,8 @@ import asyncio
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 
+from sqlalchemy import text
+
 from app.api.v1.endpoints.bots import list_bots as list_bots_endpoint
 from app.api.v1.endpoints.bots import get_bot_summary as get_bot_summary_endpoint
 from app.api.v1.endpoints.bot_runtime import pause_bot as pause_bot_endpoint
@@ -273,6 +275,50 @@ def test_invalid_strategy_parameter_is_safe_skipped_evaluation(
     skipped_event = next(event for event in events if event.message == "evaluation_skipped")
     assert skipped_event.payload["reason"] == "invalid_strategy_parameter"
     assert skipped_event.payload["parameter"] == "buy_below"
+
+
+def test_missing_strategy_type_falls_back_to_price_threshold() -> None:
+    class LegacyStrategy:
+        strategy_type = None
+
+    assert BotRunner._strategy_type(LegacyStrategy()) == "price_threshold"
+
+
+def test_unsupported_strategy_type_is_skipped_without_orders_or_position(
+    db_session,
+    db_session_factory,
+    stub_market_data_service,
+    bot_stack_factory,
+    funded_account,
+) -> None:
+    funded_account(db_session)
+    strategy, bot, _ = bot_stack_factory(db_session)
+    db_session.execute(text("PRAGMA ignore_check_constraints = ON"))
+    db_session.execute(
+        text("UPDATE strategies SET strategy_type = :strategy_type WHERE id = :strategy_id"),
+        {"strategy_type": "rsi", "strategy_id": strategy.id},
+    )
+    db_session.commit()
+
+    runner = build_runner(db_session_factory, stub_market_data_service)
+    runner.start_bot(bot.id)
+    stub_market_data_service.set_price("BTCUSDT", "95")
+
+    response = asyncio.run(run_bot_once_endpoint(bot.id, runner))
+    repository = PortfolioRepository(db_session)
+    events = RunEventRepository(db_session).list_for_bot(bot.id)
+
+    assert response.action == "skipped"
+    assert response.message == "unsupported_strategy_type"
+    assert response.decision_explanation is not None
+    assert response.decision_explanation.decision == "skipped"
+    assert response.decision_explanation.reason == "unsupported strategy type: rsi"
+    assert repository.list_orders() == []
+    assert repository.get_position_by_symbol("BTCUSDT") is None
+
+    unsupported_event = next(event for event in events if event.message == "unsupported_strategy_type")
+    assert unsupported_event.payload["strategy_type"] == "rsi"
+    assert unsupported_event.payload["reason"] == "unsupported strategy type: rsi"
 
 
 def test_live_mode_bot_does_not_use_simulated_execution_for_buy_or_sell(

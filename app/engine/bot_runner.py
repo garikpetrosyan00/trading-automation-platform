@@ -7,7 +7,7 @@ from datetime import datetime, timedelta, timezone
 from decimal import Decimal, InvalidOperation
 from typing import Any
 
-from app.core.errors import ConflictError, NotFoundError
+from app.core.errors import NotFoundError
 from app.core.logging import get_logger
 from app.data.schemas import MarketEvent
 from app.engine.strategy_evaluator import StrategyEvaluator
@@ -32,6 +32,7 @@ from app.services.simulated_execution import SimulatedExecutionService
 logger = get_logger(__name__)
 
 ZERO = Decimal("0")
+PRICE_THRESHOLD_STRATEGY_TYPE = "price_threshold"
 
 
 @dataclass
@@ -111,8 +112,6 @@ class BotRunner:
                     f"Strategy with id {bot.strategy_id} was not found",
                     error_code="strategy_not_found",
                 )
-            self._validate_strategy_config(strategy)
-
             if bot.status != "active":
                 bot.status = "active"
                 bot_repository.update(bot)
@@ -124,7 +123,7 @@ class BotRunner:
                 event_type="lifecycle",
                 level="info",
                 message="started",
-                payload={"symbol": strategy.symbol, "strategy_type": strategy.strategy_type},
+                payload={"symbol": strategy.symbol, "strategy_type": self._strategy_type(strategy)},
             )
             db.commit()
             return self._build_status(db, bot_id)
@@ -333,8 +332,6 @@ class BotRunner:
             raise NotFoundError(f"Strategy with id {bot.strategy_id} was not found", error_code="strategy_not_found")
         if profile is None or not profile.is_enabled:
             return
-        self._validate_strategy_config(strategy)
-        threshold_config = self._resolve_price_threshold_config(strategy.parameters, profile)
 
         bot_run = self._ensure_running_run(bot_run_service, bot_id, trigger_type="system")
         if not strategy.is_active:
@@ -348,6 +345,27 @@ class BotRunner:
             )
             db.commit()
             return
+
+        strategy_type = self._strategy_type(strategy)
+        if strategy_type != PRICE_THRESHOLD_STRATEGY_TYPE:
+            self._record_event(
+                db,
+                bot_run.id,
+                event_type="system",
+                level="warning",
+                message="unsupported_strategy_type",
+                payload={
+                    "reason": f"unsupported strategy type: {strategy_type}",
+                    "detail": f"unsupported strategy type: {strategy_type}",
+                    "decision": "skipped",
+                    "symbol": strategy.symbol,
+                    "strategy_type": strategy_type,
+                },
+            )
+            db.commit()
+            return
+
+        threshold_config = self._resolve_price_threshold_config(strategy.parameters, profile)
 
         if threshold_config.invalid_parameter is not None:
             self._record_event(
@@ -560,7 +578,7 @@ class BotRunner:
             is_paused=bot.status == "paused",
             execution_profile_enabled=profile.is_enabled,
             runner_enabled=self.config.enabled and bot.status == "active" and profile.is_enabled,
-            strategy_type=strategy.strategy_type,
+            strategy_type=self._strategy_type(strategy),
             symbol=strategy.symbol,
             active_run_id=active_run.id if active_run is not None else None,
             active_run_status=active_run.status if active_run is not None else None,
@@ -593,7 +611,7 @@ class BotRunner:
             name=bot.name,
             status=bot.status,
             is_paused=bot.status == "paused",
-            strategy_type=strategy.strategy_type,
+            strategy_type=self._strategy_type(strategy),
             symbol=strategy.symbol,
             cooldown_active=cooldown_active,
             cooldown_until=cooldown_until if cooldown_active else None,
@@ -690,6 +708,7 @@ class BotRunner:
         if run_event.message in {
             "cooldown_active",
             "evaluation_skipped",
+            "unsupported_strategy_type",
             "bot_skipped_paused",
             "bot_not_active",
             "execution_profile_missing",
@@ -891,6 +910,5 @@ class BotRunner:
         return reason
 
     @staticmethod
-    def _validate_strategy_config(strategy) -> None:
-        if strategy.strategy_type != "price_threshold":
-            raise ConflictError("Only price_threshold strategy is supported", error_code="unsupported_strategy_type")
+    def _strategy_type(strategy) -> str:
+        return getattr(strategy, "strategy_type", None) or PRICE_THRESHOLD_STRATEGY_TYPE
