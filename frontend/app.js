@@ -14,6 +14,7 @@ let isLoadingStrategies = false;
 let isTogglingPause = false;
 let isRunningNow = false;
 let isUpdatingPrice = false;
+let isFetchingBinancePrice = false;
 let isRefreshing = false;
 let isCreatingBot = false;
 let isCreateBotOpen = false;
@@ -92,6 +93,12 @@ const translations = {
     strategy_parameters_must_be_numbers: "Strategy parameters must be positive numbers.",
     recent_activity: "Recent Activity",
     set_price: "Set price",
+    fetch_binance_price: "Fetch Binance price",
+    fetching_binance_price: "Fetching…",
+    fetched_binance_price: "Fetched {symbol} from Binance: {price}",
+    select_bot_for_binance_price: "Select a Bot to fetch its Binance price.",
+    missing_symbol_for_binance_price: "Selected Bot has no symbol.",
+    could_not_fetch_binance_price: "Could not fetch Binance price.",
     updating: "Updating…",
     price: "Price",
     quantity: "Quantity",
@@ -244,6 +251,12 @@ const translations = {
     strategy_parameters_must_be_numbers: "Strategy-ի parameters-ները պետք է լինեն դրական թվեր։",
     recent_activity: "Վերջին ակտիվություն",
     set_price: "Սահմանել գինը",
+    fetch_binance_price: "Բեռնել Binance գինը",
+    fetching_binance_price: "Բեռնվում է…",
+    fetched_binance_price: "Բեռնվեց {symbol}-ի Binance գինը՝ {price}",
+    select_bot_for_binance_price: "Ընտրիր Bot՝ Binance գինը բեռնելու համար։",
+    missing_symbol_for_binance_price: "Ընտրված Bot-ը symbol չունի։",
+    could_not_fetch_binance_price: "Չհաջողվեց բեռնել Binance գինը։",
     updating: "Թարմացվում է…",
     price: "Գին",
     quantity: "Քանակ",
@@ -433,6 +446,7 @@ const priceForm = document.querySelector("#price-form");
 const priceSymbol = document.querySelector("#price-symbol");
 const priceValue = document.querySelector("#price-value");
 const priceSubmit = document.querySelector("#price-submit");
+const binancePriceFetch = document.querySelector("#binance-price-fetch");
 const priceMessageEl = document.querySelector("#price-message");
 
 function getStoredLanguage() {
@@ -520,6 +534,9 @@ function applyStaticTranslations() {
   editBotSubmit.textContent = isSavingEditBot ? t("saving") : t("save_changes");
   editBotCancel.textContent = t("cancel");
   priceSubmit.textContent = isUpdatingPrice ? t("updating") : t("set_price");
+  binancePriceFetch.textContent = isFetchingBinancePrice
+    ? t("fetching_binance_price")
+    : t("fetch_binance_price");
 }
 
 function normalizeBot(rawBot) {
@@ -725,6 +742,11 @@ function orderedStrategyParameters(parameters) {
 
 function strategyIdForSelectedBot() {
   return selectedBotConfig?.strategyId ?? null;
+}
+
+function selectedBotSymbol() {
+  const bot = selectedSummary || bots.find((item) => item.id === selectedBotId);
+  return bot?.symbol ? String(bot.symbol).trim().toUpperCase() : "";
 }
 
 function strategyParameterInputValue(key) {
@@ -1041,6 +1063,7 @@ function hasInFlightAction() {
     isTogglingPause ||
     isRunningNow ||
     isUpdatingPrice ||
+    isFetchingBinancePrice ||
     isCreatingBot ||
     isLoadingEditBot ||
     isSavingEditBot ||
@@ -1541,6 +1564,54 @@ async function updateMarketPrice(event) {
   }
 }
 
+async function fetchBinancePriceForSelectedBot() {
+  if (isFetchingBinancePrice) return;
+
+  const symbol = selectedBotSymbol();
+  if (!selectedBotId) {
+    priceMessage = t("select_bot_for_binance_price");
+    priceMessageType = "error";
+    render();
+    return;
+  }
+  if (!symbol) {
+    priceMessage = t("missing_symbol_for_binance_price");
+    priceMessageType = "error";
+    render();
+    return;
+  }
+
+  isFetchingBinancePrice = true;
+  priceMessage = "";
+  priceMessageType = "";
+  render();
+
+  try {
+    const result = await fetchJson("/api/v1/market/binance/price", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ symbol }),
+    });
+    priceSymbol.value = result.symbol ?? symbol;
+    priceValue.value = formatDecimal(result.price, "");
+    priceMessage = t("fetched_binance_price", {
+      symbol: result.symbol ?? symbol,
+      price: formatDecimal(result.price),
+    });
+    priceMessageType = "success";
+
+    if (selectedBotId) {
+      await refreshSelectedData();
+    }
+  } catch (error) {
+    priceMessage = requestErrorMessage(error, t("could_not_fetch_binance_price"));
+    priceMessageType = "error";
+  } finally {
+    isFetchingBinancePrice = false;
+    render();
+  }
+}
+
 async function loadSelectedSummary(botId) {
   summaryError = "";
   actionMessage = "";
@@ -1770,6 +1841,12 @@ function renderSummary() {
   const botMode = modeLabel(selectedBotConfig?.isPaper);
   const canRunNow = Boolean(selectedBotId && bot && isRunnableStatus(bot.status) && !bot.isPaused);
   const canPauseResume = Boolean(selectedBotId && bot && !["draft"].includes(bot.status));
+  const binanceSymbol = selectedBotSymbol();
+  const binanceHelpMessage = !selectedBotId
+    ? t("select_bot_for_binance_price")
+    : !binanceSymbol
+      ? t("missing_symbol_for_binance_price")
+      : "";
 
   if (!bot) {
     isEditingStrategyParameters = false;
@@ -1800,9 +1877,13 @@ function renderSummary() {
     }
     priceSubmit.textContent = isUpdatingPrice ? t("updating") : t("set_price");
     priceSubmit.disabled = isUpdatingPrice;
+    binancePriceFetch.textContent = isFetchingBinancePrice
+      ? t("fetching_binance_price")
+      : t("fetch_binance_price");
+    binancePriceFetch.disabled = true;
     actionMessageEl.textContent = "";
     actionMessageEl.className = "action-message";
-    priceMessageEl.textContent = priceMessage;
+    priceMessageEl.textContent = priceMessage || binanceHelpMessage;
     priceMessageEl.className = priceMessageType
       ? `form-message ${priceMessageType}`
       : "form-message";
@@ -1840,11 +1921,21 @@ function renderSummary() {
   }
   priceSubmit.textContent = isUpdatingPrice ? t("updating") : t("set_price");
   priceSubmit.disabled = isUpdatingPrice;
+  binancePriceFetch.textContent = isFetchingBinancePrice
+    ? t("fetching_binance_price")
+    : t("fetch_binance_price");
+  binancePriceFetch.disabled =
+    isFetchingBinancePrice ||
+    isLoadingSummary ||
+    isRunningNow ||
+    isTogglingPause ||
+    !selectedBotId ||
+    !binanceSymbol;
   actionMessageEl.textContent = actionMessage;
   actionMessageEl.className = actionMessageType
     ? `action-message ${actionMessageType}`
     : "action-message";
-  priceMessageEl.textContent = priceMessage;
+  priceMessageEl.textContent = priceMessage || binanceHelpMessage;
   priceMessageEl.className = priceMessageType
     ? `form-message ${priceMessageType}`
     : "form-message";
@@ -1957,6 +2048,7 @@ createBotForm.addEventListener("submit", submitCreateBot);
 editBotForm.addEventListener("submit", submitEditBot);
 strategyParametersForm.addEventListener("submit", submitStrategyParameters);
 priceForm.addEventListener("submit", updateMarketPrice);
+binancePriceFetch.addEventListener("click", fetchBinancePriceForSelectedBot);
 priceSymbol.addEventListener("input", () => {
   symbolTouched = true;
 });

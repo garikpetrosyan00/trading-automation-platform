@@ -132,7 +132,7 @@ h2 {
 
 .price-form {
   display: grid;
-  grid-template-columns: 130px 150px auto;
+  grid-template-columns: 130px 150px auto auto;
   gap: 8px 10px;
   align-items: end;
   border: 1px solid var(--line);
