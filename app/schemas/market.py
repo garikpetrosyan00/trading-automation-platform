@@ -20,7 +20,23 @@ class MarketPriceUpdateRequest(BaseModel):
         return normalized
 
 
+class MarketSymbolRequest(BaseModel):
+    symbol: str
+
+    @field_validator("symbol")
+    @classmethod
+    def normalize_symbol(cls, value: str) -> str:
+        normalized = value.strip().upper()
+        if not normalized:
+            raise ValueError("Symbol must not be empty")
+        return normalized
+
+
 class MarketPriceRead(BaseModel):
     symbol: str
     price: Decimal
     updated_at: datetime
+
+
+class BinanceMarketPriceRead(MarketPriceRead):
+    source: str

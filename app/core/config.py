@@ -18,6 +18,10 @@ class Settings(BaseSettings):
         default="wss://stream.binance.com:9443/ws",
         validation_alias=AliasChoices("MARKET_DATA_WEBSOCKET_URL"),
     )
+    binance_market_data_base_url: str = Field(
+        default="https://data-api.binance.vision",
+        validation_alias=AliasChoices("BINANCE_MARKET_DATA_BASE_URL"),
+    )
     market_data_reconnect_delay_seconds: float = Field(
         default=2.0,
         validation_alias=AliasChoices("MARKET_DATA_RECONNECT_DELAY_SECONDS"),

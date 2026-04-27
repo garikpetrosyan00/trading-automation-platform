@@ -103,11 +103,11 @@ class MarketDataService:
             return dict(self._latest_by_symbol)
         return self._latest_by_symbol.get(symbol.upper())
 
-    def set_price(self, symbol: str, price: Decimal) -> MarketEvent:
+    def set_price(self, symbol: str, price: Decimal, provider_name: str | None = None) -> MarketEvent:
         now = datetime.now(timezone.utc)
         normalized_symbol = symbol.strip().upper()
         event = MarketEvent(
-            provider=self.provider.name,
+            provider=provider_name or self.provider.name,
             symbol=normalized_symbol,
             event_type=MarketEventType.TICKER,
             event_ts=now,

@@ -36,10 +36,10 @@ class StubMarketDataService:
     async def stop(self) -> None:
         return None
 
-    def set_price(self, symbol: str, price: str) -> None:
+    def set_price(self, symbol: str, price: str, provider_name: str | None = None) -> None:
         normalized_symbol = symbol.upper()
         event = MarketEvent(
-            provider="stub",
+            provider=provider_name or "stub",
             symbol=normalized_symbol,
             event_type=MarketEventType.TICKER,
             event_ts=datetime(2026, 4, 21, 12, 0, tzinfo=timezone.utc),
