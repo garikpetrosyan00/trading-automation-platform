@@ -1,7 +1,7 @@
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import JSON, Boolean, DateTime, String, Text, func
+from sqlalchemy import JSON, Boolean, CheckConstraint, DateTime, String, Text, func
 from sqlalchemy.ext.mutable import MutableDict
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -12,12 +12,24 @@ class Strategy(Base):
     """Stored strategy metadata and configuration placeholder."""
 
     __tablename__ = "strategies"
+    __table_args__ = (
+        CheckConstraint(
+            "strategy_type IN ('price_threshold')",
+            name="ck_strategies_strategy_type",
+        ),
+    )
 
     id: Mapped[int] = mapped_column(primary_key=True, index=True)
     name: Mapped[str] = mapped_column(String(120), nullable=False, index=True)
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
     symbol: Mapped[str] = mapped_column(String(50), nullable=False, index=True)
     timeframe: Mapped[str] = mapped_column(String(50), nullable=False)
+    strategy_type: Mapped[str] = mapped_column(
+        String(50),
+        nullable=False,
+        default="price_threshold",
+        server_default="price_threshold",
+    )
     parameters: Mapped[dict[str, Any]] = mapped_column(
         MutableDict.as_mutable(JSON),
         nullable=False,
