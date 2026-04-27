@@ -8,6 +8,7 @@ let bots = [];
 let strategies = [];
 let selectedBotId = null;
 let selectedSummary = null;
+let latestDecisionExplanation = null;
 let isLoadingBots = true;
 let isLoadingSummary = false;
 let isLoadingStrategies = false;
@@ -159,6 +160,12 @@ const translations = {
     manual_run_completed: "Manual run completed. {activity}.",
     manual_run_skipped: "Manual run skipped. {activity}.",
     manual_run_checked: "Manual run checked the Bot. {activity}.",
+    decision_explanation: "Decision Explanation",
+    current_price_label: "Current price",
+    buy_threshold_label: "Buy threshold",
+    sell_threshold_label: "Sell threshold",
+    position_qty_label: "Position qty",
+    decision_label: "Decision",
     request_failed_404: "The requested Bot could not be found.",
     request_failed_422: "Check the submitted values and try again.",
     could_not_update_price: "Could not update price.",
@@ -317,6 +324,12 @@ const translations = {
     manual_run_completed: "Manual run-ը ավարտվեց։ {activity}։",
     manual_run_skipped: "Manual run-ը բաց թողնվեց։ {activity}։",
     manual_run_checked: "Manual run-ը ստուգեց Bot-ը։ {activity}։",
+    decision_explanation: "Decision Explanation",
+    current_price_label: "Ընթացիկ գին",
+    buy_threshold_label: "Buy շեմ",
+    sell_threshold_label: "Sell շեմ",
+    position_qty_label: "Position քանակ",
+    decision_label: "Որոշում",
     request_failed_404: "Պահանջված Bot-ը չգտնվեց։",
     request_failed_422: "Ստուգիր ուղարկված արժեքները և նորից փորձիր։",
     could_not_update_price: "Չհաջողվեց թարմացնել գինը։",
@@ -403,6 +416,7 @@ const pauseResume = document.querySelector("#pause-resume");
 const runNow = document.querySelector("#run-now");
 const editBot = document.querySelector("#edit-bot");
 const actionHelp = document.querySelector("#action-help");
+const decisionPanel = document.querySelector("#decision-panel");
 const editBotForm = document.querySelector("#edit-bot-form");
 const editBotSummary = document.querySelector("#edit-bot-summary");
 const editBotNameLabel = document.querySelector("#edit-bot-name-label");
@@ -599,6 +613,18 @@ function normalizeBotConfig(rawBot) {
     notes: rawBot.notes ?? "",
     status: rawBot.status ?? "draft",
     isPaper: rawBot.is_paper ?? true,
+  };
+}
+
+function normalizeDecisionExplanation(rawExplanation) {
+  if (!rawExplanation || typeof rawExplanation !== "object") return null;
+  return {
+    currentPrice: rawExplanation.current_price ?? null,
+    buyBelow: rawExplanation.buy_below ?? null,
+    sellAbove: rawExplanation.sell_above ?? null,
+    positionQty: rawExplanation.position_qty ?? null,
+    decision: rawExplanation.decision ?? "",
+    reason: rawExplanation.reason ?? "",
   };
 }
 
@@ -1047,11 +1073,20 @@ function describeManualRunResult(result) {
   };
 }
 
+function decisionClass(decision) {
+  const normalized = String(decision || "").toLowerCase();
+  if (["buy", "bought"].includes(normalized)) return "decision-buy";
+  if (["sell", "sold"].includes(normalized)) return "decision-sell";
+  if (["hold", "no_action"].includes(normalized)) return "decision-hold";
+  return "decision-skipped";
+}
+
 function clearSelectedBotMessages() {
   actionMessage = "";
   actionMessageType = "";
   editBotMessage = "";
   editBotMessageType = "";
+  latestDecisionExplanation = null;
   strategyParametersMessage = "";
   strategyParametersMessageType = "";
   isEditingStrategyParameters = false;
@@ -1239,6 +1274,7 @@ async function runSelectedBotNow() {
     const feedback = describeManualRunResult(result);
     actionMessage = feedback.text;
     actionMessageType = feedback.type;
+    latestDecisionExplanation = normalizeDecisionExplanation(result.decision_explanation);
     await refreshSelectedData();
   } catch (error) {
     actionMessage = requestErrorMessage(error, t("could_not_run_bot"));
@@ -1941,6 +1977,48 @@ function renderSummary() {
     : "form-message";
 }
 
+function renderDecisionExplanation() {
+  decisionPanel.innerHTML = "";
+  decisionPanel.hidden = !latestDecisionExplanation;
+
+  if (!latestDecisionExplanation) return;
+
+  const decision = latestDecisionExplanation.decision || t("activity_event");
+  const rows = [
+    { label: t("current_price_label"), value: formatDecimal(latestDecisionExplanation.currentPrice) },
+    { label: t("buy_threshold_label"), value: formatDecimal(latestDecisionExplanation.buyBelow) },
+    { label: t("sell_threshold_label"), value: formatDecimal(latestDecisionExplanation.sellAbove) },
+    { label: t("position_qty_label"), value: formatDecimal(latestDecisionExplanation.positionQty) },
+  ];
+
+  const grid = document.createElement("dl");
+  grid.className = "decision-grid";
+  rows.forEach((item) => {
+    const row = document.createElement("div");
+    const label = document.createElement("dt");
+    const value = document.createElement("dd");
+    label.textContent = item.label;
+    value.textContent = item.value;
+    row.append(label, value);
+    grid.append(row);
+  });
+
+  const heading = document.createElement("div");
+  heading.className = "decision-heading";
+  const title = document.createElement("h2");
+  const badge = document.createElement("span");
+  title.textContent = t("decision_explanation");
+  badge.className = `decision-badge ${decisionClass(decision)}`;
+  badge.textContent = humanizeMessage(decision, t("activity_event"));
+  heading.append(title, badge);
+
+  const reason = document.createElement("p");
+  reason.className = "decision-reason";
+  reason.textContent = latestDecisionExplanation.reason || humanizeMessage(decision);
+
+  decisionPanel.append(heading, grid, reason);
+}
+
 function renderRefreshControl() {
   refreshDashboard.textContent = isRefreshing ? t("refreshing") : t("refresh");
   refreshDashboard.disabled = isRefreshing || hasInFlightAction();
@@ -2012,6 +2090,7 @@ function render() {
   renderCreateBotForm();
   renderBotList();
   renderSummary();
+  renderDecisionExplanation();
   renderStrategyParametersForm();
   renderEditBotForm();
   renderActivity();

@@ -214,7 +214,7 @@ def test_sell_decision_uses_strategy_parameters_sell_above(
     assert orders[0].side == "sell"
     assert orders[0].quantity == Decimal("0.20000000")
     sell_signal = next(event for event in events if event.message == "sell_signal")
-    assert sell_signal.payload["detail"] == "price is above strategy sell_above"
+    assert sell_signal.payload["detail"] == "price is above strategy sell_above and position exists"
 
 
 def test_missing_strategy_parameters_fall_back_to_execution_profile_fields(
@@ -975,6 +975,13 @@ def test_manual_bot_run_buy_eligible_returns_bought_result(
     assert response.is_paused is False
     assert response.current_position_qty == Decimal("0.10000000")
     assert response.last_price == Decimal("95")
+    assert response.decision_explanation is not None
+    assert response.decision_explanation.current_price == Decimal("95")
+    assert response.decision_explanation.buy_below == Decimal("100")
+    assert response.decision_explanation.sell_above == Decimal("110")
+    assert response.decision_explanation.position_qty == Decimal("0")
+    assert response.decision_explanation.decision == "buy"
+    assert response.decision_explanation.reason == "price is below strategy buy_below"
     assert response.recent_activity_preview[0].message == "buy_filled"
 
 
@@ -999,6 +1006,13 @@ def test_manual_bot_run_sell_eligible_returns_sold_result(
     assert response.message == "sell_filled"
     assert response.current_position_qty == Decimal("0E-8")
     assert response.last_price == Decimal("115")
+    assert response.decision_explanation is not None
+    assert response.decision_explanation.current_price == Decimal("115")
+    assert response.decision_explanation.buy_below == Decimal("100")
+    assert response.decision_explanation.sell_above == Decimal("110")
+    assert response.decision_explanation.position_qty == Decimal("0.10000000")
+    assert response.decision_explanation.decision == "sell"
+    assert response.decision_explanation.reason == "price is above strategy sell_above and position exists"
     assert response.recent_activity_preview[0].message == "sell_filled"
 
 
@@ -1021,6 +1035,13 @@ def test_manual_bot_run_no_signal_returns_no_action(
     assert response.message == "evaluation_no_signal"
     assert response.cooldown_active is False
     assert response.current_position_qty == Decimal("0")
+    assert response.decision_explanation is not None
+    assert response.decision_explanation.current_price == Decimal("105")
+    assert response.decision_explanation.buy_below == Decimal("100")
+    assert response.decision_explanation.sell_above == Decimal("110")
+    assert response.decision_explanation.position_qty == Decimal("0")
+    assert response.decision_explanation.decision == "hold"
+    assert response.decision_explanation.reason == "price did not go below buy_below, so no buy signal"
     assert response.recent_activity_preview[0].message == "evaluation_no_signal"
 
 
@@ -1050,6 +1071,7 @@ def test_manual_bot_run_response_includes_consistent_bot_state_fields(
         "cooldown_until",
         "current_position_qty",
         "last_price",
+        "decision_explanation",
         "recent_activity_preview",
     }
     assert response.bot_id == bot.id

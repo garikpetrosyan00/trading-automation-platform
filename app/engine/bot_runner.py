@@ -21,7 +21,7 @@ from app.repositories.run_event import RunEventRepository
 from app.repositories.strategy import StrategyRepository
 from app.schemas.bot_activity import build_activity_item
 from app.schemas.bot_dashboard import BotDashboardItemRead, BotDashboardRead
-from app.schemas.bot_manual_run import BotManualRunRead
+from app.schemas.bot_manual_run import BotDecisionExplanationRead, BotManualRunRead
 from app.schemas.bot_run import BotRunCreate, BotRunUpdate
 from app.schemas.bot_runner import BotControlRead, BotStatusRead
 from app.schemas.bot_summary import BotSummaryRead
@@ -360,6 +360,7 @@ class BotRunner:
                 payload={
                     "reason": "invalid_strategy_parameter",
                     "detail": threshold_config.invalid_reason,
+                    "decision": "skipped",
                     "parameter": threshold_config.invalid_parameter,
                     "symbol": strategy.symbol,
                 },
@@ -380,6 +381,14 @@ class BotRunner:
         )
         decision_detail = self._price_threshold_decision_detail(
             decision.reason,
+            entry_below=threshold_config.entry_below,
+            exit_above=threshold_config.exit_above,
+        )
+        decision_payload = self._price_threshold_decision_payload(
+            decision=decision.action,
+            reason=decision_detail,
+            latest_price=latest_price,
+            position_quantity=position_quantity,
             entry_below=threshold_config.entry_below,
             exit_above=threshold_config.exit_above,
         )
@@ -408,7 +417,7 @@ class BotRunner:
                 event_type="system",
                 level="warning",
                 message="evaluation_skipped",
-                payload={"reason": decision.reason, "detail": decision_detail, "symbol": strategy.symbol},
+                payload={"reason": decision.reason, "symbol": strategy.symbol, **decision_payload},
             )
             db.commit()
             return
@@ -422,9 +431,8 @@ class BotRunner:
                 message="evaluation_no_signal",
                 payload={
                     "reason": decision.reason,
-                    "detail": decision_detail,
                     "symbol": strategy.symbol,
-                    "latest_price": str(latest_price),
+                    **decision_payload,
                 },
             )
             db.commit()
@@ -441,6 +449,7 @@ class BotRunner:
                 payload={
                     "reason": "order_quantity_not_configured",
                     "detail": "strategy quantity is missing and execution profile order_quantity is not configured",
+                    "decision": "skipped",
                     "symbol": strategy.symbol,
                 },
             )
@@ -458,9 +467,9 @@ class BotRunner:
             message=f"{decision.action}_signal",
             payload={
                 "reason": decision.reason,
-                "detail": decision_detail,
                 "symbol": strategy.symbol,
                 "quantity": str(quantity),
+                **decision_payload,
             },
         )
         db.commit()
@@ -500,6 +509,7 @@ class BotRunner:
                 "message": result.message,
                 "order_id": result.order.id,
                 "fill_id": result.fill.id if result.fill is not None else None,
+                **decision_payload,
             },
         )
         db.commit()
@@ -643,7 +653,26 @@ class BotRunner:
             cooldown_until=dashboard_item.cooldown_until,
             current_position_qty=dashboard_item.current_position_qty,
             last_price=dashboard_item.last_price,
+            decision_explanation=self._build_decision_explanation(latest_event, action, message),
             recent_activity_preview=[build_activity_item(event, portfolio_repository) for event in recent_events],
+        )
+
+    @staticmethod
+    def _build_decision_explanation(run_event, action: str, message: str) -> BotDecisionExplanationRead | None:
+        if run_event is None:
+            return None
+
+        payload = run_event.payload or {}
+        reason = payload.get("detail") or payload.get("reason") or message
+        decision = payload.get("decision") or action
+
+        return BotDecisionExplanationRead(
+            current_price=payload.get("current_price"),
+            buy_below=payload.get("buy_below"),
+            sell_above=payload.get("sell_above"),
+            position_qty=payload.get("position_qty"),
+            decision=decision,
+            reason=reason,
         )
 
     @staticmethod
@@ -818,6 +847,30 @@ class BotRunner:
         return value, None
 
     @staticmethod
+    def _price_threshold_decision_payload(
+        *,
+        decision: str,
+        reason: str,
+        latest_price: Decimal | None,
+        position_quantity: Decimal,
+        entry_below: Decimal | None,
+        exit_above: Decimal | None,
+    ) -> dict[str, str]:
+        payload = {
+            "decision": decision,
+            "reason": reason,
+            "detail": reason,
+            "position_qty": str(position_quantity),
+        }
+        if latest_price is not None:
+            payload["current_price"] = str(latest_price)
+        if entry_below is not None:
+            payload["buy_below"] = str(entry_below)
+        if exit_above is not None:
+            payload["sell_above"] = str(exit_above)
+        return payload
+
+    @staticmethod
     def _price_threshold_decision_detail(
         reason: str,
         *,
@@ -827,11 +880,11 @@ class BotRunner:
         if reason == "entry_threshold_reached":
             return "price is below strategy buy_below"
         if reason == "entry_threshold_not_met":
-            return "price is above strategy buy_below"
+            return "price did not go below buy_below, so no buy signal"
         if reason == "exit_threshold_reached":
-            return "price is above strategy sell_above"
+            return "price is above strategy sell_above and position exists"
         if reason == "exit_threshold_not_met":
-            return "price is below strategy sell_above"
+            return "price did not go above sell_above, so no sell signal"
         if reason == "entry_below_not_configured" and entry_below is None:
             return "strategy buy_below is missing and execution profile entry_below is not configured"
         if reason == "exit_above_not_configured" and exit_above is None:
