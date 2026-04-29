@@ -741,12 +741,61 @@ def test_paused_bot_is_skipped_by_runner_and_does_not_place_buy_orders(
     stub_market_data_service.set_price("BTCUSDT", "95")
 
     asyncio.run(runner.run_cycle())
+    asyncio.run(runner.run_cycle())
+    asyncio.run(runner.run_cycle())
 
     repository = PortfolioRepository(db_session)
     events = RunEventRepository(db_session).list_for_bot(bot.id)
 
     assert repository.list_orders() == []
-    assert any(event.message == "bot_skipped_paused" for event in events)
+    assert any(event.message == "bot_paused" for event in events)
+    assert [event.message for event in events].count("bot_skipped_paused") == 0
+
+
+def test_background_no_signal_evaluations_do_not_create_repeated_activity(
+    db_session,
+    db_session_factory,
+    stub_market_data_service,
+    bot_stack_factory,
+    funded_account,
+) -> None:
+    funded_account(db_session)
+    _, bot, _ = bot_stack_factory(db_session)
+    runner = build_runner(db_session_factory, stub_market_data_service)
+    runner.start_bot(bot.id)
+    stub_market_data_service.set_price("BTCUSDT", "105")
+
+    asyncio.run(runner.run_cycle())
+    asyncio.run(runner.run_cycle())
+    asyncio.run(runner.run_cycle())
+
+    events = RunEventRepository(db_session).list_for_bot(bot.id)
+
+    assert [event.message for event in events].count("evaluation_no_signal") == 0
+    assert PortfolioRepository(db_session).list_orders() == []
+
+
+def test_background_meaningful_events_are_still_recorded(
+    db_session,
+    db_session_factory,
+    stub_market_data_service,
+    bot_stack_factory,
+    funded_account,
+) -> None:
+    funded_account(db_session)
+    _, bot, _ = bot_stack_factory(db_session)
+    runner = build_runner(db_session_factory, stub_market_data_service)
+    runner.start_bot(bot.id)
+    stub_market_data_service.set_price("BTCUSDT", "95")
+
+    asyncio.run(runner.run_cycle())
+
+    events = RunEventRepository(db_session).list_for_bot(bot.id)
+    messages = [event.message for event in events]
+
+    assert "buy_signal" in messages
+    assert "order_filled" in messages
+    assert PortfolioRepository(db_session).list_orders()
 
 
 def test_resumed_bot_can_trade_again(
@@ -772,7 +821,8 @@ def test_resumed_bot_can_trade_again(
 
     assert len(orders) == 1
     assert orders[0].side == "buy"
-    assert any(event.message == "bot_skipped_paused" for event in events)
+    assert any(event.message == "bot_paused" for event in events)
+    assert not any(event.message == "bot_skipped_paused" for event in events)
     assert any(event.message == "bot_resume_requested" for event in events)
     assert any(event.message == "order_filled" for event in events)
 

@@ -279,7 +279,7 @@ class BotRunner:
                 )
                 return self._build_manual_run_result(db, bot_id=bot_id, latest_event=latest_event)
 
-            self._evaluate_bot(db, bot_id)
+            self._evaluate_bot(db, bot_id, record_noop_events=True)
             latest_event = RunEventRepository(db).get_latest_for_bot(bot_id)
             return self._build_manual_run_result(
                 db,
@@ -296,7 +296,7 @@ class BotRunner:
             bots = bot_repository.list_all()
             for bot in bots:
                 try:
-                    self._evaluate_bot(db, bot.id)
+                    self._evaluate_bot(db, bot.id, record_noop_events=False)
                 except Exception:
                     db.rollback()
                     logger.exception("bot_runner_bot_error", extra={"bot_id": bot.id})
@@ -321,7 +321,7 @@ class BotRunner:
             logger.info("bot_runner_cancelled")
             raise
 
-    def _evaluate_bot(self, db, bot_id: int) -> None:
+    def _evaluate_bot(self, db, bot_id: int, *, record_noop_events: bool = False) -> None:
         bot_repository = BotRepository(db)
         strategy_repository = StrategyRepository(db)
         profile_repository = ExecutionProfileRepository(db)
@@ -332,7 +332,8 @@ class BotRunner:
         if bot is None:
             return
         if bot.status == "paused":
-            self._record_paused_skip(db, bot.id)
+            if record_noop_events:
+                self._record_paused_skip(db, bot.id)
             return
         if bot.status != "active":
             return
@@ -366,6 +367,7 @@ class BotRunner:
                 profile=profile,
                 bot_run=bot_run,
                 portfolio_repository=portfolio_repository,
+                record_noop_events=record_noop_events,
             )
             return
 
@@ -462,19 +464,20 @@ class BotRunner:
             return
 
         if decision.action == "hold":
-            self._record_event(
-                db,
-                bot_run.id,
-                event_type="log",
-                level="info",
-                message="evaluation_no_signal",
-                payload={
-                    "reason": decision.reason,
-                    "symbol": strategy.symbol,
-                    **decision_payload,
-                },
-            )
-            db.commit()
+            if record_noop_events:
+                self._record_event(
+                    db,
+                    bot_run.id,
+                    event_type="log",
+                    level="info",
+                    message="evaluation_no_signal",
+                    payload={
+                        "reason": decision.reason,
+                        "symbol": strategy.symbol,
+                        **decision_payload,
+                    },
+                )
+                db.commit()
             return
 
         quantity = threshold_config.order_quantity
@@ -553,7 +556,17 @@ class BotRunner:
         )
         db.commit()
 
-    def _evaluate_moving_average_cross(self, db, *, bot, strategy, profile, bot_run, portfolio_repository) -> None:
+    def _evaluate_moving_average_cross(
+        self,
+        db,
+        *,
+        bot,
+        strategy,
+        profile,
+        bot_run,
+        portfolio_repository,
+        record_noop_events: bool,
+    ) -> None:
         config = self._resolve_moving_average_cross_config(strategy.parameters)
         if config.invalid_parameter is not None:
             self._record_event(
@@ -672,15 +685,16 @@ class BotRunner:
             return
 
         if decision == "hold":
-            self._record_event(
-                db,
-                bot_run.id,
-                event_type="log",
-                level="info",
-                message="evaluation_no_signal",
-                payload={"symbol": strategy.symbol, "timeframe": strategy.timeframe, **decision_payload},
-            )
-            db.commit()
+            if record_noop_events:
+                self._record_event(
+                    db,
+                    bot_run.id,
+                    event_type="log",
+                    level="info",
+                    message="evaluation_no_signal",
+                    payload={"symbol": strategy.symbol, "timeframe": strategy.timeframe, **decision_payload},
+                )
+                db.commit()
             return
 
         quantity = config.order_quantity
