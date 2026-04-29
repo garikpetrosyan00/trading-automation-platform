@@ -740,6 +740,7 @@ dd {
   font-weight: 800;
 }
 
+.bot-settings-panel,
 .strategy-parameters-panel {
   margin: 0 0 18px;
   padding: 0;
@@ -759,6 +760,7 @@ dd {
   min-height: 34px;
 }
 
+.bot-settings-content,
 .strategy-parameters-content {
   border: 1px solid var(--line);
   border-radius: 8px;
@@ -766,21 +768,25 @@ dd {
   padding: 14px;
 }
 
+.bot-settings-content.empty,
 .strategy-parameters-content.empty {
   color: var(--muted);
   font-size: 0.86rem;
   font-weight: 800;
 }
 
+.bot-settings-content.error,
 .strategy-parameters-content.error {
   background: var(--danger-soft);
   color: var(--danger);
 }
 
+.bot-settings-content.loading,
 .strategy-parameters-content.loading {
   color: var(--muted);
 }
 
+.bot-settings-grid,
 .strategy-parameters-grid {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -788,6 +794,7 @@ dd {
   margin: 0;
 }
 
+.bot-settings-grid div,
 .strategy-parameters-grid div {
   display: grid;
   gap: 5px;
@@ -947,6 +954,7 @@ dd {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
+  .bot-settings-grid,
   .strategy-parameters-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
@@ -987,6 +995,7 @@ dd {
 @media (max-width: 720px) {
   .summary-grid,
   .decision-grid,
+  .bot-settings-grid,
   .strategy-parameters-grid,
   .strategy-parameters-form {
     grid-template-columns: 1fr;

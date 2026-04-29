@@ -77,6 +77,19 @@ const translations = {
     selected_cooldown_label: "Cooldown",
     selected_price_label: "Last price",
     selected_last_run_label: "Last run",
+    bot_settings: "Bot Settings",
+    bot_settings_aria: "Bot settings",
+    bot_settings_unavailable: "Bot settings unavailable",
+    bot_name_label: "Bot name",
+    status_label: "Status",
+    paper_live_mode_label: "Mode",
+    paused_label: "Paused",
+    cooldown_active_label: "Cooldown active",
+    current_position_qty_label: "Position qty",
+    updated_time_label: "Updated",
+    yes: "Yes",
+    no: "No",
+    not_available: "Not available",
     strategy_parameters: "Strategy Parameters",
     strategy_name_label: "Strategy",
     strategy_type_label: "Type",
@@ -245,6 +258,19 @@ const translations = {
     selected_cooldown_label: "Cooldown",
     selected_price_label: "Վերջին գին",
     selected_last_run_label: "Վերջին գործարկում",
+    bot_settings: "Bot-ի կարգավորումներ",
+    bot_settings_aria: "Bot-ի կարգավորումներ",
+    bot_settings_unavailable: "Bot-ի կարգավորումները հասանելի չեն",
+    bot_name_label: "Bot-ի անուն",
+    status_label: "Status",
+    paper_live_mode_label: "Mode",
+    paused_label: "Դադարեցված",
+    cooldown_active_label: "Cooldown ակտիվ է",
+    current_position_qty_label: "Position քանակ",
+    updated_time_label: "Թարմացվել է",
+    yes: "Այո",
+    no: "Ոչ",
+    not_available: "Հասանելի չէ",
     strategy_parameters: "Strategy Parameters",
     strategy_name_label: "Strategy",
     strategy_type_label: "Type",
@@ -449,6 +475,9 @@ const selectedStrategyLabel = document.querySelector("#selected-strategy-label")
 const selectedCooldownLabel = document.querySelector("#selected-cooldown-label");
 const selectedPriceLabel = document.querySelector("#selected-price-label");
 const selectedLastRunLabel = document.querySelector("#selected-last-run-label");
+const botSettingsPanel = document.querySelector(".bot-settings-panel");
+const botSettingsHeading = document.querySelector("#bot-settings-heading");
+const botSettingsContent = document.querySelector("#bot-settings-content");
 const strategyParametersHeading = document.querySelector("#strategy-parameters-heading");
 const strategyParametersContent = document.querySelector("#strategy-parameters-content");
 const editStrategyParameters = document.querySelector("#edit-strategy-parameters");
@@ -537,6 +566,8 @@ function applyStaticTranslations() {
   selectedCooldownLabel.textContent = t("selected_cooldown_label");
   selectedPriceLabel.textContent = t("selected_price_label");
   selectedLastRunLabel.textContent = t("selected_last_run_label");
+  botSettingsHeading.textContent = t("bot_settings");
+  botSettingsPanel?.setAttribute("aria-label", t("bot_settings_aria"));
   strategyParametersHeading.textContent = t("strategy_parameters");
   editStrategyParameters.textContent = t("edit_strategy_parameters");
   editStrategyParameters.setAttribute("aria-label", t("edit_strategy_parameters_aria"));
@@ -743,6 +774,15 @@ function formatParameterValue(value) {
   if (typeof value === "boolean") return value ? t("active") : t("not_active");
   if (typeof value === "string") return formatDecimal(value, value);
   return JSON.stringify(value);
+}
+
+function firstAvailable(...values) {
+  return values.find((value) => value !== null && value !== undefined && value !== "");
+}
+
+function formatBoolean(value) {
+  if (value === null || value === undefined || value === "") return t("not_available");
+  return value ? t("yes") : t("no");
 }
 
 function strategyParameterLabel(key) {
@@ -1183,8 +1223,12 @@ async function refreshSelectedData() {
   }
 
   if (selectedBotId) {
-    const summary = await fetchJson(`/api/v1/bots/${selectedBotId}/summary`);
+    const [summary, config] = await Promise.all([
+      fetchJson(`/api/v1/bots/${selectedBotId}/summary`),
+      fetchJson(`/api/v1/bots/${selectedBotId}`),
+    ]);
     selectedSummary = normalizeSummary(summary);
+    selectedBotConfig = normalizeBotConfig(config);
   } else {
     selectedSummary = null;
     isEditBotOpen = false;
@@ -1218,11 +1262,16 @@ async function refreshDashboardData({ silent = false } = {}) {
     }
 
     if (selectedBotId) {
-      const summary = await fetchJson(`/api/v1/bots/${selectedBotId}/summary`);
+      const [summary, config] = await Promise.all([
+        fetchJson(`/api/v1/bots/${selectedBotId}/summary`),
+        fetchJson(`/api/v1/bots/${selectedBotId}`),
+      ]);
       selectedSummary = normalizeSummary(summary);
+      selectedBotConfig = normalizeBotConfig(config);
       summaryError = "";
     } else {
       selectedSummary = null;
+      selectedBotConfig = null;
       summaryError = "";
     }
     refreshMessage = "";
@@ -1418,7 +1467,6 @@ async function openEditBotForm() {
 function closeEditBotForm() {
   isEditBotOpen = false;
   isLoadingEditBot = false;
-  selectedBotConfig = null;
   editBotMessage = "";
   editBotMessageType = "";
   render();
@@ -1909,6 +1957,103 @@ function renderStrategyParameters(bot) {
   }
 }
 
+function renderBotSettings(bot) {
+  botSettingsContent.innerHTML = "";
+
+  if (selectedBotId && isLoadingSummary && !selectedSummary) {
+    botSettingsContent.textContent = t("loading_details");
+    botSettingsContent.className = "bot-settings-content empty loading";
+    return;
+  }
+
+  if (!bot) {
+    botSettingsContent.textContent = botListError
+      ? t("bot_settings_unavailable")
+      : bots.length === 0
+        ? t("no_bots_available_yet")
+        : t("select_bot_to_view_details");
+    botSettingsContent.className = botListError
+      ? "bot-settings-content empty error"
+      : "bot-settings-content empty";
+    return;
+  }
+
+  if (summaryError && !selectedSummary) {
+    botSettingsContent.textContent = t("bot_settings_unavailable");
+    botSettingsContent.className = "bot-settings-content empty error";
+    return;
+  }
+
+  const exchangeName = selectedBotConfig?.exchangeName;
+  const isPaper = selectedBotConfig?.isPaper;
+  const rows = [
+    {
+      label: t("bot_name_label"),
+      value: formatValue(firstAvailable(selectedBotConfig?.name, bot.name), t("unnamed_bot")),
+    },
+    {
+      label: t("status_label"),
+      value: formatStatus(firstAvailable(selectedBotConfig?.status, bot.status)),
+    },
+    {
+      label: t("symbol"),
+      value: formatValue(bot.symbol, "—"),
+    },
+    {
+      label: t("strategy_type_label"),
+      value: bot.strategyType ? humanizeMessage(bot.strategyType) : "—",
+    },
+    {
+      label: t("exchange"),
+      value: formatValue(exchangeName, "—"),
+    },
+    {
+      label: t("paper_live_mode_label"),
+      value: isPaper === null || isPaper === undefined ? "—" : modeLabel(isPaper),
+    },
+    {
+      label: t("paused_label"),
+      value: formatBoolean(bot.isPaused || bot.status === "paused"),
+    },
+    {
+      label: t("cooldown_active_label"),
+      value: formatBoolean(bot.cooldownActive),
+    },
+    {
+      label: t("cooldown_until"),
+      value: formatDateTime(bot.cooldownUntil),
+    },
+    {
+      label: t("current_position_qty_label"),
+      value: formatDecimal(bot.currentPositionQty),
+    },
+    {
+      label: t("selected_price_label"),
+      value: formatDecimal(bot.lastPrice),
+    },
+    {
+      label: t("updated_time_label"),
+      value: formatDateTime(bot.updatedAt),
+    },
+  ];
+
+  const grid = document.createElement("dl");
+  grid.className = "bot-settings-grid";
+
+  rows.forEach((item) => {
+    const row = document.createElement("div");
+    const label = document.createElement("dt");
+    const value = document.createElement("dd");
+    label.textContent = item.label;
+    value.textContent = item.value;
+    row.append(label, value);
+    grid.append(row);
+  });
+
+  botSettingsContent.className = "bot-settings-content";
+  botSettingsContent.append(grid);
+}
+
 function renderSummary() {
   const listBot = bots.find((bot) => bot.id === selectedBotId);
   const bot = selectedSummary || listBot;
@@ -1938,6 +2083,7 @@ function renderSummary() {
     selectedCooldown.textContent = bots.length === 0 ? t("add_bot_to_get_started") : "—";
     selectedPrice.textContent = "—";
     selectedLastRun.textContent = bots.length === 0 ? t("no_bot_activity_yet") : "—";
+    renderBotSettings(null);
     renderStrategyParameters(null);
     pauseResume.textContent = t("pause");
     pauseResume.disabled = true;
@@ -1976,6 +2122,7 @@ function renderSummary() {
   selectedCooldown.textContent = cooldownText(bot);
   selectedPrice.textContent = formatDecimal(bot.lastPrice);
   selectedLastRun.textContent = formatDateTime(bot.updatedAt);
+  renderBotSettings(bot);
   renderStrategyParameters(bot);
   pauseResume.textContent = isTogglingPause
     ? `${pauseResumeLabel(bot.status)}…`

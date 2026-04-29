@@ -4,7 +4,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Dashboard</title>
-    <link rel="stylesheet" href="/static/styles.css" />
+    <link rel="stylesheet" href="/static/styles.css?v=bot-settings-config" />
   </head>
   <body>
     <main class="dashboard-shell">
@@ -177,6 +177,15 @@
             </div>
           </dl>
 
+          <section class="bot-settings-panel" aria-label="Bot settings">
+            <div class="panel-heading compact-heading">
+              <h2 id="bot-settings-heading">Bot Settings</h2>
+            </div>
+            <div id="bot-settings-content" class="bot-settings-content empty loading">
+              Loading details...
+            </div>
+          </section>
+
           <section class="strategy-parameters-panel" aria-label="Strategy parameters">
             <div class="panel-heading compact-heading">
               <h2 id="strategy-parameters-heading">Strategy Parameters</h2>
@@ -216,6 +225,6 @@
       </section>
     </main>
 
-    <script src="/static/app.js"></script>
+    <script src="/static/app.js?v=bot-settings-config"></script>
   </body>
 </html>
