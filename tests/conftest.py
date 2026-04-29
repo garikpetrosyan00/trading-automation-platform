@@ -29,6 +29,7 @@ import app.models  # noqa: F401
 class StubMarketDataService:
     def __init__(self):
         self._latest_by_symbol: dict[str, MarketEvent] = {}
+        self._manual_price_symbols: set[str] = set()
 
     async def start(self) -> None:
         return None
@@ -38,8 +39,12 @@ class StubMarketDataService:
 
     def set_price(self, symbol: str, price: str, provider_name: str | None = None) -> None:
         normalized_symbol = symbol.upper()
+        if provider_name is None:
+            self._manual_price_symbols.add(normalized_symbol)
+        else:
+            self._manual_price_symbols.discard(normalized_symbol)
         event = MarketEvent(
-            provider=provider_name or "stub",
+            provider=provider_name or "manual",
             symbol=normalized_symbol,
             event_type=MarketEventType.TICKER,
             event_ts=datetime(2026, 4, 21, 12, 0, tzinfo=timezone.utc),

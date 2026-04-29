@@ -1,11 +1,19 @@
 import asyncio
+import queue
+import time
+from collections.abc import AsyncIterator
+from datetime import datetime, timezone
+from decimal import Decimal
 
 import pytest
 from fastapi.testclient import TestClient
 
 from app.api.v1.endpoints.bot_runtime import get_bot_activity
 from app.core.errors import NotFoundError
+from app.data.providers.base import BaseMarketDataProvider
+from app.data.schemas import MarketEvent, MarketEventType
 from app.main import app
+from app.services.market_data_service import MarketDataService
 
 
 class PassiveBotRunner:
@@ -14,6 +22,38 @@ class PassiveBotRunner:
 
     async def stop(self) -> None:
         return None
+
+
+class BlockingMarketDataProvider(BaseMarketDataProvider):
+    def __init__(self, symbol: str = "BTCUSDT"):
+        super().__init__(symbol)
+        self.events: queue.Queue[MarketEvent | None] = queue.Queue()
+
+    @property
+    def name(self) -> str:
+        return "binance"
+
+    async def stream_events(self) -> AsyncIterator[MarketEvent]:
+        while True:
+            event = await asyncio.to_thread(self.events.get)
+            if event is None:
+                return
+            yield event
+
+    def emit_price(self, price: str) -> None:
+        self.events.put(
+            MarketEvent(
+                provider=self.name,
+                symbol=self.symbol,
+                event_type=MarketEventType.TICKER,
+                event_ts=datetime(2026, 4, 30, 12, 0, tzinfo=timezone.utc),
+                price=Decimal(price),
+                close=Decimal(price),
+            )
+        )
+
+    def close(self) -> None:
+        self.events.put(None)
 
 
 @pytest.fixture
@@ -151,6 +191,102 @@ def test_manual_run_api_for_active_bot_returns_visible_recent_activity(
     assert activity_response.json()["items"][0]["message"] == "buy_filled"
     assert activity_response.json()["items"][0]["type"] == "order_filled"
     assert activity_response.json()["items"][0]["side"] == "buy"
+
+
+def test_manual_market_price_update_syncs_bot_summary_and_run(
+    db_session_factory,
+    stub_market_data_service,
+    bot_stack_factory,
+    bot_runner_factory,
+    configure_app_state,
+    funded_account,
+) -> None:
+    with db_session_factory() as session:
+        funded_account(session)
+        _, bot, _ = bot_stack_factory(session, name="Manual Price API Bot")
+        bot_id = bot.id
+
+    runner_market_data_service = type(stub_market_data_service)()
+    runner_market_data_service.set_price("BTCUSDT", "75638.95000000")
+    configure_app_state(
+        market_data_service=stub_market_data_service,
+        bot_runner=bot_runner_factory(market_data_service=runner_market_data_service),
+    )
+
+    with TestClient(app) as client:
+        start_response = client.post(f"/api/v1/bots/{bot_id}/start")
+        price_response = client.post("/api/v1/market/price", json={"symbol": "btcusdt", "price": "95"})
+        summary_response = client.get(f"/api/v1/bots/{bot_id}/summary")
+        run_response = client.post(f"/api/v1/bots/{bot_id}/run")
+        summary_after_run_response = client.get(f"/api/v1/bots/{bot_id}/summary")
+
+    runner_latest = runner_market_data_service.get_latest("BTCUSDT")
+
+    assert start_response.status_code == 200
+    assert price_response.status_code == 200
+    assert price_response.json()["symbol"] == "BTCUSDT"
+    assert price_response.json()["price"] == "95"
+    assert runner_latest is not None
+    assert runner_latest.price == Decimal("95")
+
+    assert summary_response.status_code == 200
+    summary = summary_response.json()
+    assert summary["name"] == "Manual Price API Bot"
+    assert summary["symbol"] == "BTCUSDT"
+    assert summary["strategy_type"] == "price_threshold"
+    assert summary["cooldown_active"] is False
+    assert summary["current_position_qty"] == "0"
+    assert summary["last_price"] == "95"
+
+    assert run_response.status_code == 200
+    run_body = run_response.json()
+    assert run_body["action"] == "bought"
+    assert run_body["message"] == "buy_filled"
+    assert run_body["last_price"] == "95"
+    assert run_body["decision_explanation"]["current_price"] == "95"
+    assert run_body["decision_explanation"]["decision"] == "buy"
+
+    assert summary_after_run_response.status_code == 200
+    summary_after_run = summary_after_run_response.json()
+    assert summary_after_run["last_price"] == "95"
+    assert summary_after_run["current_position_qty"] == "0.10000000"
+
+
+def test_manual_market_price_survives_active_market_data_stream(
+    db_session_factory,
+    bot_stack_factory,
+    bot_runner_factory,
+    configure_app_state,
+    funded_account,
+) -> None:
+    with db_session_factory() as session:
+        funded_account(session)
+        _, bot, _ = bot_stack_factory(session, name="Manual Stream API Bot")
+        bot_id = bot.id
+
+    provider = BlockingMarketDataProvider()
+    market_data_service = MarketDataService(provider=provider, enabled=True)
+    configure_app_state(
+        market_data_service=market_data_service,
+        bot_runner=bot_runner_factory(market_data_service=market_data_service),
+    )
+
+    with TestClient(app) as client:
+        start_response = client.post(f"/api/v1/bots/{bot_id}/start")
+        price_response = client.post("/api/v1/market/price", json={"symbol": "BTCUSDT", "price": "95"})
+        provider.emit_price("75747.58")
+        time.sleep(0.1)
+        summary_response = client.get(f"/api/v1/bots/{bot_id}/summary")
+        run_response = client.post(f"/api/v1/bots/{bot_id}/run")
+        provider.close()
+
+    assert start_response.status_code == 200
+    assert price_response.status_code == 200
+    assert summary_response.status_code == 200
+    assert summary_response.json()["last_price"] == "95"
+    assert run_response.status_code == 200
+    assert run_response.json()["last_price"] == "95"
+    assert run_response.json()["decision_explanation"]["current_price"] == "95"
 
 
 def test_manual_run_api_for_draft_bot_returns_controlled_response_and_activity_event(

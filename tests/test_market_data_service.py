@@ -83,3 +83,39 @@ def test_market_data_service_returns_all_latest_events() -> None:
 
     latest = service.get_latest()
     assert list(latest) == ["BTCUSDT"]
+
+
+def test_manual_price_survives_provider_stream_until_explicit_provider_update() -> None:
+    provider_event = MarketEvent(
+        provider="fake",
+        symbol="BTCUSDT",
+        event_type=MarketEventType.TICKER,
+        event_ts=datetime(2026, 4, 20, 12, 0, tzinfo=timezone.utc),
+        price=Decimal("75747.58"),
+        close=Decimal("75747.58"),
+    )
+    service = MarketDataService(
+        provider=FakeMarketDataProvider("BTCUSDT", [provider_event]),
+        enabled=True,
+    )
+
+    manual_event = service.set_price("btcusdt", Decimal("95"))
+
+    async def run_service() -> None:
+        await service.start()
+        await asyncio.sleep(0)
+        await service.stop()
+
+    asyncio.run(run_service())
+    latest_after_stream = service.get_latest("BTCUSDT")
+    explicit_provider_event = service.set_price("BTCUSDT", Decimal("64000.12"), provider_name="binance")
+    latest_after_explicit_provider_update = service.get_latest("BTCUSDT")
+
+    assert manual_event.provider == "manual"
+    assert latest_after_stream is not None
+    assert latest_after_stream.price == Decimal("95")
+    assert latest_after_stream.provider == "manual"
+    assert explicit_provider_event.provider == "binance"
+    assert latest_after_explicit_provider_update is not None
+    assert latest_after_explicit_provider_update.price == Decimal("64000.12")
+    assert latest_after_explicit_provider_update.provider == "binance"

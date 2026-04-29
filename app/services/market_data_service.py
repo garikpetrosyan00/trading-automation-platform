@@ -19,6 +19,7 @@ class MarketDataService:
         self.enabled = enabled
         self._task: asyncio.Task[None] | None = None
         self._latest_by_symbol: dict[str, MarketEvent] = {}
+        self._manual_price_symbols: set[str] = set()
         self._received_event_count = 0
         self._last_received_at: datetime | None = None
 
@@ -72,7 +73,8 @@ class MarketDataService:
         await self.provider.connect()
         try:
             async for event in self.provider.stream_events():
-                self._latest_by_symbol[event.symbol] = event
+                if event.symbol not in self._manual_price_symbols:
+                    self._latest_by_symbol[event.symbol] = event
                 self._received_event_count += 1
                 self._last_received_at = datetime.now(timezone.utc)
         except asyncio.CancelledError:
@@ -106,8 +108,12 @@ class MarketDataService:
     def set_price(self, symbol: str, price: Decimal, provider_name: str | None = None) -> MarketEvent:
         now = datetime.now(timezone.utc)
         normalized_symbol = symbol.strip().upper()
+        if provider_name is None:
+            self._manual_price_symbols.add(normalized_symbol)
+        else:
+            self._manual_price_symbols.discard(normalized_symbol)
         event = MarketEvent(
-            provider=provider_name or self.provider.name,
+            provider=provider_name or "manual",
             symbol=normalized_symbol,
             event_type=MarketEventType.TICKER,
             event_ts=now,

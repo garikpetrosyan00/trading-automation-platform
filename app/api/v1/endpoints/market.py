@@ -2,7 +2,7 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 
-from app.api.dependencies import DbSession, MarketDataServiceDep
+from app.api.dependencies import BotRunnerDep, DbSession, MarketDataServiceDep
 from app.core.config import get_settings
 from app.repositories.market_candle import MarketCandleRepository
 from app.schemas.market import (
@@ -30,12 +30,27 @@ def get_market_candle_service(db: DbSession) -> MarketCandleService:
     return MarketCandleService(MarketCandleRepository(db))
 
 
+def sync_runner_market_price(bot_runner, market_data_service, *, symbol: str, price, provider_name: str | None) -> None:
+    runner_market_data_service = getattr(bot_runner, "market_data_service", None)
+    if runner_market_data_service is None or runner_market_data_service is market_data_service:
+        return
+    runner_market_data_service.set_price(symbol, price, provider_name=provider_name)
+
+
 @router.post("/price", response_model=MarketPriceRead)
 async def set_market_price(
     payload: MarketPriceUpdateRequest,
     market_data_service: MarketDataServiceDep,
+    bot_runner: BotRunnerDep,
 ) -> MarketPriceRead:
     event = market_data_service.set_price(payload.symbol, payload.price)
+    sync_runner_market_price(
+        bot_runner,
+        market_data_service,
+        symbol=event.symbol,
+        price=event.price,
+        provider_name=None,
+    )
     return MarketPriceRead(symbol=event.symbol, price=event.price, updated_at=event.received_at)
 
 
@@ -43,10 +58,18 @@ async def set_market_price(
 async def fetch_binance_market_price(
     payload: MarketSymbolRequest,
     market_data_service: MarketDataServiceDep,
+    bot_runner: BotRunnerDep,
     binance_client: BinanceMarketDataClient = Depends(get_binance_market_data_client),
 ) -> BinanceMarketPriceRead:
     price = await binance_client.fetch_latest_price(payload.symbol)
     event = market_data_service.set_price(payload.symbol, price, provider_name="binance")
+    sync_runner_market_price(
+        bot_runner,
+        market_data_service,
+        symbol=event.symbol,
+        price=event.price,
+        provider_name=event.provider,
+    )
     return BinanceMarketPriceRead(
         symbol=event.symbol,
         price=event.price,

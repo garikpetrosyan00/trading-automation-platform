@@ -1338,6 +1338,7 @@ def test_market_price_update_creates_price_for_new_symbol(stub_market_data_servi
         set_market_price_endpoint(
             MarketPriceUpdateRequest(symbol="ethusdt", price=Decimal("95.00000000")),
             stub_market_data_service,
+            object(),
         )
     )
     latest = stub_market_data_service.get_latest("ETHUSDT")
@@ -1353,6 +1354,7 @@ def test_market_price_update_updates_existing_symbol(stub_market_data_service) -
         set_market_price_endpoint(
             MarketPriceUpdateRequest(symbol="BTCUSDT", price=Decimal("95.00000000")),
             stub_market_data_service,
+            object(),
         )
     )
 
@@ -1360,6 +1362,7 @@ def test_market_price_update_updates_existing_symbol(stub_market_data_service) -
         set_market_price_endpoint(
             MarketPriceUpdateRequest(symbol="btcusdt", price=Decimal("115.00000000")),
             stub_market_data_service,
+            object(),
         )
     )
     latest = stub_market_data_service.get_latest("BTCUSDT")
@@ -1394,6 +1397,7 @@ def test_market_price_update_is_used_by_manual_bot_run(
         set_market_price_endpoint(
             MarketPriceUpdateRequest(symbol="btcusdt", price=Decimal("95.00000000")),
             stub_market_data_service,
+            runner,
         )
     )
     buy_response = asyncio.run(run_bot_once_endpoint(bot.id, runner))
@@ -1402,6 +1406,7 @@ def test_market_price_update_is_used_by_manual_bot_run(
         set_market_price_endpoint(
             MarketPriceUpdateRequest(symbol="BTCUSDT", price=Decimal("115.00000000")),
             stub_market_data_service,
+            runner,
         )
     )
     sell_response = asyncio.run(run_bot_once_endpoint(bot.id, runner))
@@ -1417,6 +1422,7 @@ def test_market_price_update_response_shape_stays_small_and_clean(stub_market_da
         set_market_price_endpoint(
             MarketPriceUpdateRequest(symbol="BTCUSDT", price=Decimal("95.00000000")),
             stub_market_data_service,
+            object(),
         )
     )
 

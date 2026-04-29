@@ -65,6 +65,35 @@ def test_binance_price_fetch_stores_latest_price(
     assert latest.price == Decimal("65000.12")
 
 
+def test_explicit_binance_price_fetch_overwrites_manual_price(
+    stub_market_data_service,
+    noop_bot_runner,
+    configure_app_state,
+) -> None:
+    configure_app_state(market_data_service=stub_market_data_service, bot_runner=noop_bot_runner)
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json={"symbol": "BTCUSDT", "price": "65000.12"})
+
+    override_binance_client(handler)
+    try:
+        with TestClient(app) as client:
+            manual_response = client.post("/api/v1/market/price", json={"symbol": "BTCUSDT", "price": "95"})
+            binance_response = client.post("/api/v1/market/binance/price", json={"symbol": "BTCUSDT"})
+    finally:
+        clear_binance_client_override()
+
+    latest = stub_market_data_service.get_latest("BTCUSDT")
+
+    assert manual_response.status_code == 200
+    assert manual_response.json()["price"] == "95"
+    assert binance_response.status_code == 200
+    assert binance_response.json()["price"] == "65000.12"
+    assert latest is not None
+    assert latest.provider == "binance"
+    assert latest.price == Decimal("65000.12")
+
+
 def test_binance_price_fetch_normalizes_lowercase_symbol(
     stub_market_data_service,
     noop_bot_runner,
@@ -172,7 +201,7 @@ def test_manual_market_price_endpoint_still_works(
     assert response.json()["price"] == "64000.00"
     assert set(response.json()) == {"symbol", "price", "updated_at"}
     assert latest is not None
-    assert latest.provider == "stub"
+    assert latest.provider == "manual"
 
 
 def test_binance_candle_fetch_stores_candles(
