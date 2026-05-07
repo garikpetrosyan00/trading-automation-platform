@@ -216,8 +216,36 @@ const translations = {
     activity_failed: "Failed",
     activity_running: "Running",
     activity_event: "Event",
-    order_filled: "Order filled",
-    run_event: "Run event",
+    order_filled: "Կատարված order",
+    run_event: "Run իրադարձություն",
+    activity_buy_filled: "Buy order filled",
+    activity_sell_filled: "Sell order filled",
+    activity_order_filled: "Order filled",
+    activity_order_rejected: "Order rejected",
+    activity_buy_signal: "Buy signal found",
+    activity_sell_signal: "Sell signal found",
+    activity_evaluation_skipped: "Check skipped",
+    activity_evaluation_no_signal: "Checked market: no trade signal",
+    activity_bot_paused: "Bot paused",
+    activity_bot_resumed: "Bot resumed",
+    activity_bot_resume_requested: "Bot resumed",
+    activity_bot_skipped_paused: "Bot is paused; check skipped",
+    activity_bot_not_active: "Bot is not active; check skipped",
+    activity_execution_profile_missing: "Execution settings are missing; check skipped",
+    activity_execution_profile_disabled: "Execution settings are disabled; check skipped",
+    activity_cooldown_active: "Waiting for cooldown before the next trade",
+    activity_live_mode_not_implemented: "Live mode is not available yet; no order was placed",
+    activity_unsupported_strategy_type: "Strategy type is not supported; check skipped",
+    activity_strategy_inactive: "Strategy is inactive; check skipped",
+    activity_started: "Bot started",
+    activity_stopped: "Bot stopped",
+    activity_error: "Run error",
+    activity_run_requested_system: "Automatic run requested",
+    activity_run_requested_manual: "Manual run requested",
+    activity_run_started: "Run started",
+    activity_run_status_updated: "Run status updated",
+    activity_side_buy: "Buy",
+    activity_side_sell: "Sell",
     bot_prefix: "Bot",
     active_until: "Active until",
     active: "Active",
@@ -399,6 +427,34 @@ const translations = {
     activity_event: "Իրադարձություն",
     order_filled: "Order filled",
     run_event: "Run event",
+    activity_buy_filled: "Buy order-ը կատարվեց",
+    activity_sell_filled: "Sell order-ը կատարվեց",
+    activity_order_filled: "Order-ը կատարվեց",
+    activity_order_rejected: "Order-ը մերժվեց",
+    activity_buy_signal: "Buy signal գտնվեց",
+    activity_sell_signal: "Sell signal գտնվեց",
+    activity_evaluation_skipped: "Ստուգումը բաց թողնվեց",
+    activity_evaluation_no_signal: "Շուկան ստուգվեց․ trade signal չկա",
+    activity_bot_paused: "Bot-ը դադարեցվեց",
+    activity_bot_resumed: "Bot-ը վերսկսվեց",
+    activity_bot_resume_requested: "Bot-ը վերսկսվեց",
+    activity_bot_skipped_paused: "Bot-ը դադարեցված է․ ստուգումը բաց թողնվեց",
+    activity_bot_not_active: "Bot-ը ակտիվ չէ․ ստուգումը բաց թողնվեց",
+    activity_execution_profile_missing: "Execution կարգավորումները բացակայում են․ ստուգումը բաց թողնվեց",
+    activity_execution_profile_disabled: "Execution կարգավորումներն անջատված են․ ստուգումը բաց թողնվեց",
+    activity_cooldown_active: "Սպասում է cooldown-ի ավարտին՝ հաջորդ trade-ից առաջ",
+    activity_live_mode_not_implemented: "Live mode-ը դեռ հասանելի չէ․ order չտեղադրվեց",
+    activity_unsupported_strategy_type: "Strategy-ի type-ը չի աջակցվում․ ստուգումը բաց թողնվեց",
+    activity_strategy_inactive: "Strategy-ն ակտիվ չէ․ ստուգումը բաց թողնվեց",
+    activity_started: "Bot-ը գործարկվեց",
+    activity_stopped: "Bot-ը կանգնեցվեց",
+    activity_error: "Գործարկման սխալ",
+    activity_run_requested_system: "Automatic run պահանջվեց",
+    activity_run_requested_manual: "Manual run պահանջվեց",
+    activity_run_started: "Run-ը սկսվեց",
+    activity_run_status_updated: "Run-ի status-ը թարմացվեց",
+    activity_side_buy: "Buy",
+    activity_side_sell: "Sell",
     bot_prefix: "Bot",
     active_until: "Ակտիվ մինչև",
     active: "Ակտիվ է",
@@ -950,8 +1006,69 @@ function actionHelpText(bot) {
   return t("paper_mode_orders");
 }
 
+const ACTIVITY_MESSAGE_LABELS = {
+  buy_filled: "activity_buy_filled",
+  sell_filled: "activity_sell_filled",
+  order_filled: "activity_order_filled",
+  order_rejected: "activity_order_rejected",
+  buy_signal: "activity_buy_signal",
+  sell_signal: "activity_sell_signal",
+  evaluation_skipped: "activity_evaluation_skipped",
+  evaluation_no_signal: "activity_evaluation_no_signal",
+  bot_paused: "activity_bot_paused",
+  bot_resumed: "activity_bot_resumed",
+  bot_resume_requested: "activity_bot_resume_requested",
+  bot_skipped_paused: "activity_bot_skipped_paused",
+  bot_not_active: "activity_bot_not_active",
+  execution_profile_missing: "activity_execution_profile_missing",
+  execution_profile_disabled: "activity_execution_profile_disabled",
+  cooldown_active: "activity_cooldown_active",
+  live_mode_not_implemented: "activity_live_mode_not_implemented",
+  unsupported_strategy_type: "activity_unsupported_strategy_type",
+  strategy_inactive: "activity_strategy_inactive",
+  started: "activity_started",
+  stopped: "activity_stopped",
+  error: "activity_error",
+};
+
+function normalizeActivityMessage(message) {
+  return String(message || "")
+    .trim()
+    .toLowerCase();
+}
+
+function formatRunLifecycleMessage(message) {
+  const normalized = normalizeActivityMessage(message);
+
+  if (normalized === "run requested via system trigger") {
+    return t("activity_run_requested_system");
+  }
+  if (normalized === "run requested via manual trigger") {
+    return t("activity_run_requested_manual");
+  }
+  if (normalized === "run status changed from requested to running") {
+    return t("activity_run_started");
+  }
+  if (normalized.startsWith("run status changed from ")) {
+    return t("activity_run_status_updated");
+  }
+
+  return "";
+}
+
+function formatActivityMessageText(message, fallback = t("activity_update")) {
+  const normalized = normalizeActivityMessage(message);
+  const lifecycleLabel = formatRunLifecycleMessage(normalized);
+  if (lifecycleLabel) return lifecycleLabel;
+
+  const translationKey = ACTIVITY_MESSAGE_LABELS[normalized];
+  if (translationKey) return t(translationKey);
+
+  return humanizeMessage(message, fallback);
+}
+
 function formatActivityMessage(item) {
-  return humanizeMessage(item?.message || item?.status || item?.type, t("activity_update"));
+  return formatActivityMessageText(item?.message || item?.status || item?.type);
 }
 
 function activityStatus(item) {
@@ -962,9 +1079,18 @@ function activityStatus(item) {
     return { label: t("activity_success"), className: "activity-status-success" };
   }
   if (
-    ["bot_not_active", "bot_skipped_paused", "evaluation_no_signal", "cooldown_active"].includes(
-      message,
-    )
+    [
+      "bot_not_active",
+      "bot_skipped_paused",
+      "evaluation_skipped",
+      "evaluation_no_signal",
+      "execution_profile_missing",
+      "execution_profile_disabled",
+      "cooldown_active",
+      "live_mode_not_implemented",
+      "unsupported_strategy_type",
+      "strategy_inactive",
+    ].includes(message)
   ) {
     return { label: t("activity_skipped"), className: "activity-status-skipped" };
   }
@@ -994,11 +1120,18 @@ function formatActivityType(item) {
   return humanizeMessage(item?.type, t("activity_event"));
 }
 
+function formatActivitySide(side) {
+  const normalized = normalizeActivityMessage(side);
+  if (normalized === "buy") return t("activity_side_buy");
+  if (normalized === "sell") return t("activity_side_sell");
+  return humanizeMessage(side);
+}
+
 function activityDetailParts(item) {
   const parts = [];
 
   if (item?.side) {
-    parts.push(`${t("side_label")}: ${humanizeMessage(item.side)}`);
+    parts.push(`${t("side_label")}: ${formatActivitySide(item.side)}`);
   }
   if (item?.price !== null && item?.price !== undefined && item?.price !== "") {
     parts.push(`${t("price_label")}: ${formatDecimal(item.price)}`);
@@ -1117,7 +1250,10 @@ async function loadStrategies() {
 
 function describeManualRunResult(result) {
   const latestActivity = result?.recent_activity_preview?.[0]?.message;
-  const activityLabel = humanizeMessage(latestActivity || result?.message, "Recent activity updated");
+  const activityLabel = formatActivityMessageText(
+    latestActivity || result?.message,
+    t("activity_update"),
+  );
 
   if (result?.action === "bought" || result?.action === "sold") {
     return {
