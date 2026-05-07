@@ -51,12 +51,13 @@ class MarketCandleRepository:
         self.db.refresh(existing)
         return existing
 
-    def list_recent(self, *, symbol: str, timeframe: str, limit: int) -> list[MarketCandle]:
-        recent_statement = (
-            select(MarketCandle)
-            .where(MarketCandle.symbol == symbol, MarketCandle.timeframe == timeframe)
-            .order_by(MarketCandle.open_time.desc(), MarketCandle.id.desc())
-            .limit(limit)
+    def list_recent(self, *, symbol: str, timeframe: str, limit: int, source: str | None = None) -> list[MarketCandle]:
+        recent_statement = select(MarketCandle).where(
+            MarketCandle.symbol == symbol,
+            MarketCandle.timeframe == timeframe,
         )
+        if source is not None:
+            recent_statement = recent_statement.where(MarketCandle.source == source)
+        recent_statement = recent_statement.order_by(MarketCandle.open_time.desc(), MarketCandle.id.desc()).limit(limit)
         recent = list(self.db.scalars(recent_statement).all())
         return sorted(recent, key=lambda candle: (candle.open_time, candle.id))

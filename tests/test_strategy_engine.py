@@ -74,3 +74,90 @@ def test_moving_average_cross_with_insufficient_data_skips_safely() -> None:
     assert decision.reason == "insufficient_candles"
     assert decision.current_price == Decimal("11")
     assert decision.metadata["candles_used"] == 2
+
+
+def test_moving_average_cross_with_no_crossover_skips_with_metadata() -> None:
+    candles = [
+        SimpleNamespace(close_price=Decimal("10")),
+        SimpleNamespace(close_price=Decimal("11")),
+        SimpleNamespace(close_price=Decimal("12")),
+        SimpleNamespace(close_price=Decimal("13")),
+    ]
+
+    decision = StrategyEngine.evaluate(
+        strategy_type="moving_average_cross",
+        parameters={"short_window": "2", "long_window": "3", "quantity": "0.1"},
+        profile=SimpleNamespace(),
+        latest_price=Decimal("13"),
+        position_quantity=Decimal("0"),
+        candles=candles,
+    )
+
+    assert decision.decision == "skip"
+    assert decision.reason == "moving averages did not cross bullish, so no buy signal"
+    assert decision.event_payload()["decision"] == "skipped"
+    assert decision.metadata["previous_short_ma"] == "11.50000000"
+    assert decision.metadata["current_short_ma"] == "12.50000000"
+
+
+def test_moving_average_cross_bullish_crossover_buys() -> None:
+    candles = [
+        SimpleNamespace(close_price=Decimal("10")),
+        SimpleNamespace(close_price=Decimal("10")),
+        SimpleNamespace(close_price=Decimal("10")),
+        SimpleNamespace(close_price=Decimal("20")),
+    ]
+
+    decision = StrategyEngine.evaluate(
+        strategy_type="moving_average_cross",
+        parameters={"short_window": "2", "long_window": "3", "quantity": "0.1"},
+        profile=SimpleNamespace(),
+        latest_price=Decimal("20"),
+        position_quantity=Decimal("0"),
+        candles=candles,
+    )
+
+    assert decision.decision == "buy"
+    assert decision.reason == "short moving average crossed above long moving average"
+    assert decision.metadata["_order_quantity"] == Decimal("0.1")
+
+
+def test_moving_average_cross_bearish_crossover_sells() -> None:
+    candles = [
+        SimpleNamespace(close_price=Decimal("20")),
+        SimpleNamespace(close_price=Decimal("20")),
+        SimpleNamespace(close_price=Decimal("20")),
+        SimpleNamespace(close_price=Decimal("10")),
+    ]
+
+    decision = StrategyEngine.evaluate(
+        strategy_type="moving_average_cross",
+        parameters={"short_window": "2", "long_window": "3", "quantity": "0.1"},
+        profile=SimpleNamespace(),
+        latest_price=Decimal("10"),
+        position_quantity=Decimal("0.1"),
+        candles=candles,
+    )
+
+    assert decision.decision == "sell"
+    assert decision.reason == "short moving average crossed below long moving average"
+    assert decision.metadata["_order_quantity"] == Decimal("0.1")
+
+
+def test_price_threshold_does_not_require_candles() -> None:
+    profile = SimpleNamespace(
+        entry_below=Decimal("100"),
+        exit_above=Decimal("110"),
+        order_quantity=Decimal("0.1"),
+    )
+
+    decision = StrategyEngine.evaluate(
+        strategy_type="price_threshold",
+        parameters={},
+        profile=profile,
+        latest_price=Decimal("99"),
+        position_quantity=Decimal("0"),
+        candles=None,
+    )
+
+    assert decision.decision == "buy"

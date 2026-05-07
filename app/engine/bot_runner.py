@@ -346,14 +346,19 @@ class BotRunner:
         position = portfolio_repository.get_position_by_symbol(strategy.symbol)
         position_quantity = position.quantity if position is not None else ZERO
         candles = None
+        candle_source = None
         if strategy_type == MOVING_AVERAGE_CROSS_STRATEGY_TYPE:
-            config = StrategyEngine.resolve_moving_average_cross_config(strategy.parameters)
-            if config.invalid_parameter is None:
-                assert config.long_window is not None
-                candles = MarketCandleRepository(db).list_recent(
-                    symbol=strategy.symbol,
-                    timeframe=strategy.timeframe,
-                    limit=config.long_window + 1,
+            candle_limit = StrategyEngine.required_candle_count(
+                strategy_type=strategy_type,
+                parameters=strategy.parameters,
+            )
+            candle_source = self._strategy_candle_source(strategy.parameters)
+            if candle_limit is not None:
+                candles = self._load_recent_strategy_candles(
+                    db,
+                    strategy=strategy,
+                    limit=candle_limit,
+                    source=candle_source,
                 )
 
         decision = StrategyEngine.evaluate(
@@ -370,6 +375,8 @@ class BotRunner:
             decision_payload["strategy_type"] = strategy_type
         if strategy_type == MOVING_AVERAGE_CROSS_STRATEGY_TYPE:
             decision_payload["timeframe"] = strategy.timeframe
+            if candle_source is not None:
+                decision_payload["candle_source"] = candle_source
 
         if strategy_type not in {PRICE_THRESHOLD_STRATEGY_TYPE, MOVING_AVERAGE_CROSS_STRATEGY_TYPE}:
             self._record_event(
@@ -800,6 +807,14 @@ class BotRunner:
             RunEventRepository(db),
         )
 
+    def _load_recent_strategy_candles(self, db, *, strategy, limit: int, source: str | None = None):
+        return MarketCandleRepository(db).list_recent(
+            symbol=strategy.symbol,
+            timeframe=strategy.timeframe,
+            limit=limit,
+            source=source,
+        )
+
     def _get_latest_price(self, symbol: str) -> Decimal | None:
         latest = self.market_data_service.get_latest(symbol)
         if latest is None or not isinstance(latest, MarketEvent):
@@ -817,6 +832,16 @@ class BotRunner:
         if value.tzinfo is None:
             return value.replace(tzinfo=timezone.utc)
         return value
+
+    @staticmethod
+    def _strategy_candle_source(parameters: dict | None) -> str | None:
+        if not parameters:
+            return None
+        source = parameters.get("candle_source") or parameters.get("source")
+        if source is None:
+            return None
+        normalized = str(source).strip()
+        return normalized or None
 
     @staticmethod
     def _strategy_type(strategy) -> str:

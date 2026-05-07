@@ -47,7 +47,14 @@ def build_runner(db_session_factory, stub_market_data_service, clock: FakeClock 
     )
 
 
-def add_candles(session, *, symbol: str = "BTCUSDT", timeframe: str = "1m", closes: list[str]) -> None:
+def add_candles(
+    session,
+    *,
+    symbol: str = "BTCUSDT",
+    timeframe: str = "1m",
+    closes: list[str],
+    source: str = "manual",
+) -> None:
     start = datetime(2026, 4, 28, 12, 0, tzinfo=timezone.utc)
     for index, close in enumerate(closes):
         close_price = Decimal(close)
@@ -62,7 +69,7 @@ def add_candles(session, *, symbol: str = "BTCUSDT", timeframe: str = "1m", clos
             low_price=close_price,
             close_price=close_price,
             volume=Decimal("1"),
-            source="manual",
+            source=source,
         )
         session.add(candle)
     session.commit()
@@ -397,6 +404,35 @@ def test_moving_average_cross_buy_crossover_creates_buy_paper_order(
     assert buy_signal.payload["current_long_ma"] == "13.33333333"
 
 
+def test_moving_average_cross_uses_configured_candle_source(
+    db_session,
+    db_session_factory,
+    stub_market_data_service,
+    bot_stack_factory,
+    funded_account,
+) -> None:
+    funded_account(db_session)
+    strategy, bot, _ = bot_stack_factory(db_session)
+    configure_moving_average_strategy(strategy)
+    strategy.parameters["candle_source"] = "binance"
+    db_session.add(strategy)
+    db_session.commit()
+    add_candles(db_session, closes=["10", "11", "12", "13"], source="manual")
+    add_candles(db_session, closes=["10", "10", "10", "20"], source="binance")
+
+    runner = build_runner(db_session_factory, stub_market_data_service)
+    runner.start_bot(bot.id)
+    stub_market_data_service.set_price("BTCUSDT", "20")
+
+    response = asyncio.run(run_bot_once_endpoint(bot.id, runner))
+    events = RunEventRepository(db_session).list_for_bot(bot.id)
+
+    assert response.action == "bought"
+    buy_signal = next(event for event in events if event.message == "buy_signal")
+    assert buy_signal.payload["candle_source"] == "binance"
+    assert buy_signal.payload["current_long_ma"] == "13.33333333"
+
+
 def test_moving_average_cross_sell_crossover_sells_existing_position(
     db_session,
     db_session_factory,
@@ -440,7 +476,7 @@ def test_moving_average_cross_sell_crossover_sells_existing_position(
     assert repository.get_position_by_symbol("BTCUSDT").quantity == Decimal("0E-8")
 
 
-def test_moving_average_cross_hold_when_no_crossover(
+def test_moving_average_cross_no_crossover_skips_safely(
     db_session,
     db_session_factory,
     stub_market_data_service,
@@ -460,11 +496,13 @@ def test_moving_average_cross_hold_when_no_crossover(
 
     response = asyncio.run(run_bot_once_endpoint(bot.id, runner))
 
-    assert response.action == "no_action"
-    assert response.message == "evaluation_no_signal"
+    assert response.action == "skipped"
+    assert response.message == "evaluation_skipped"
     assert response.decision_explanation is not None
-    assert response.decision_explanation.decision == "no_action"
+    assert response.decision_explanation.decision == "skipped"
     assert response.decision_explanation.reason == "moving averages did not cross bullish, so no buy signal"
+    assert response.decision_explanation.previous_short_ma == Decimal("11.50000000")
+    assert response.decision_explanation.current_short_ma == Decimal("12.50000000")
     assert PortfolioRepository(db_session).list_orders() == []
 
 

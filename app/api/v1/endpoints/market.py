@@ -109,14 +109,23 @@ async def list_market_candles(
     db: DbSession,
     symbol: str,
     timeframe: str,
+    source: str | None = None,
     limit: Annotated[int, Query(ge=1, le=500)] = 100,
 ) -> list[MarketCandleRead]:
     normalized_symbol = symbol.strip().upper()
     normalized_timeframe = timeframe.strip()
+    normalized_source = source.strip() if source is not None else None
     if not normalized_symbol:
         raise HTTPException(status_code=422, detail="Symbol must not be empty")
     if not normalized_timeframe:
         raise HTTPException(status_code=422, detail="Timeframe must not be empty")
+    if source is not None and not normalized_source:
+        raise HTTPException(status_code=422, detail="Source must not be empty")
     service = get_market_candle_service(db)
-    candles = service.list_recent(symbol=normalized_symbol, timeframe=normalized_timeframe, limit=limit)
+    candles = service.list_recent(
+        symbol=normalized_symbol,
+        timeframe=normalized_timeframe,
+        limit=limit,
+        source=normalized_source,
+    )
     return [MarketCandleRead.model_validate(candle) for candle in candles]

@@ -197,12 +197,12 @@ class StrategyEngine:
             event_decision = "sell"
             reason = "short moving average crossed below long moving average"
         elif position_quantity <= ZERO:
-            decision = "hold"
-            event_decision = "no_action"
+            decision = "skip"
+            event_decision = "skipped"
             reason = "moving averages did not cross bullish, so no buy signal"
         else:
-            decision = "hold"
-            event_decision = "no_action"
+            decision = "skip"
+            event_decision = "skipped"
             reason = "moving averages did not cross bearish, so no sell signal"
 
         return cls._moving_average_decision(
@@ -224,6 +224,15 @@ class StrategyEngine:
     @staticmethod
     def strategy_type(strategy) -> str:
         return getattr(strategy, "strategy_type", None) or PRICE_THRESHOLD_STRATEGY_TYPE
+
+    @classmethod
+    def required_candle_count(cls, *, strategy_type: str, parameters: dict[str, Any] | None) -> int | None:
+        if strategy_type != MOVING_AVERAGE_CROSS_STRATEGY_TYPE:
+            return None
+        config = cls.resolve_moving_average_cross_config(parameters)
+        if config.invalid_parameter is not None or config.long_window is None:
+            return None
+        return config.long_window + 1
 
     @classmethod
     def resolve_price_threshold_config(cls, parameters: dict[str, Any] | None, profile) -> PriceThresholdConfig:
