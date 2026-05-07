@@ -16,3 +16,6 @@ class MarketCandleService:
 
     def list_recent(self, *, symbol: str, timeframe: str, limit: int, source: str | None = None) -> list[MarketCandle]:
         return self.repository.list_recent(symbol=symbol, timeframe=timeframe, limit=limit, source=source)
+
+    def list_history(self, *, symbol: str, timeframe: str, source: str | None = None) -> list[MarketCandle]:
+        return self.repository.list_history(symbol=symbol, timeframe=timeframe, source=source)

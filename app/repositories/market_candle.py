@@ -61,3 +61,13 @@ class MarketCandleRepository:
         recent_statement = recent_statement.order_by(MarketCandle.open_time.desc(), MarketCandle.id.desc()).limit(limit)
         recent = list(self.db.scalars(recent_statement).all())
         return sorted(recent, key=lambda candle: (candle.open_time, candle.id))
+
+    def list_history(self, *, symbol: str, timeframe: str, source: str | None = None) -> list[MarketCandle]:
+        statement = select(MarketCandle).where(
+            MarketCandle.symbol == symbol,
+            MarketCandle.timeframe == timeframe,
+        )
+        if source is not None:
+            statement = statement.where(MarketCandle.source == source)
+        statement = statement.order_by(MarketCandle.open_time.asc(), MarketCandle.id.asc())
+        return list(self.db.scalars(statement).all())
