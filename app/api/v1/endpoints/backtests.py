@@ -37,6 +37,8 @@ async def run_backtest(payload: BacktestRunRequest, db: DbSession) -> BacktestRe
         realized_pnl=result.realized_pnl,
         unrealized_pnl=result.unrealized_pnl,
         number_of_trades=result.number_of_trades,
+        closed_trades=result.closed_trades,
+        open_position=result.open_position,
         winning_trades=result.winning_trades,
         losing_trades=result.losing_trades,
         candles_processed=result.candles_processed,

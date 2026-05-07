@@ -65,6 +65,8 @@ def test_backtest_insufficient_candles_returns_safe_no_trade_result(db_session) 
     result = run_backtest(db_session, moving_average_strategy())
 
     assert result.number_of_trades == 0
+    assert result.closed_trades == 0
+    assert result.open_position is False
     assert result.cash_balance == Decimal("100")
     assert result.position_quantity == Decimal("0")
     assert result.final_balance == Decimal("100")
@@ -79,6 +81,9 @@ def test_backtest_bullish_crossover_opens_position(db_session) -> None:
     result = run_backtest(db_session, moving_average_strategy())
 
     assert result.number_of_trades == 1
+    assert result.closed_trades == 0
+    assert result.open_position is True
+    assert len(result.trades) == result.number_of_trades
     assert result.trades[0].side == "buy"
     assert result.trades[0].price == Decimal("20.00000000")
     assert result.position_quantity == Decimal("1")
@@ -93,7 +98,11 @@ def test_backtest_bearish_crossover_closes_position(db_session) -> None:
     result = run_backtest(db_session, moving_average_strategy())
 
     assert result.number_of_trades == 2
+    assert result.closed_trades == 1
+    assert result.open_position is False
+    assert len(result.trades) == result.number_of_trades
     assert [trade.side for trade in result.trades] == ["buy", "sell"]
+    assert result.trades[1].realized_pnl == Decimal("-10.00000000")
     assert result.position_quantity == Decimal("0")
     assert result.entry_price is None
     assert result.cash_balance == Decimal("90.00000000")
@@ -109,6 +118,10 @@ def test_backtest_final_balance_includes_open_position_marked_to_last_close(db_s
 
     assert result.cash_balance == Decimal("80.00000000")
     assert result.position_quantity == Decimal("1")
+    assert result.open_position is True
+    assert result.number_of_trades == 1
+    assert result.closed_trades == 0
+    assert len(result.trades) == result.number_of_trades
     assert result.realized_pnl == Decimal("0")
     assert result.unrealized_pnl == Decimal("5.00000000")
     assert result.final_balance == Decimal("105.00000000")
@@ -149,5 +162,6 @@ def test_backtest_uses_configured_candle_source(db_session) -> None:
 
     assert result.source == "binance"
     assert result.number_of_trades == 1
+    assert result.open_position is True
     assert result.trades[0].side == "buy"
     assert result.trades[0].price == Decimal("20.00000000")

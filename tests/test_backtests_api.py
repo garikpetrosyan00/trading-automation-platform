@@ -77,8 +77,11 @@ def test_run_backtest_returns_structured_result(
     assert body["realized_pnl"] == "-10.00000000"
     assert body["unrealized_pnl"] == "0"
     assert body["number_of_trades"] == 2
+    assert body["closed_trades"] == 1
+    assert body["open_position"] is False
     assert body["winning_trades"] == 0
     assert body["losing_trades"] == 1
+    assert len(body["trades"]) == body["number_of_trades"]
     assert [trade["side"] for trade in body["trades"]] == ["buy", "sell"]
     assert body["trades"][0]["price"] == "20.00000000"
     assert body["trades"][1]["realized_pnl"] == "-10.00000000"
@@ -121,6 +124,8 @@ def test_run_backtest_insufficient_candles_returns_no_trade_result(
     body = response.json()
     assert body["candles_processed"] == 3
     assert body["number_of_trades"] == 0
+    assert body["closed_trades"] == 0
+    assert body["open_position"] is False
     assert body["cash_balance"] == "100"
     assert body["position_quantity"] == "0"
     assert body["final_balance"] == "100.00000000"
@@ -151,6 +156,8 @@ def test_run_backtest_response_includes_balances_pnl_trade_counts_and_trades(
         "realized_pnl",
         "unrealized_pnl",
         "number_of_trades",
+        "closed_trades",
+        "open_position",
         "winning_trades",
         "losing_trades",
         "trades",
@@ -160,4 +167,10 @@ def test_run_backtest_response_includes_balances_pnl_trade_counts_and_trades(
     assert body["realized_pnl"] == "0"
     assert body["unrealized_pnl"] == "5.00000000"
     assert body["number_of_trades"] == 1
+    assert body["closed_trades"] == 0
+    assert body["open_position"] is True
+    assert body["position_quantity"] == "1"
+    assert body["entry_price"] == "20.00000000"
     assert len(body["trades"]) == 1
+    assert len(body["trades"]) == body["number_of_trades"]
+    assert body["trades"][0]["side"] == "buy"

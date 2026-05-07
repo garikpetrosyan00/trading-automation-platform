@@ -41,6 +41,8 @@ class BacktestResultResponse(BaseModel):
     realized_pnl: Decimal
     unrealized_pnl: Decimal
     number_of_trades: int
+    closed_trades: int
+    open_position: bool
     winning_trades: int
     losing_trades: int
     candles_processed: int

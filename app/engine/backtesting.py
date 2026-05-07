@@ -37,6 +37,8 @@ class BacktestResult:
     realized_pnl: Decimal
     unrealized_pnl: Decimal
     number_of_trades: int
+    closed_trades: int
+    open_position: bool
     winning_trades: int
     losing_trades: int
     candles_processed: int
@@ -72,6 +74,7 @@ class BacktestingEngine:
         position_quantity = ZERO
         entry_price: Decimal | None = None
         realized_pnl = ZERO
+        closed_trades = 0
         winning_trades = 0
         losing_trades = 0
         trades: list[BacktestTrade] = []
@@ -118,6 +121,7 @@ class BacktestingEngine:
                 trade_pnl = (candle.close_price - entry_price) * position_quantity
                 cash_balance += proceeds
                 realized_pnl += trade_pnl
+                closed_trades += 1
                 if trade_pnl > ZERO:
                     winning_trades += 1
                 elif trade_pnl < ZERO:
@@ -142,6 +146,7 @@ class BacktestingEngine:
         if position_quantity > ZERO and entry_price is not None:
             unrealized_pnl = (last_price - entry_price) * position_quantity
         final_balance = cash_balance + (position_quantity * last_price)
+        open_position = position_quantity > ZERO
 
         return BacktestResult(
             symbol=symbol,
@@ -155,6 +160,8 @@ class BacktestingEngine:
             realized_pnl=realized_pnl,
             unrealized_pnl=unrealized_pnl,
             number_of_trades=len(trades),
+            closed_trades=closed_trades,
+            open_position=open_position,
             winning_trades=winning_trades,
             losing_trades=losing_trades,
             candles_processed=len(candles),
