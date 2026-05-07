@@ -2,6 +2,7 @@ from fastapi import APIRouter
 
 from app.api.v1.endpoints.alert_events import router as alert_events_router
 from app.api.v1.endpoints.alert_rules import router as alert_rules_router
+from app.api.v1.endpoints.backtests import router as backtests_router
 from app.api.v1.endpoints.bots import router as bots_router
 from app.api.v1.endpoints.bot_runtime import router as bot_runtime_router
 from app.api.v1.endpoints.bot_runs import router as bot_runs_router
@@ -21,6 +22,7 @@ router.include_router(market_data_router, tags=["market-data"])
 router.include_router(portfolio_router, tags=["portfolio"])
 router.include_router(execution_router, tags=["execution"])
 router.include_router(market_router, tags=["market"])
+router.include_router(backtests_router, prefix="/backtests", tags=["backtests"])
 router.include_router(bot_runtime_router, tags=["bot-runtime"])
 router.include_router(strategies_router, prefix="/strategies", tags=["strategies"])
 router.include_router(bots_router, prefix="/bots", tags=["bots"])
