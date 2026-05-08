@@ -4,7 +4,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Dashboard</title>
-    <link rel="stylesheet" href="/static/styles.css?v=backtest-submit-fix" />
+    <link rel="stylesheet" href="/static/styles.css?v=backtest-history" />
   </head>
   <body>
     <main class="dashboard-shell">
@@ -248,6 +248,13 @@
               </div>
             </form>
             <div id="backtest-result" class="backtest-result empty"></div>
+            <section class="backtest-history-panel" aria-label="Recent Backtests">
+              <div class="panel-heading compact-heading backtest-history-heading">
+                <h3 id="backtest-history-heading">Recent Backtests</h3>
+                <button id="refresh-backtest-history" type="button" class="secondary-button">Refresh</button>
+              </div>
+              <div id="backtest-history" class="backtest-history empty"></div>
+            </section>
           </section>
 
           <section class="activity-panel" aria-label="Recent activity">
@@ -260,6 +267,6 @@
       </section>
     </main>
 
-    <script src="/static/app.js?v=backtest-submit-fix"></script>
+    <script src="/static/app.js?v=backtest-history"></script>
   </body>
 </html>

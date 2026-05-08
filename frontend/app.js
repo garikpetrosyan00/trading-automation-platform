@@ -25,6 +25,7 @@ let isSavingEditBot = false;
 let isEditingStrategyParameters = false;
 let isSavingStrategyParameters = false;
 let isRunningBacktest = false;
+let isLoadingBacktestHistory = false;
 let backtestStrategyTouched = false;
 let symbolTouched = false;
 let botListError = "";
@@ -40,6 +41,9 @@ let strategyParametersMessageType = "";
 let backtestMessage = "";
 let backtestMessageType = "";
 let backtestResult = null;
+let backtestHistory = [];
+let backtestHistoryError = "";
+let backtestHistoryRequestId = 0;
 let strategyLoadError = "";
 let priceMessage = "";
 let priceMessageType = "";
@@ -135,6 +139,16 @@ const translations = {
     closed_trades_label: "Closed trades",
     open_position_label: "Open position",
     no_backtest_trades: "No trade actions were simulated.",
+    recent_backtests: "Recent Backtests",
+    recent_backtests_aria: "Recent Backtests",
+    loading_recent_backtests: "Loading recent backtests...",
+    no_backtests_yet: "No backtests yet.",
+    failed_to_load_backtest_history: "Failed to load backtest history.",
+    refresh_backtest_history: "Refresh",
+    refreshing_backtest_history: "Refreshing…",
+    backtest_strategy_fallback: "Strategy #{id}",
+    winning_losing_trades_label: "Wins / losses",
+    candles_processed_label: "Candles",
     recent_activity: "Recent Activity",
     set_price: "Set price",
     fetch_binance_price: "Fetch Binance price",
@@ -365,6 +379,16 @@ const translations = {
     closed_trades_label: "Closed trades",
     open_position_label: "Բաց position",
     no_backtest_trades: "Trade գործողություններ չեն simulation արվել։",
+    recent_backtests: "Վերջին Backtest-երը",
+    recent_backtests_aria: "Վերջին Backtest-եր",
+    loading_recent_backtests: "Բեռնվում են վերջին backtest-երը...",
+    no_backtests_yet: "Backtest-եր դեռ չկան։",
+    failed_to_load_backtest_history: "Չհաջողվեց բեռնել backtest history-ն։",
+    refresh_backtest_history: "Թարմացնել",
+    refreshing_backtest_history: "Թարմացվում է…",
+    backtest_strategy_fallback: "Strategy #{id}",
+    winning_losing_trades_label: "Հաղթ. / պարտ.",
+    candles_processed_label: "Candles",
     recent_activity: "Վերջին ակտիվություն",
     set_price: "Սահմանել գինը",
     fetch_binance_price: "Բեռնել Binance գինը",
@@ -607,6 +631,10 @@ const backtestSource = document.querySelector("#backtest-source");
 const backtestSubmit = document.querySelector("#backtest-submit");
 const backtestMessageEl = document.querySelector("#backtest-message");
 const backtestResultEl = document.querySelector("#backtest-result");
+const backtestHistoryPanel = document.querySelector(".backtest-history-panel");
+const backtestHistoryHeading = document.querySelector("#backtest-history-heading");
+const refreshBacktestHistory = document.querySelector("#refresh-backtest-history");
+const backtestHistoryEl = document.querySelector("#backtest-history");
 const recentActivityHeading = document.querySelector("#recent-activity-heading");
 const activityList = document.querySelector("#activity-list");
 const priceForm = document.querySelector("#price-form");
@@ -703,6 +731,11 @@ function applyStaticTranslations() {
   backtestInitialBalanceLabel.textContent = t("initial_balance_label");
   backtestSourceLabel.textContent = t("source_label");
   backtestSubmit.textContent = isRunningBacktest ? t("running_backtest") : t("run_backtest");
+  backtestHistoryPanel?.setAttribute("aria-label", t("recent_backtests_aria"));
+  backtestHistoryHeading.textContent = t("recent_backtests");
+  refreshBacktestHistory.textContent = isLoadingBacktestHistory
+    ? t("refreshing_backtest_history")
+    : t("refresh_backtest_history");
   recentActivityHeading.textContent = t("recent_activity");
   toggleCreateBot.textContent = isCreateBotOpen ? t("close") : t("create_bot");
   createBotSubmit.textContent = isCreatingBot ? t("creating") : t("create_draft_bot");
@@ -816,6 +849,30 @@ function normalizeBacktestResult(rawResult) {
     entryPrice: rawResult.entry_price ?? null,
     trades: Array.isArray(rawResult.trades) ? rawResult.trades : [],
   };
+}
+
+function normalizeBacktestHistoryItem(rawItem) {
+  return {
+    id: rawItem.id,
+    strategyId: rawItem.strategy_id ?? rawItem.strategyId ?? null,
+    symbol: rawItem.symbol ?? "",
+    timeframe: rawItem.timeframe ?? "",
+    strategyType: rawItem.strategy_type ?? rawItem.strategyType ?? "",
+    source: rawItem.source ?? "",
+    initialBalance: rawItem.initial_balance ?? null,
+    finalBalance: rawItem.final_balance ?? null,
+    realizedPnl: rawItem.realized_pnl ?? null,
+    numberOfTrades: rawItem.number_of_trades ?? 0,
+    winningTrades: rawItem.winning_trades ?? null,
+    losingTrades: rawItem.losing_trades ?? null,
+    candlesProcessed: rawItem.candles_processed ?? null,
+    createdAt: rawItem.created_at ?? null,
+  };
+}
+
+function normalizeBacktestHistoryResponse(data) {
+  const rawItems = Array.isArray(data) ? data : data?.items ?? [];
+  return Array.isArray(rawItems) ? rawItems.map(normalizeBacktestHistoryItem) : [];
 }
 
 function statusClass(status) {
@@ -1164,6 +1221,93 @@ function renderBacktestPanel() {
   backtestResultEl.append(grid, tradesHeading, tradesList);
 }
 
+function renderBacktestHistory() {
+  refreshBacktestHistory.textContent = isLoadingBacktestHistory
+    ? t("refreshing_backtest_history")
+    : t("refresh_backtest_history");
+  refreshBacktestHistory.disabled = isLoadingBacktestHistory;
+  backtestHistoryEl.innerHTML = "";
+
+  if (isLoadingBacktestHistory) {
+    backtestHistoryEl.className = "backtest-history empty loading";
+    backtestHistoryEl.textContent = t("loading_recent_backtests");
+    return;
+  }
+
+  if (backtestHistoryError) {
+    backtestHistoryEl.className = "backtest-history empty error";
+    backtestHistoryEl.textContent = backtestHistoryError || t("failed_to_load_backtest_history");
+    return;
+  }
+
+  if (backtestHistory.length === 0) {
+    backtestHistoryEl.className = "backtest-history empty";
+    backtestHistoryEl.textContent = t("no_backtests_yet");
+    return;
+  }
+
+  const list = document.createElement("ul");
+  list.className = "backtest-history-list";
+  backtestHistory.forEach((item) => {
+    const row = document.createElement("li");
+    row.className = "backtest-history-item";
+
+    const header = document.createElement("div");
+    header.className = "backtest-history-item-header";
+
+    const title = document.createElement("strong");
+    title.textContent = strategyLabelForHistory(item.strategyId);
+
+    const createdAt = document.createElement("span");
+    createdAt.textContent = formatDateTime(item.createdAt);
+    header.append(title, createdAt);
+
+    const meta = document.createElement("div");
+    meta.className = "backtest-history-meta";
+    [
+      [t("symbol"), item.symbol],
+      [t("timeframe_label"), item.timeframe],
+      [t("strategy_type_label"), humanizeMessage(item.strategyType)],
+      [t("source_label"), item.source],
+    ].forEach(([label, value]) => {
+      const pill = document.createElement("span");
+      pill.textContent = `${label}: ${formatValue(value)}`;
+      meta.append(pill);
+    });
+
+    const metrics = document.createElement("dl");
+    metrics.className = "backtest-history-metrics";
+    [
+      { label: t("initial_balance_label"), value: formatDecimal(item.initialBalance) },
+      { label: t("final_balance_label"), value: formatDecimal(item.finalBalance) },
+      { label: t("realized_pnl_label"), value: formatDecimal(item.realizedPnl) },
+      { label: t("number_of_trades_label"), value: formatDecimal(item.numberOfTrades) },
+      {
+        label: t("winning_losing_trades_label"),
+        value:
+          item.winningTrades === null && item.losingTrades === null
+            ? "—"
+            : `${formatDecimal(item.winningTrades, "0")} / ${formatDecimal(item.losingTrades, "0")}`,
+      },
+      { label: t("candles_processed_label"), value: formatDecimal(item.candlesProcessed) },
+    ].forEach((metric) => {
+      const group = document.createElement("div");
+      const label = document.createElement("dt");
+      const value = document.createElement("dd");
+      label.textContent = metric.label;
+      value.textContent = metric.value;
+      group.append(label, value);
+      metrics.append(group);
+    });
+
+    row.append(header, meta, metrics);
+    list.append(row);
+  });
+
+  backtestHistoryEl.className = "backtest-history";
+  backtestHistoryEl.append(list);
+}
+
 function cooldownText(bot) {
   if (!bot) return "—";
   if (bot.cooldownActive) {
@@ -1412,6 +1556,12 @@ function strategyOptionLabel(strategy) {
   return details ? `${strategy.name || t("unnamed_strategy")} — ${details}` : t("unnamed_strategy");
 }
 
+function strategyLabelForHistory(strategyId) {
+  const strategy = strategies.find((item) => String(item.id) === String(strategyId));
+  if (strategy) return strategy.name || t("unnamed_strategy");
+  return t("backtest_strategy_fallback", { id: strategyId ?? "—" });
+}
+
 function renderStrategySelect(selectEl, selectedId) {
   const strategyOptions = [];
 
@@ -1463,6 +1613,38 @@ function validateBacktestForm() {
     return t("enter_positive_initial_balance");
   }
   return "";
+}
+
+function backtestHistoryStrategyId() {
+  return strategyIdForSelectedBot();
+}
+
+async function loadBacktestHistory() {
+  const requestId = backtestHistoryRequestId + 1;
+  backtestHistoryRequestId = requestId;
+  isLoadingBacktestHistory = true;
+  backtestHistoryError = "";
+  render();
+
+  const params = new URLSearchParams({ limit: "5" });
+  const strategyId = backtestHistoryStrategyId();
+  if (strategyId) {
+    params.set("strategy_id", String(strategyId));
+  }
+
+  try {
+    const data = await fetchJson(`/api/v1/backtests?${params.toString()}`);
+    if (requestId !== backtestHistoryRequestId) return;
+    backtestHistory = normalizeBacktestHistoryResponse(data);
+  } catch (error) {
+    if (requestId !== backtestHistoryRequestId) return;
+    backtestHistory = [];
+    backtestHistoryError = requestErrorMessage(error, t("failed_to_load_backtest_history"));
+  } finally {
+    if (requestId !== backtestHistoryRequestId) return;
+    isLoadingBacktestHistory = false;
+    render();
+  }
 }
 
 async function loadStrategies() {
@@ -1528,6 +1710,10 @@ function clearSelectedBotMessages() {
   backtestMessage = "";
   backtestMessageType = "";
   backtestResult = null;
+  backtestHistory = [];
+  backtestHistoryError = "";
+  backtestHistoryRequestId += 1;
+  isLoadingBacktestHistory = false;
   backtestStrategyTouched = false;
   isEditingStrategyParameters = false;
 }
@@ -1573,6 +1759,8 @@ async function loadBots() {
     render();
     if (selectedBotId) {
       await loadSelectedSummary(selectedBotId);
+    } else {
+      await loadBacktestHistory();
     }
   } catch (error) {
     bots = [];
@@ -1609,6 +1797,7 @@ async function refreshSelectedData() {
     isEditBotOpen = false;
     selectedBotConfig = null;
   }
+  await loadBacktestHistory();
   refreshMessage = "";
   lastRefreshedAt = new Date();
 }
@@ -1649,6 +1838,7 @@ async function refreshDashboardData({ silent = false } = {}) {
       selectedBotConfig = null;
       summaryError = "";
     }
+    await loadBacktestHistory();
     refreshMessage = "";
     lastRefreshedAt = new Date();
   } catch (error) {
@@ -2058,6 +2248,9 @@ async function submitBacktest(event) {
     backtestResult = normalizeBacktestResult(result);
     backtestMessage = t("backtest_completed");
     backtestMessageType = "success";
+    isRunningBacktest = false;
+    render();
+    await loadBacktestHistory();
   } catch (error) {
     backtestResult = null;
     backtestMessage =
@@ -2185,6 +2378,7 @@ async function loadSelectedSummary(botId) {
   }
 
   render();
+  await loadBacktestHistory();
 }
 
 function renderBotList() {
@@ -2701,6 +2895,7 @@ function render() {
   renderDecisionExplanation();
   renderStrategyParametersForm();
   renderBacktestPanel();
+  renderBacktestHistory();
   renderEditBotForm();
   renderActivity();
 }
@@ -2737,6 +2932,7 @@ editBotForm.addEventListener("submit", submitEditBot);
 strategyParametersForm.addEventListener("submit", submitStrategyParameters);
 backtestForm.addEventListener("submit", submitBacktest);
 backtestSubmit.addEventListener("click", submitBacktest);
+refreshBacktestHistory.addEventListener("click", loadBacktestHistory);
 priceForm.addEventListener("submit", updateMarketPrice);
 binancePriceFetch.addEventListener("click", fetchBinancePriceForSelectedBot);
 priceSymbol.addEventListener("input", () => {

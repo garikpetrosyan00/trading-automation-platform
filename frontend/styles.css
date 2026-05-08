@@ -763,7 +763,8 @@ dd {
 
 .bot-settings-content,
 .strategy-parameters-content,
-.backtest-result {
+.backtest-result,
+.backtest-history {
   border: 1px solid var(--line);
   border-radius: 8px;
   background: #fbfcfa;
@@ -772,21 +773,24 @@ dd {
 
 .bot-settings-content.empty,
 .strategy-parameters-content.empty,
-.backtest-result.empty {
+.backtest-result.empty,
+.backtest-history.empty {
   color: var(--muted);
   font-size: 0.86rem;
   font-weight: 800;
 }
 
 .bot-settings-content.error,
-.strategy-parameters-content.error {
+.strategy-parameters-content.error,
+.backtest-history.error {
   background: var(--danger-soft);
   color: var(--danger);
 }
 
 .bot-settings-content.loading,
 .strategy-parameters-content.loading,
-.backtest-result.loading {
+.backtest-result.loading,
+.backtest-history.loading {
   color: var(--muted);
 }
 
@@ -879,6 +883,101 @@ dd {
 
 .backtest-result {
   margin-top: 12px;
+}
+
+.backtest-history-panel {
+  margin-top: 16px;
+}
+
+.backtest-history-heading {
+  border-bottom: 0;
+  margin-bottom: 8px;
+  min-height: 40px;
+  padding: 0;
+}
+
+.backtest-history-heading h3 {
+  margin: 0;
+  font-size: 0.88rem;
+  letter-spacing: 0;
+}
+
+.backtest-history {
+  margin-top: 0;
+}
+
+.backtest-history-list {
+  display: grid;
+  gap: 10px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.backtest-history-item {
+  display: grid;
+  gap: 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface);
+  padding: 12px;
+}
+
+.backtest-history-item-header,
+.backtest-history-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 10px;
+}
+
+.backtest-history-item-header {
+  justify-content: space-between;
+}
+
+.backtest-history-item-header strong {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  font-size: 0.92rem;
+}
+
+.backtest-history-item-header span,
+.backtest-history-meta span {
+  color: var(--muted);
+  font-size: 0.78rem;
+  font-weight: 800;
+}
+
+.backtest-history-meta span {
+  display: inline-flex;
+  align-items: center;
+  min-height: 24px;
+  border-radius: 999px;
+  background: #eef2f0;
+  padding: 0 9px;
+}
+
+.backtest-history-metrics {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+  margin: 0;
+}
+
+.backtest-history-metrics div {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.backtest-history-metrics dt {
+  color: var(--muted);
+  font-size: 0.72rem;
+  font-weight: 800;
+}
+
+.backtest-history-metrics dd {
+  font-size: 0.9rem;
 }
 
 .backtest-trades-heading {
@@ -1048,7 +1147,8 @@ dd {
 
   .bot-settings-grid,
   .strategy-parameters-grid,
-  .backtest-result-grid {
+  .backtest-result-grid,
+  .backtest-history-metrics {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
@@ -1093,6 +1193,7 @@ dd {
   .strategy-parameters-grid,
   .strategy-parameters-form,
   .backtest-result-grid,
+  .backtest-history-metrics,
   .backtest-form {
     grid-template-columns: 1fr;
   }
