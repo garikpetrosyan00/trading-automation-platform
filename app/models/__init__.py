@@ -1,5 +1,6 @@
 from app.models.alert_event import AlertEvent
 from app.models.alert_rule import AlertRule
+from app.models.backtest_run import BacktestRun
 from app.models.bot import Bot
 from app.models.bot_run import BotRun
 from app.models.execution_profile import ExecutionProfile
@@ -14,6 +15,7 @@ from app.models.strategy import Strategy
 
 __all__ = [
     "Strategy",
+    "BacktestRun",
     "Bot",
     "ExecutionProfile",
     "MarketCandle",

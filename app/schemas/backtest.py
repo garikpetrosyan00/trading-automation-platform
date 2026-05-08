@@ -49,3 +49,28 @@ class BacktestResultResponse(BaseModel):
     trades: list[BacktestTradeResponse]
 
     model_config = ConfigDict(from_attributes=True)
+
+
+class BacktestRunHistoryResponse(BaseModel):
+    id: int
+    strategy_id: int
+    symbol: str
+    timeframe: str
+    strategy_type: str
+    source: str | None = None
+    initial_balance: Decimal
+    final_balance: Decimal
+    cash_balance: Decimal
+    realized_pnl: Decimal
+    unrealized_pnl: Decimal
+    number_of_trades: int
+    closed_trades: int
+    open_position: bool
+    position_quantity: Decimal
+    entry_price: Decimal | None
+    winning_trades: int
+    losing_trades: int
+    candles_processed: int
+    created_at: datetime
+
+    model_config = ConfigDict(from_attributes=True)

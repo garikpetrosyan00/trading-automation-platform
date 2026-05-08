@@ -1,10 +1,18 @@
-from fastapi import APIRouter
+from typing import Annotated
+
+from fastapi import APIRouter, Query
 
 from app.api.dependencies import DbSession
-from app.engine.backtesting import BacktestingEngine
+from app.repositories.backtest_run import BacktestRunRepository
 from app.repositories.market_candle import MarketCandleRepository
 from app.repositories.strategy import StrategyRepository
-from app.schemas.backtest import BacktestResultResponse, BacktestRunRequest, BacktestTradeResponse
+from app.schemas.backtest import (
+    BacktestResultResponse,
+    BacktestRunHistoryResponse,
+    BacktestRunRequest,
+    BacktestTradeResponse,
+)
+from app.services.backtest import BacktestService
 from app.services.strategy import StrategyService
 
 router = APIRouter()
@@ -14,10 +22,14 @@ def get_strategy_service(db: DbSession) -> StrategyService:
     return StrategyService(StrategyRepository(db))
 
 
+def get_backtest_service(db: DbSession) -> BacktestService:
+    return BacktestService(MarketCandleRepository(db), BacktestRunRepository(db))
+
+
 @router.post("", response_model=BacktestResultResponse)
 async def run_backtest(payload: BacktestRunRequest, db: DbSession) -> BacktestResultResponse:
     strategy = get_strategy_service(db).get_by_id(payload.strategy_id)
-    result = BacktestingEngine(MarketCandleRepository(db)).run(
+    result, _ = get_backtest_service(db).run_and_persist(
         strategy=strategy,
         initial_balance=payload.initial_balance,
         source=payload.source,
@@ -44,3 +56,13 @@ async def run_backtest(payload: BacktestRunRequest, db: DbSession) -> BacktestRe
         candles_processed=result.candles_processed,
         trades=[BacktestTradeResponse.model_validate(trade) for trade in result.trades],
     )
+
+
+@router.get("", response_model=list[BacktestRunHistoryResponse])
+async def list_backtests(
+    db: DbSession,
+    strategy_id: int | None = None,
+    limit: Annotated[int, Query(ge=1, le=100)] = 50,
+) -> list[BacktestRunHistoryResponse]:
+    runs = get_backtest_service(db).list_recent(strategy_id=strategy_id, limit=limit)
+    return [BacktestRunHistoryResponse.model_validate(run) for run in runs]
