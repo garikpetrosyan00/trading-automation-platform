@@ -741,7 +741,8 @@ dd {
 }
 
 .bot-settings-panel,
-.strategy-parameters-panel {
+.strategy-parameters-panel,
+.backtest-panel {
   margin: 0 0 18px;
   padding: 0;
   box-shadow: none;
@@ -761,7 +762,8 @@ dd {
 }
 
 .bot-settings-content,
-.strategy-parameters-content {
+.strategy-parameters-content,
+.backtest-result {
   border: 1px solid var(--line);
   border-radius: 8px;
   background: #fbfcfa;
@@ -769,7 +771,8 @@ dd {
 }
 
 .bot-settings-content.empty,
-.strategy-parameters-content.empty {
+.strategy-parameters-content.empty,
+.backtest-result.empty {
   color: var(--muted);
   font-size: 0.86rem;
   font-weight: 800;
@@ -782,12 +785,14 @@ dd {
 }
 
 .bot-settings-content.loading,
-.strategy-parameters-content.loading {
+.strategy-parameters-content.loading,
+.backtest-result.loading {
   color: var(--muted);
 }
 
 .bot-settings-grid,
-.strategy-parameters-grid {
+.strategy-parameters-grid,
+.backtest-result-grid {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 10px;
@@ -795,7 +800,8 @@ dd {
 }
 
 .bot-settings-grid div,
-.strategy-parameters-grid div {
+.strategy-parameters-grid div,
+.backtest-result-grid div {
   display: grid;
   gap: 5px;
   min-width: 0;
@@ -833,6 +839,92 @@ dd {
 
 .strategy-parameters-panel > .form-message {
   margin-top: 8px;
+}
+
+.backtest-form {
+  display: grid;
+  grid-template-columns: minmax(180px, 1.4fr) minmax(130px, 0.8fr) minmax(120px, 0.7fr);
+  gap: 14px 12px;
+  margin-bottom: 14px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fbfcfa;
+  padding: 16px;
+}
+
+.backtest-actions {
+  grid-column: 1 / -1;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  padding-top: 2px;
+}
+
+.backtest-actions button {
+  min-width: 132px;
+}
+
+.backtest-help {
+  min-height: 18px;
+  color: var(--muted);
+  font-size: 0.78rem;
+  font-weight: 700;
+  line-height: 1.35;
+}
+
+.backtest-help.error {
+  color: var(--danger);
+}
+
+.backtest-result {
+  margin-top: 12px;
+}
+
+.backtest-trades-heading {
+  margin: 14px 0 8px;
+  color: var(--muted);
+  font-size: 0.82rem;
+  letter-spacing: 0;
+  text-transform: uppercase;
+}
+
+.backtest-trades {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.backtest-trades li {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 10px;
+  align-items: center;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface);
+  padding: 9px 10px;
+}
+
+.backtest-trade-side {
+  display: inline-flex;
+  align-items: center;
+  min-height: 24px;
+  border-radius: 999px;
+  background: var(--blue-soft);
+  color: var(--blue);
+  padding: 0 10px;
+  font-size: 0.72rem;
+  font-weight: 800;
+}
+
+.backtest-trade-detail,
+.backtest-trade-empty {
+  color: var(--muted);
+  font-size: 0.84rem;
+  font-weight: 800;
 }
 
 .activity-panel {
@@ -955,11 +1047,13 @@ dd {
   }
 
   .bot-settings-grid,
-  .strategy-parameters-grid {
+  .strategy-parameters-grid,
+  .backtest-result-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
-  .strategy-parameters-form {
+  .strategy-parameters-form,
+  .backtest-form {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
@@ -997,7 +1091,9 @@ dd {
   .decision-grid,
   .bot-settings-grid,
   .strategy-parameters-grid,
-  .strategy-parameters-form {
+  .strategy-parameters-form,
+  .backtest-result-grid,
+  .backtest-form {
     grid-template-columns: 1fr;
   }
 }
@@ -1019,7 +1115,8 @@ dd {
   }
 
   .bot-row,
-  .activity-list li {
+  .activity-list li,
+  .backtest-trades li {
     grid-template-columns: 1fr;
   }
 

@@ -4,7 +4,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Dashboard</title>
-    <link rel="stylesheet" href="/static/styles.css?v=bot-settings-config" />
+    <link rel="stylesheet" href="/static/styles.css?v=backtest-submit-fix" />
   </head>
   <body>
     <main class="dashboard-shell">
@@ -215,6 +215,41 @@
             <span id="strategy-parameters-message" class="form-message" role="status"></span>
           </section>
 
+          <section class="backtest-panel" aria-label="Backtest">
+            <div class="panel-heading compact-heading">
+              <h2 id="backtest-heading">Backtest</h2>
+            </div>
+            <form id="backtest-form" class="backtest-form" aria-label="Run backtest">
+              <label>
+                <span id="backtest-strategy-label">Strategy</span>
+                <select id="backtest-strategy-id" name="strategy_id"></select>
+                <span id="backtest-strategy-help" class="backtest-help"></span>
+              </label>
+              <label>
+                <span id="backtest-initial-balance-label">Initial balance</span>
+                <input
+                  id="backtest-initial-balance"
+                  name="initial_balance"
+                  value="1000"
+                  inputmode="decimal"
+                  autocomplete="off"
+                />
+              </label>
+              <label>
+                <span id="backtest-source-label">Source</span>
+                <select id="backtest-source" name="source">
+                  <option value="binance">binance</option>
+                  <option value="manual">manual</option>
+                </select>
+              </label>
+              <div class="backtest-actions">
+                <button id="backtest-submit" type="button">Run Backtest</button>
+                <span id="backtest-message" class="form-message" role="status"></span>
+              </div>
+            </form>
+            <div id="backtest-result" class="backtest-result empty"></div>
+          </section>
+
           <section class="activity-panel" aria-label="Recent activity">
             <div class="panel-heading">
               <h2 id="recent-activity-heading">Recent Activity</h2>
@@ -225,6 +260,6 @@
       </section>
     </main>
 
-    <script src="/static/app.js?v=bot-settings-config"></script>
+    <script src="/static/app.js?v=backtest-submit-fix"></script>
   </body>
 </html>

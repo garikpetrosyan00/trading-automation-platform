@@ -24,6 +24,8 @@ let isLoadingEditBot = false;
 let isSavingEditBot = false;
 let isEditingStrategyParameters = false;
 let isSavingStrategyParameters = false;
+let isRunningBacktest = false;
+let backtestStrategyTouched = false;
 let symbolTouched = false;
 let botListError = "";
 let summaryError = "";
@@ -35,6 +37,9 @@ let editBotMessage = "";
 let editBotMessageType = "";
 let strategyParametersMessage = "";
 let strategyParametersMessageType = "";
+let backtestMessage = "";
+let backtestMessageType = "";
+let backtestResult = null;
 let strategyLoadError = "";
 let priceMessage = "";
 let priceMessageType = "";
@@ -109,6 +114,27 @@ const translations = {
     enter_strategy_parameters: "Enter buy below, sell above, and quantity.",
     strategy_parameters_must_be_numbers: "Strategy parameters must be positive numbers.",
     strategy_parameters_edit_unavailable: "Editing is available for Price Threshold strategies only.",
+    backtest: "Backtest",
+    backtest_aria: "Run backtest",
+    run_backtest: "Run Backtest",
+    running_backtest: "Running…",
+    initial_balance_label: "Initial balance",
+    source_label: "Source",
+    select_strategy_for_backtest: "Select a Strategy to run a backtest.",
+    backtest_uses_selected_bot_strategy: "Uses the selected Bot strategy when available.",
+    enter_positive_initial_balance: "Enter a positive initial balance.",
+    backtest_completed: "Backtest completed.",
+    could_not_run_backtest: "Could not run backtest.",
+    backtest_strategy_not_found: "Strategy could not be found.",
+    no_backtest_result: "Run a backtest to see simulated results.",
+    backtest_trade_actions: "Trade actions",
+    final_balance_label: "Final balance",
+    realized_pnl_label: "Realized PnL",
+    unrealized_pnl_label: "Unrealized PnL",
+    number_of_trades_label: "Trades",
+    closed_trades_label: "Closed trades",
+    open_position_label: "Open position",
+    no_backtest_trades: "No trade actions were simulated.",
     recent_activity: "Recent Activity",
     set_price: "Set price",
     fetch_binance_price: "Fetch Binance price",
@@ -318,6 +344,27 @@ const translations = {
     enter_strategy_parameters: "Մուտքագրիր buy below, sell above և quantity։",
     strategy_parameters_must_be_numbers: "Strategy-ի parameters-ները պետք է լինեն դրական թվեր։",
     strategy_parameters_edit_unavailable: "Խմբագրումը հասանելի է միայն Price Threshold strategies-ի համար։",
+    backtest: "Backtest",
+    backtest_aria: "Գործարկել backtest",
+    run_backtest: "Գործարկել Backtest",
+    running_backtest: "Գործարկվում է…",
+    initial_balance_label: "Սկզբնական balance",
+    source_label: "Աղբյուր",
+    select_strategy_for_backtest: "Ընտրիր Strategy՝ backtest գործարկելու համար։",
+    backtest_uses_selected_bot_strategy: "Հնարավորության դեպքում օգտագործում է ընտրված Bot-ի strategy-ն։",
+    enter_positive_initial_balance: "Մուտքագրիր դրական սկզբնական balance։",
+    backtest_completed: "Backtest-ը ավարտվեց։",
+    could_not_run_backtest: "Չհաջողվեց գործարկել backtest-ը։",
+    backtest_strategy_not_found: "Strategy-ն չգտնվեց։",
+    no_backtest_result: "Գործարկիր backtest՝ simulation արդյունքները տեսնելու համար։",
+    backtest_trade_actions: "Trade գործողություններ",
+    final_balance_label: "Վերջնական balance",
+    realized_pnl_label: "Realized PnL",
+    unrealized_pnl_label: "Unrealized PnL",
+    number_of_trades_label: "Trades",
+    closed_trades_label: "Closed trades",
+    open_position_label: "Բաց position",
+    no_backtest_trades: "Trade գործողություններ չեն simulation արվել։",
     recent_activity: "Վերջին ակտիվություն",
     set_price: "Սահմանել գինը",
     fetch_binance_price: "Բեռնել Binance գինը",
@@ -547,6 +594,19 @@ const strategyQuantity = document.querySelector("#strategy-quantity");
 const strategyParametersSubmit = document.querySelector("#strategy-parameters-submit");
 const strategyParametersCancel = document.querySelector("#strategy-parameters-cancel");
 const strategyParametersMessageEl = document.querySelector("#strategy-parameters-message");
+const backtestPanel = document.querySelector(".backtest-panel");
+const backtestHeading = document.querySelector("#backtest-heading");
+const backtestForm = document.querySelector("#backtest-form");
+const backtestStrategyLabel = document.querySelector("#backtest-strategy-label");
+const backtestStrategyId = document.querySelector("#backtest-strategy-id");
+const backtestStrategyHelp = document.querySelector("#backtest-strategy-help");
+const backtestInitialBalanceLabel = document.querySelector("#backtest-initial-balance-label");
+const backtestInitialBalance = document.querySelector("#backtest-initial-balance");
+const backtestSourceLabel = document.querySelector("#backtest-source-label");
+const backtestSource = document.querySelector("#backtest-source");
+const backtestSubmit = document.querySelector("#backtest-submit");
+const backtestMessageEl = document.querySelector("#backtest-message");
+const backtestResultEl = document.querySelector("#backtest-result");
 const recentActivityHeading = document.querySelector("#recent-activity-heading");
 const activityList = document.querySelector("#activity-list");
 const priceForm = document.querySelector("#price-form");
@@ -636,6 +696,13 @@ function applyStaticTranslations() {
   document
     .querySelector(".strategy-parameters-panel")
     ?.setAttribute("aria-label", t("strategy_parameters"));
+  backtestHeading.textContent = t("backtest");
+  backtestPanel?.setAttribute("aria-label", t("backtest"));
+  backtestForm.setAttribute("aria-label", t("backtest_aria"));
+  backtestStrategyLabel.textContent = t("strategy");
+  backtestInitialBalanceLabel.textContent = t("initial_balance_label");
+  backtestSourceLabel.textContent = t("source_label");
+  backtestSubmit.textContent = isRunningBacktest ? t("running_backtest") : t("run_backtest");
   recentActivityHeading.textContent = t("recent_activity");
   toggleCreateBot.textContent = isCreateBotOpen ? t("close") : t("create_bot");
   createBotSubmit.textContent = isCreatingBot ? t("creating") : t("create_draft_bot");
@@ -652,6 +719,7 @@ function normalizeBot(rawBot) {
   return {
     id: rawBot.bot_id ?? rawBot.id,
     name: rawBot.name ?? "",
+    strategyId: rawBot.strategy_id ?? rawBot.strategyId ?? null,
     status: rawBot.status ?? "idle",
     isPaused: rawBot.is_paused ?? false,
     strategyType: rawBot.strategy_type ?? "",
@@ -672,6 +740,7 @@ function normalizeBotsResponse(data) {
 function normalizeSummary(rawSummary) {
   return {
     ...normalizeBot(rawSummary),
+    strategyId: rawSummary.strategy_id ?? rawSummary.strategyId ?? rawSummary.strategy?.id ?? null,
     strategyName: rawSummary.strategy_name ?? "",
     strategyTimeframe: rawSummary.strategy_timeframe ?? "",
     strategyParameters:
@@ -691,12 +760,18 @@ function normalizeStrategy(rawStrategy) {
     name: rawStrategy.name ?? "",
     symbol: rawStrategy.symbol ?? "",
     timeframe: rawStrategy.timeframe ?? "",
+    strategyType: rawStrategy.strategy_type ?? rawStrategy.strategyType ?? "",
     parameters:
       rawStrategy.parameters && typeof rawStrategy.parameters === "object"
         ? rawStrategy.parameters
         : {},
     isActive: rawStrategy.is_active ?? true,
   };
+}
+
+function normalizeStrategiesResponse(data) {
+  const rawStrategies = Array.isArray(data) ? data : data?.items ?? [];
+  return Array.isArray(rawStrategies) ? rawStrategies.map(normalizeStrategy) : [];
 }
 
 function normalizeBotConfig(rawBot) {
@@ -720,6 +795,26 @@ function normalizeDecisionExplanation(rawExplanation) {
     positionQty: rawExplanation.position_qty ?? null,
     decision: rawExplanation.decision ?? "",
     reason: rawExplanation.reason ?? "",
+  };
+}
+
+function normalizeBacktestResult(rawResult) {
+  if (!rawResult || typeof rawResult !== "object") return null;
+  return {
+    symbol: rawResult.symbol ?? "",
+    timeframe: rawResult.timeframe ?? "",
+    strategyType: rawResult.strategy_type ?? "",
+    source: rawResult.source ?? "",
+    initialBalance: rawResult.initial_balance ?? null,
+    finalBalance: rawResult.final_balance ?? null,
+    realizedPnl: rawResult.realized_pnl ?? null,
+    unrealizedPnl: rawResult.unrealized_pnl ?? null,
+    numberOfTrades: rawResult.number_of_trades ?? 0,
+    closedTrades: rawResult.closed_trades ?? 0,
+    openPosition: rawResult.open_position ?? false,
+    positionQuantity: rawResult.position_quantity ?? null,
+    entryPrice: rawResult.entry_price ?? null,
+    trades: Array.isArray(rawResult.trades) ? rawResult.trades : [],
   };
 }
 
@@ -873,7 +968,7 @@ function orderedStrategyParameters(parameters) {
 }
 
 function strategyIdForSelectedBot() {
-  return selectedBotConfig?.strategyId ?? null;
+  return selectedBotConfig?.strategyId ?? selectedSummary?.strategyId ?? null;
 }
 
 function selectedStrategyType() {
@@ -957,6 +1052,116 @@ function renderStrategyParametersForm() {
   strategyParametersMessageEl.className = visibleMessageType
     ? `form-message ${visibleMessageType}`
     : "form-message";
+}
+
+function renderBacktestPanel() {
+  const preferredStrategyId = selectedBacktestStrategyId();
+  renderStrategySelect(backtestStrategyId, preferredStrategyId);
+
+  if (!backtestStrategyTouched && preferredStrategyId) {
+    backtestStrategyId.value = String(preferredStrategyId);
+  }
+
+  const shouldDisable =
+    isRunningBacktest ||
+    isLoadingStrategies ||
+    strategies.length === 0 ||
+    Boolean(strategyLoadError);
+  backtestStrategyId.disabled = shouldDisable;
+  backtestInitialBalance.disabled = isRunningBacktest;
+  backtestSource.disabled = isRunningBacktest;
+  backtestSubmit.textContent = isRunningBacktest ? t("running_backtest") : t("run_backtest");
+  backtestSubmit.disabled = shouldDisable;
+  backtestStrategyHelp.textContent = isLoadingStrategies
+    ? t("loading_available_strategies")
+    : strategyLoadError
+      ? t("could_not_load_strategies", { detail: strategyLoadError })
+      : strategies.length === 0
+        ? t("no_strategies_available")
+        : t("backtest_uses_selected_bot_strategy");
+  backtestStrategyHelp.className = strategyLoadError
+    ? "backtest-help error"
+    : "backtest-help";
+  backtestMessageEl.textContent =
+    backtestMessage ||
+    (strategies.length === 0 && !isLoadingStrategies ? t("no_strategies_available") : "");
+  backtestMessageEl.className = backtestMessageType
+    ? `form-message ${backtestMessageType}`
+    : "form-message";
+
+  backtestResultEl.innerHTML = "";
+  if (isRunningBacktest) {
+    backtestResultEl.className = "backtest-result empty loading";
+    backtestResultEl.textContent = t("running_backtest");
+    return;
+  }
+
+  if (!backtestResult) {
+    backtestResultEl.className = "backtest-result empty";
+    backtestResultEl.textContent = t("no_backtest_result");
+    return;
+  }
+
+  const rows = [
+    { label: t("symbol"), value: formatValue(backtestResult.symbol) },
+    { label: t("timeframe_label"), value: formatValue(backtestResult.timeframe) },
+    { label: t("strategy_type_label"), value: humanizeMessage(backtestResult.strategyType) },
+    { label: t("source_label"), value: formatValue(backtestResult.source) },
+    { label: t("initial_balance_label"), value: formatDecimal(backtestResult.initialBalance) },
+    { label: t("final_balance_label"), value: formatDecimal(backtestResult.finalBalance) },
+    { label: t("realized_pnl_label"), value: formatDecimal(backtestResult.realizedPnl) },
+    { label: t("unrealized_pnl_label"), value: formatDecimal(backtestResult.unrealizedPnl) },
+    { label: t("number_of_trades_label"), value: formatDecimal(backtestResult.numberOfTrades) },
+    { label: t("closed_trades_label"), value: formatDecimal(backtestResult.closedTrades) },
+    { label: t("open_position_label"), value: formatBoolean(backtestResult.openPosition) },
+    { label: t("position_qty_label"), value: formatDecimal(backtestResult.positionQuantity) },
+    { label: t("price_label"), value: formatDecimal(backtestResult.entryPrice) },
+  ];
+
+  const grid = document.createElement("dl");
+  grid.className = "backtest-result-grid";
+  rows.forEach((item) => {
+    const row = document.createElement("div");
+    const label = document.createElement("dt");
+    const value = document.createElement("dd");
+    label.textContent = item.label;
+    value.textContent = item.value;
+    row.append(label, value);
+    grid.append(row);
+  });
+
+  const tradesHeading = document.createElement("h3");
+  tradesHeading.className = "backtest-trades-heading";
+  tradesHeading.textContent = t("backtest_trade_actions");
+  const tradesList = document.createElement("ul");
+  tradesList.className = "backtest-trades";
+
+  if (backtestResult.trades.length === 0) {
+    const empty = document.createElement("li");
+    empty.className = "backtest-trade-empty";
+    empty.textContent = t("no_backtest_trades");
+    tradesList.append(empty);
+  } else {
+    backtestResult.trades.slice(0, 6).forEach((trade) => {
+      const item = document.createElement("li");
+      const side = formatActivitySide(trade.side);
+      const detailParts = [
+        `${t("quantity_label")}: ${formatDecimal(trade.quantity)}`,
+        `${t("price_label")}: ${formatDecimal(trade.price)}`,
+      ];
+      if (trade.realized_pnl !== null && trade.realized_pnl !== undefined) {
+        detailParts.push(`${t("realized_pnl_label")}: ${formatDecimal(trade.realized_pnl)}`);
+      }
+      item.innerHTML = `
+        <span class="backtest-trade-side">${side}</span>
+        <span class="backtest-trade-detail">${detailParts.join(" · ")}</span>
+      `;
+      tradesList.append(item);
+    });
+  }
+
+  backtestResultEl.className = "backtest-result";
+  backtestResultEl.append(grid, tradesHeading, tradesList);
 }
 
 function cooldownText(bot) {
@@ -1201,8 +1406,10 @@ function validationErrorsMessage(errors, fallback) {
 }
 
 function strategyOptionLabel(strategy) {
-  const details = [strategy.symbol, strategy.timeframe].filter(Boolean).join(" · ");
-  return details ? `${strategy.name} (${details})` : strategy.name;
+  const details = [strategy.symbol, strategy.timeframe, humanizeMessage(strategy.strategyType, "")]
+    .filter(Boolean)
+    .join(" — ");
+  return details ? `${strategy.name || t("unnamed_strategy")} — ${details}` : t("unnamed_strategy");
 }
 
 function renderStrategySelect(selectEl, selectedId) {
@@ -1231,6 +1438,33 @@ function renderStrategySelect(selectEl, selectedId) {
   selectEl.disabled = isLoadingStrategies || strategies.length === 0 || Boolean(strategyLoadError);
 }
 
+function selectedBacktestStrategyId() {
+  if (backtestStrategyTouched && backtestStrategyId.value) return backtestStrategyId.value;
+  const selectedStrategyId = strategyIdForSelectedBot();
+  if (selectedStrategyId && strategies.some((strategy) => String(strategy.id) === String(selectedStrategyId))) {
+    return selectedStrategyId;
+  }
+  return backtestStrategyId.value || strategies[0]?.id || "";
+}
+
+function validateBacktestForm() {
+  if (strategyLoadError) {
+    return t("could_not_load_strategies", { detail: strategyLoadError });
+  }
+  if (isLoadingStrategies) {
+    return t("strategies_still_loading");
+  }
+  if (!selectedBacktestStrategyId()) {
+    return t("select_strategy_for_backtest");
+  }
+  const initialBalance = backtestInitialBalance.value.trim();
+  const parsedBalance = Number(initialBalance);
+  if (!initialBalance || !Number.isFinite(parsedBalance) || parsedBalance <= 0) {
+    return t("enter_positive_initial_balance");
+  }
+  return "";
+}
+
 async function loadStrategies() {
   isLoadingStrategies = true;
   strategyLoadError = "";
@@ -1238,7 +1472,7 @@ async function loadStrategies() {
 
   try {
     const data = await fetchJson("/api/v1/strategies");
-    strategies = Array.isArray(data) ? data.map(normalizeStrategy) : [];
+    strategies = normalizeStrategiesResponse(data);
   } catch (error) {
     strategies = [];
     strategyLoadError = requestErrorMessage(error, t("could_not_load_strategies", { detail: "" }).trim());
@@ -1291,6 +1525,10 @@ function clearSelectedBotMessages() {
   latestDecisionExplanation = null;
   strategyParametersMessage = "";
   strategyParametersMessageType = "";
+  backtestMessage = "";
+  backtestMessageType = "";
+  backtestResult = null;
+  backtestStrategyTouched = false;
   isEditingStrategyParameters = false;
 }
 
@@ -1304,7 +1542,8 @@ function hasInFlightAction() {
     isCreatingBot ||
     isLoadingEditBot ||
     isSavingEditBot ||
-    isSavingStrategyParameters
+    isSavingStrategyParameters ||
+    isRunningBacktest
   );
 }
 
@@ -1780,6 +2019,54 @@ async function submitStrategyParameters(event) {
     isEditingStrategyParameters = true;
   } finally {
     isSavingStrategyParameters = false;
+    render();
+  }
+}
+
+async function submitBacktest(event) {
+  event.preventDefault();
+  if (isRunningBacktest) return;
+
+  const validationError = validateBacktestForm();
+  if (validationError) {
+    backtestMessage = validationError;
+    backtestMessageType = "error";
+    render();
+    return;
+  }
+
+  const payload = {
+    strategy_id: Number(selectedBacktestStrategyId()),
+    initial_balance: backtestInitialBalance.value.trim(),
+  };
+  const source = backtestSource.value.trim();
+  if (source) {
+    payload.source = source;
+  }
+
+  isRunningBacktest = true;
+  backtestMessage = "";
+  backtestMessageType = "";
+  render();
+
+  try {
+    const result = await fetchJson("/api/v1/backtests", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+    backtestResult = normalizeBacktestResult(result);
+    backtestMessage = t("backtest_completed");
+    backtestMessageType = "success";
+  } catch (error) {
+    backtestResult = null;
+    backtestMessage =
+      error?.status === 404
+        ? t("backtest_strategy_not_found")
+        : requestErrorMessage(error, t("could_not_run_backtest"));
+    backtestMessageType = "error";
+  } finally {
+    isRunningBacktest = false;
     render();
   }
 }
@@ -2413,6 +2700,7 @@ function render() {
   renderSummary();
   renderDecisionExplanation();
   renderStrategyParametersForm();
+  renderBacktestPanel();
   renderEditBotForm();
   renderActivity();
 }
@@ -2447,10 +2735,19 @@ strategyParametersCancel.addEventListener("click", closeStrategyParametersForm);
 createBotForm.addEventListener("submit", submitCreateBot);
 editBotForm.addEventListener("submit", submitEditBot);
 strategyParametersForm.addEventListener("submit", submitStrategyParameters);
+backtestForm.addEventListener("submit", submitBacktest);
+backtestSubmit.addEventListener("click", submitBacktest);
 priceForm.addEventListener("submit", updateMarketPrice);
 binancePriceFetch.addEventListener("click", fetchBinancePriceForSelectedBot);
 priceSymbol.addEventListener("input", () => {
   symbolTouched = true;
+});
+backtestStrategyId.addEventListener("change", () => {
+  backtestStrategyTouched = true;
+  backtestResult = null;
+  backtestMessage = "";
+  backtestMessageType = "";
+  renderBacktestPanel();
 });
 
 document.documentElement.lang = currentLanguage === "am" ? "hy" : "en";
