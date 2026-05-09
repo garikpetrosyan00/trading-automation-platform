@@ -52,6 +52,7 @@ let botSearchQuery = "";
 let lastRefreshedAt = null;
 let autoRefreshTimer = null;
 let selectedBotConfig = null;
+let hasUserSelectedBot = false;
 let currentLanguage = getStoredLanguage();
 
 const translations = {
@@ -953,6 +954,10 @@ function filteredBots() {
         `${bot.name ?? ""} ${bot.symbol ?? ""}`.toLowerCase().includes(query),
       )
     : bots;
+  return sortedBots(source);
+}
+
+function sortedBots(source) {
   return [...source].sort((left, right) => {
     const rankDiff = statusRank(left.status) - statusRank(right.status);
     if (rankDiff !== 0) return rankDiff;
@@ -964,6 +969,32 @@ function filteredBots() {
       sensitivity: "base",
     });
   });
+}
+
+function defaultSelectedBotId(sortedSource) {
+  return sortedSource.find((bot) => isRunnableStatus(bot.status))?.id ?? sortedSource[0]?.id ?? null;
+}
+
+function botIdsEqual(left, right) {
+  return (
+    left !== null &&
+    left !== undefined &&
+    right !== null &&
+    right !== undefined &&
+    String(left) === String(right)
+  );
+}
+
+function chooseSelectedBotId(sortedSource) {
+  const selectedExists = Boolean(
+    selectedBotId && sortedSource.some((bot) => botIdsEqual(bot.id, selectedBotId)),
+  );
+
+  if (hasUserSelectedBot && selectedExists) {
+    return selectedBotId;
+  }
+
+  return defaultSelectedBotId(sortedSource);
 }
 
 function formatDecimal(value, fallback = "—") {
@@ -1037,7 +1068,7 @@ function canEditSelectedStrategyParameters() {
 }
 
 function selectedBotSymbol() {
-  const bot = selectedSummary || bots.find((item) => item.id === selectedBotId);
+  const bot = selectedSummary || bots.find((item) => botIdsEqual(item.id, selectedBotId));
   return bot?.symbol ? String(bot.symbol).trim().toUpperCase() : "";
 }
 
@@ -1496,7 +1527,7 @@ function activityDetailParts(item) {
 }
 
 function activityBotName() {
-  const bot = selectedSummary || bots.find((item) => item.id === selectedBotId);
+  const bot = selectedSummary || bots.find((item) => botIdsEqual(item.id, selectedBotId));
   return bot?.name ? String(bot.name) : "";
 }
 
@@ -1742,15 +1773,14 @@ async function loadBots() {
     const previousSelectedBotId = selectedBotId;
     const data = await fetchJson("/api/v1/bots");
     bots = normalizeBotsResponse(data);
-    if (selectedBotId && !bots.some((bot) => bot.id === selectedBotId)) {
-      selectedBotId = null;
+    const sortedBotList = sortedBots(bots);
+
+    selectedBotId = chooseSelectedBotId(sortedBotList);
+    if (!selectedBotId || !botIdsEqual(selectedBotId, previousSelectedBotId)) {
       isEditBotOpen = false;
       selectedBotConfig = null;
     }
-    if (!selectedBotId && bots.length > 0) {
-      selectedBotId = bots[0].id;
-    }
-    if (selectedBotId !== previousSelectedBotId) {
+    if (!botIdsEqual(selectedBotId, previousSelectedBotId)) {
       clearSelectedBotMessages();
     }
     refreshMessage = "";
@@ -1776,12 +1806,11 @@ async function refreshSelectedData() {
   const currentBotId = selectedBotId;
   const data = await fetchJson("/api/v1/bots");
   bots = normalizeBotsResponse(data);
+  const sortedBotList = sortedBots(bots);
 
-  selectedBotId = bots.some((bot) => bot.id === currentBotId)
-    ? currentBotId
-    : bots[0]?.id ?? null;
+  selectedBotId = chooseSelectedBotId(sortedBotList);
 
-  if (selectedBotId !== currentBotId) {
+  if (!botIdsEqual(selectedBotId, currentBotId)) {
     clearSelectedBotMessages();
   }
 
@@ -1815,13 +1844,12 @@ async function refreshDashboardData({ silent = false } = {}) {
   try {
     const data = await fetchJson("/api/v1/bots");
     bots = normalizeBotsResponse(data);
+    const sortedBotList = sortedBots(bots);
     botListError = "";
 
-    selectedBotId = bots.some((bot) => bot.id === currentBotId)
-      ? currentBotId
-      : null;
+    selectedBotId = chooseSelectedBotId(sortedBotList);
 
-    if (selectedBotId !== currentBotId) {
+    if (!botIdsEqual(selectedBotId, currentBotId)) {
       clearSelectedBotMessages();
     }
 
@@ -1876,7 +1904,7 @@ function updateAutoRefresh() {
 }
 
 async function togglePauseResume() {
-  const bot = selectedSummary || bots.find((item) => item.id === selectedBotId);
+  const bot = selectedSummary || bots.find((item) => botIdsEqual(item.id, selectedBotId));
   if (!bot || isTogglingPause) return;
 
   const action = shouldPause(bot.status) ? "pause" : "resume";
@@ -1901,7 +1929,7 @@ async function togglePauseResume() {
 }
 
 async function runSelectedBotNow() {
-  const bot = selectedSummary || bots.find((item) => item.id === selectedBotId);
+  const bot = selectedSummary || bots.find((item) => botIdsEqual(item.id, selectedBotId));
   if (!bot || isRunningNow) return;
 
   isRunningNow = true;
@@ -2105,6 +2133,7 @@ async function submitCreateBot(event) {
       body: JSON.stringify(payload),
     });
     clearSelectedBotMessages();
+    hasUserSelectedBot = true;
     selectedBotId = createdBot.id;
     await refreshDashboardData();
     createBotMessage = t("created_bot_success", { name: createdBot.name });
@@ -2416,10 +2445,11 @@ function renderBotList() {
     const row = document.createElement("button");
     row.type = "button";
     row.className = "bot-row";
-    row.setAttribute("aria-selected", String(bot.id === selectedBotId));
+    row.setAttribute("aria-selected", String(botIdsEqual(bot.id, selectedBotId)));
     row.addEventListener("click", async () => {
-      if (bot.id === selectedBotId) return;
+      if (botIdsEqual(bot.id, selectedBotId)) return;
       clearSelectedBotMessages();
+      hasUserSelectedBot = true;
       selectedBotId = bot.id;
       isEditBotOpen = false;
       selectedBotConfig = null;
@@ -2672,7 +2702,7 @@ function renderBotSettings(bot) {
 }
 
 function renderSummary() {
-  const listBot = bots.find((bot) => bot.id === selectedBotId);
+  const listBot = bots.find((bot) => botIdsEqual(bot.id, selectedBotId));
   const bot = selectedSummary || listBot;
   const botMode = modeLabel(selectedBotConfig?.isPaper);
   const canRunNow = Boolean(selectedBotId && bot && isRunnableStatus(bot.status) && !bot.isPaused);
