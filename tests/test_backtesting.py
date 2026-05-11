@@ -52,6 +52,21 @@ def moving_average_strategy(**parameter_overrides):
     )
 
 
+def price_threshold_strategy(**parameter_overrides):
+    parameters = {
+        "buy_below": "11",
+        "sell_above": "19",
+        "quantity": "1",
+    }
+    parameters.update(parameter_overrides)
+    return SimpleNamespace(
+        symbol="BTCUSDT",
+        timeframe="1m",
+        strategy_type="price_threshold",
+        parameters=parameters,
+    )
+
+
 def run_backtest(db_session, strategy, *, initial_balance: str = "100"):
     return BacktestingEngine(MarketCandleRepository(db_session)).run(
         strategy=strategy,
@@ -92,6 +107,21 @@ def test_backtest_bullish_crossover_opens_position(db_session) -> None:
     assert result.final_balance == Decimal("100.00000000")
 
 
+def test_backtest_no_crossover_returns_no_trade_result(db_session) -> None:
+    add_candles(db_session, closes=["10", "11", "12", "13"])
+
+    result = run_backtest(db_session, moving_average_strategy())
+
+    assert result.number_of_trades == 0
+    assert result.closed_trades == 0
+    assert result.open_position is False
+    assert result.cash_balance == Decimal("100")
+    assert result.position_quantity == Decimal("0")
+    assert result.final_balance == Decimal("100.00000000")
+    assert result.decisions[-1].decision == "skip"
+    assert result.decisions[-1].reason == "moving averages did not cross bullish, so no buy signal"
+
+
 def test_backtest_bearish_crossover_closes_position(db_session) -> None:
     add_candles(db_session, closes=["10", "10", "10", "20", "20", "20", "20", "10"])
 
@@ -109,6 +139,34 @@ def test_backtest_bearish_crossover_closes_position(db_session) -> None:
     assert result.realized_pnl == Decimal("-10.00000000")
     assert result.losing_trades == 1
     assert result.winning_trades == 0
+
+
+def test_backtest_invalid_moving_average_parameters_return_safe_no_trade_result(db_session) -> None:
+    add_candles(db_session, closes=["10", "10", "10", "20"])
+
+    result = run_backtest(db_session, moving_average_strategy(short_window="3", long_window="3"))
+
+    assert result.number_of_trades == 0
+    assert result.closed_trades == 0
+    assert result.open_position is False
+    assert result.cash_balance == Decimal("100")
+    assert result.position_quantity == Decimal("0")
+    assert result.final_balance == Decimal("100.00000000")
+    assert all(decision.decision == "skip" for decision in result.decisions)
+    assert all(decision.reason == "strategy parameter short_window must be less than long_window" for decision in result.decisions)
+    assert all(decision.metadata["parameter"] == "short_window" for decision in result.decisions)
+
+
+def test_backtest_moving_average_cross_uses_default_windows(db_session) -> None:
+    add_candles(db_session, closes=["10"] * 20 + ["100"])
+
+    result = run_backtest(db_session, moving_average_strategy(short_window=None, long_window=None))
+
+    assert result.number_of_trades == 1
+    assert result.trades[0].side == "buy"
+    assert result.trades[0].price == Decimal("100.00000000")
+    assert result.decisions[-1].metadata["short_window"] == 5
+    assert result.decisions[-1].metadata["long_window"] == 20
 
 
 def test_backtest_final_balance_includes_open_position_marked_to_last_close(db_session) -> None:
@@ -165,3 +223,18 @@ def test_backtest_uses_configured_candle_source(db_session) -> None:
     assert result.open_position is True
     assert result.trades[0].side == "buy"
     assert result.trades[0].price == Decimal("20.00000000")
+
+
+def test_backtest_price_threshold_behavior_is_preserved(db_session) -> None:
+    add_candles(db_session, closes=["10", "20"])
+
+    result = run_backtest(db_session, price_threshold_strategy())
+
+    assert result.number_of_trades == 2
+    assert result.closed_trades == 1
+    assert [trade.side for trade in result.trades] == ["buy", "sell"]
+    assert result.trades[0].price == Decimal("10.00000000")
+    assert result.trades[1].price == Decimal("20.00000000")
+    assert result.cash_balance == Decimal("110.00000000")
+    assert result.realized_pnl == Decimal("10.00000000")
+    assert result.final_balance == Decimal("110.00000000")
