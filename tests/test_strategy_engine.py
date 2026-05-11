@@ -122,6 +122,26 @@ def test_moving_average_cross_bullish_crossover_buys() -> None:
     assert decision.metadata["_order_quantity"] == Decimal("0.1")
 
 
+def test_moving_average_cross_uses_default_windows_and_profile_quantity() -> None:
+    candles = [SimpleNamespace(close_price=Decimal("10")) for _ in range(20)]
+    candles.append(SimpleNamespace(close_price=Decimal("100")))
+    profile = SimpleNamespace(order_quantity=Decimal("0.25"))
+
+    decision = StrategyEngine.evaluate(
+        strategy_type="moving_average_cross",
+        parameters={},
+        profile=profile,
+        latest_price=Decimal("100"),
+        position_quantity=Decimal("0"),
+        candles=candles,
+    )
+
+    assert decision.decision == "buy"
+    assert decision.metadata["short_window"] == 5
+    assert decision.metadata["long_window"] == 20
+    assert decision.metadata["_order_quantity"] == Decimal("0.25")
+
+
 def test_moving_average_cross_bearish_crossover_sells() -> None:
     candles = [
         SimpleNamespace(close_price=Decimal("20")),

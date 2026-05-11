@@ -433,6 +433,214 @@ def test_moving_average_cross_uses_configured_candle_source(
     assert buy_signal.payload["current_long_ma"] == "13.33333333"
 
 
+def test_moving_average_cross_missing_quantity_uses_execution_profile_quantity(
+    db_session,
+    db_session_factory,
+    stub_market_data_service,
+    bot_stack_factory,
+    funded_account,
+) -> None:
+    funded_account(db_session)
+    strategy, bot, profile = bot_stack_factory(db_session)
+    assert profile is not None
+    configure_moving_average_strategy(strategy)
+    strategy.parameters.pop("quantity")
+    db_session.add(strategy)
+    db_session.commit()
+    add_candles(db_session, closes=["10", "10", "10", "20"])
+
+    runner = build_runner(db_session_factory, stub_market_data_service)
+    runner.start_bot(bot.id)
+    stub_market_data_service.set_price("BTCUSDT", "20")
+
+    response = asyncio.run(run_bot_once_endpoint(bot.id, runner))
+    orders = PortfolioRepository(db_session).list_orders()
+
+    assert response.action == "bought"
+    assert len(orders) == 1
+    assert orders[0].quantity == profile.order_quantity
+
+
+def test_moving_average_cross_manual_run_buys_from_persisted_strategy_candles(
+    db_session,
+    db_session_factory,
+    stub_market_data_service,
+    bot_stack_factory,
+    funded_account,
+) -> None:
+    funded_account(db_session)
+    symbol = "ETHUSDT"
+    timeframe = "5m"
+    candle_source = "binance"
+    strategy, bot, _ = bot_stack_factory(db_session, symbol=symbol)
+    configure_moving_average_strategy(strategy)
+    strategy.timeframe = timeframe
+    strategy.parameters["candle_source"] = candle_source
+    db_session.add(strategy)
+    db_session.commit()
+    add_candles(db_session, symbol=symbol, timeframe=timeframe, closes=["30", "30", "30", "10"], source="manual")
+    add_candles(db_session, symbol=symbol, timeframe="1m", closes=["30", "30", "30", "10"], source=candle_source)
+    add_candles(db_session, symbol="BTCUSDT", timeframe=timeframe, closes=["30", "30", "30", "10"], source=candle_source)
+    add_candles(db_session, symbol=symbol, timeframe=timeframe, closes=["10", "10", "10", "20"], source=candle_source)
+
+    runner = build_runner(db_session_factory, stub_market_data_service)
+    runner.start_bot(bot.id)
+    stub_market_data_service.set_price(symbol, "20")
+
+    response = asyncio.run(run_bot_once_endpoint(bot.id, runner))
+    repository = PortfolioRepository(db_session)
+    events = RunEventRepository(db_session).list_for_bot(bot.id)
+
+    assert response.action == "bought"
+    assert response.message == "buy_filled"
+    assert response.decision_explanation is not None
+    assert response.decision_explanation.previous_long_ma == Decimal("10.00000000")
+    assert response.decision_explanation.current_long_ma == Decimal("13.33333333")
+    orders = repository.list_orders()
+    assert len(orders) == 1
+    assert orders[0].symbol == symbol
+    assert orders[0].side == "buy"
+    buy_signal = next(event for event in events if event.message == "buy_signal")
+    assert buy_signal.payload["symbol"] == symbol
+    assert buy_signal.payload["timeframe"] == timeframe
+    assert buy_signal.payload["candle_source"] == candle_source
+    assert buy_signal.payload["current_price"] == "20.00000000"
+
+
+def test_moving_average_cross_manual_run_sells_from_persisted_strategy_candles(
+    db_session,
+    db_session_factory,
+    stub_market_data_service,
+    bot_stack_factory,
+    funded_account,
+) -> None:
+    funded_account(db_session)
+    symbol = "ETHUSDT"
+    timeframe = "5m"
+    candle_source = "binance"
+    strategy, bot, _ = bot_stack_factory(db_session, symbol=symbol)
+    configure_moving_average_strategy(strategy)
+    strategy.timeframe = timeframe
+    strategy.parameters["candle_source"] = candle_source
+    db_session.add(strategy)
+    db_session.add(
+        Position(
+            symbol=symbol,
+            quantity=Decimal("0.1"),
+            average_entry_price=Decimal("20"),
+            realized_pnl=Decimal("0"),
+        )
+    )
+    db_session.commit()
+    add_candles(db_session, symbol=symbol, timeframe=timeframe, closes=["10", "10", "10", "20"], source="manual")
+    add_candles(db_session, symbol=symbol, timeframe="1m", closes=["10", "10", "10", "20"], source=candle_source)
+    add_candles(db_session, symbol="BTCUSDT", timeframe=timeframe, closes=["10", "10", "10", "20"], source=candle_source)
+    add_candles(db_session, symbol=symbol, timeframe=timeframe, closes=["20", "20", "20", "10"], source=candle_source)
+
+    runner = build_runner(db_session_factory, stub_market_data_service)
+    runner.start_bot(bot.id)
+    stub_market_data_service.set_price(symbol, "10")
+
+    response = asyncio.run(run_bot_once_endpoint(bot.id, runner))
+    repository = PortfolioRepository(db_session)
+    events = RunEventRepository(db_session).list_for_bot(bot.id)
+
+    assert response.action == "sold"
+    assert response.message == "sell_filled"
+    assert response.decision_explanation is not None
+    assert response.decision_explanation.previous_long_ma == Decimal("20.00000000")
+    assert response.decision_explanation.current_long_ma == Decimal("16.66666667")
+    orders = repository.list_orders()
+    assert len(orders) == 1
+    assert orders[0].symbol == symbol
+    assert orders[0].side == "sell"
+    assert orders[0].quantity == Decimal("0.10000000")
+    sell_signal = next(event for event in events if event.message == "sell_signal")
+    assert sell_signal.payload["symbol"] == symbol
+    assert sell_signal.payload["timeframe"] == timeframe
+    assert sell_signal.payload["candle_source"] == candle_source
+
+
+def test_moving_average_cross_manual_run_no_crossover_records_skipped_event(
+    db_session,
+    db_session_factory,
+    stub_market_data_service,
+    bot_stack_factory,
+    funded_account,
+) -> None:
+    funded_account(db_session)
+    symbol = "ETHUSDT"
+    timeframe = "5m"
+    candle_source = "binance"
+    strategy, bot, _ = bot_stack_factory(db_session, symbol=symbol)
+    configure_moving_average_strategy(strategy)
+    strategy.timeframe = timeframe
+    strategy.parameters["candle_source"] = candle_source
+    db_session.add(strategy)
+    db_session.commit()
+    add_candles(db_session, symbol=symbol, timeframe=timeframe, closes=["10", "10", "10", "20"], source="manual")
+    add_candles(db_session, symbol=symbol, timeframe=timeframe, closes=["10", "11", "12", "13"], source=candle_source)
+
+    runner = build_runner(db_session_factory, stub_market_data_service)
+    runner.start_bot(bot.id)
+    stub_market_data_service.set_price(symbol, "13")
+
+    response = asyncio.run(run_bot_once_endpoint(bot.id, runner))
+    events = RunEventRepository(db_session).list_for_bot(bot.id)
+
+    assert response.action == "skipped"
+    assert response.message == "evaluation_skipped"
+    assert response.decision_explanation is not None
+    assert response.decision_explanation.reason == "moving averages did not cross bullish, so no buy signal"
+    assert PortfolioRepository(db_session).list_orders() == []
+    skipped_event = next(event for event in events if event.message == "evaluation_skipped")
+    assert skipped_event.payload["symbol"] == symbol
+    assert skipped_event.payload["timeframe"] == timeframe
+    assert skipped_event.payload["candle_source"] == candle_source
+    assert skipped_event.payload["current_short_ma"] == "12.50000000"
+    assert skipped_event.payload["decision"] == "skipped"
+
+
+def test_moving_average_cross_manual_run_insufficient_persisted_candles_records_skipped_event(
+    db_session,
+    db_session_factory,
+    stub_market_data_service,
+    bot_stack_factory,
+    funded_account,
+) -> None:
+    funded_account(db_session)
+    symbol = "ETHUSDT"
+    timeframe = "5m"
+    candle_source = "binance"
+    strategy, bot, _ = bot_stack_factory(db_session, symbol=symbol)
+    configure_moving_average_strategy(strategy)
+    strategy.timeframe = timeframe
+    strategy.parameters["candle_source"] = candle_source
+    db_session.add(strategy)
+    db_session.commit()
+    add_candles(db_session, symbol=symbol, timeframe=timeframe, closes=["10", "10", "10", "20"], source="manual")
+    add_candles(db_session, symbol=symbol, timeframe=timeframe, closes=["10", "10", "20"], source=candle_source)
+
+    runner = build_runner(db_session_factory, stub_market_data_service)
+    runner.start_bot(bot.id)
+    stub_market_data_service.set_price(symbol, "20")
+
+    response = asyncio.run(run_bot_once_endpoint(bot.id, runner))
+    events = RunEventRepository(db_session).list_for_bot(bot.id)
+
+    assert response.action == "skipped"
+    assert response.message == "evaluation_skipped"
+    assert response.decision_explanation is not None
+    assert response.decision_explanation.reason == "insufficient_candles"
+    assert response.decision_explanation.candles_used == 3
+    assert PortfolioRepository(db_session).list_orders() == []
+    skipped_event = next(event for event in events if event.message == "evaluation_skipped")
+    assert skipped_event.payload["symbol"] == symbol
+    assert skipped_event.payload["timeframe"] == timeframe
+    assert skipped_event.payload["candle_source"] == candle_source
+    assert skipped_event.payload["candles_used"] == 3
+
+
 def test_moving_average_cross_sell_crossover_sells_existing_position(
     db_session,
     db_session_factory,

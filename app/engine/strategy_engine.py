@@ -9,6 +9,8 @@ from app.engine.strategy_evaluator import StrategyEvaluator
 ZERO = Decimal("0")
 PRICE_THRESHOLD_STRATEGY_TYPE = "price_threshold"
 MOVING_AVERAGE_CROSS_STRATEGY_TYPE = "moving_average_cross"
+DEFAULT_MOVING_AVERAGE_SHORT_WINDOW = 5
+DEFAULT_MOVING_AVERAGE_LONG_WINDOW = 20
 
 
 @dataclass(frozen=True)
@@ -78,6 +80,7 @@ class StrategyEngine:
         if strategy_type == MOVING_AVERAGE_CROSS_STRATEGY_TYPE:
             return cls.evaluate_moving_average_cross(
                 parameters=parameters,
+                profile=profile,
                 candles=candles or [],
                 position_quantity=position_quantity,
             )
@@ -141,10 +144,11 @@ class StrategyEngine:
         cls,
         *,
         parameters: dict[str, Any] | None,
+        profile,
         candles: list[Any],
         position_quantity: Decimal,
     ) -> StrategyDecision:
-        config = cls.resolve_moving_average_cross_config(parameters)
+        config = cls.resolve_moving_average_cross_config(parameters, profile)
         if config.invalid_parameter is not None:
             return StrategyDecision(
                 decision="skip",
@@ -250,7 +254,11 @@ class StrategyEngine:
         )
 
     @classmethod
-    def resolve_moving_average_cross_config(cls, parameters: dict[str, Any] | None) -> MovingAverageCrossConfig:
+    def resolve_moving_average_cross_config(
+        cls,
+        parameters: dict[str, Any] | None,
+        profile=None,
+    ) -> MovingAverageCrossConfig:
         short_window, invalid_reason = cls.parse_integer_parameter(parameters, "short_window")
         if invalid_reason is not None:
             return MovingAverageCrossConfig(None, None, None, "short_window", invalid_reason)
@@ -262,9 +270,9 @@ class StrategyEngine:
             return MovingAverageCrossConfig(None, None, None, "quantity", invalid_reason)
 
         if short_window is None:
-            return MovingAverageCrossConfig(None, None, None, "short_window", "strategy parameter short_window is required")
+            short_window = DEFAULT_MOVING_AVERAGE_SHORT_WINDOW
         if long_window is None:
-            return MovingAverageCrossConfig(None, None, None, "long_window", "strategy parameter long_window is required")
+            long_window = DEFAULT_MOVING_AVERAGE_LONG_WINDOW
         if short_window >= long_window:
             return MovingAverageCrossConfig(
                 None,
@@ -273,6 +281,9 @@ class StrategyEngine:
                 "short_window",
                 "strategy parameter short_window must be less than long_window",
             )
+
+        if quantity is None and profile is not None:
+            quantity = getattr(profile, "order_quantity", None)
 
         return MovingAverageCrossConfig(short_window, long_window, quantity)
 
