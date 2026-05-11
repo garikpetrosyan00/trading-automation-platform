@@ -100,7 +100,11 @@ def test_backtest_bullish_crossover_opens_position(db_session) -> None:
     assert result.open_position is True
     assert len(result.trades) == result.number_of_trades
     assert result.trades[0].side == "buy"
+    assert result.trades[0].decision == "buy"
     assert result.trades[0].price == Decimal("20.00000000")
+    assert result.trades[0].cash_balance == Decimal("80.00000000")
+    assert result.trades[0].position_quantity == Decimal("1")
+    assert result.trades[0].decision_reason == "short moving average crossed above long moving average"
     assert result.position_quantity == Decimal("1")
     assert result.entry_price == Decimal("20.00000000")
     assert result.cash_balance == Decimal("80.00000000")
@@ -132,7 +136,11 @@ def test_backtest_bearish_crossover_closes_position(db_session) -> None:
     assert result.open_position is False
     assert len(result.trades) == result.number_of_trades
     assert [trade.side for trade in result.trades] == ["buy", "sell"]
+    assert [trade.decision for trade in result.trades] == ["buy", "sell"]
+    assert result.trades[0].position_quantity == Decimal("1")
+    assert result.trades[1].position_quantity == Decimal("0")
     assert result.trades[1].realized_pnl == Decimal("-10.00000000")
+    assert result.trades[1].decision_reason == "short moving average crossed below long moving average"
     assert result.position_quantity == Decimal("0")
     assert result.entry_price is None
     assert result.cash_balance == Decimal("90.00000000")
@@ -233,8 +241,16 @@ def test_backtest_price_threshold_behavior_is_preserved(db_session) -> None:
     assert result.number_of_trades == 2
     assert result.closed_trades == 1
     assert [trade.side for trade in result.trades] == ["buy", "sell"]
+    assert [trade.decision for trade in result.trades] == ["buy", "sell"]
     assert result.trades[0].price == Decimal("10.00000000")
+    assert result.trades[0].cash_balance == Decimal("90.00000000")
+    assert result.trades[0].position_quantity == Decimal("1")
+    assert result.trades[0].decision_reason == "price is below strategy buy_below"
     assert result.trades[1].price == Decimal("20.00000000")
+    assert result.trades[1].cash_balance == Decimal("110.00000000")
+    assert result.trades[1].position_quantity == Decimal("0")
+    assert result.trades[1].realized_pnl == Decimal("10.00000000")
+    assert result.trades[1].decision_reason == "price is above strategy sell_above and position exists"
     assert result.cash_balance == Decimal("110.00000000")
     assert result.realized_pnl == Decimal("10.00000000")
     assert result.final_balance == Decimal("110.00000000")

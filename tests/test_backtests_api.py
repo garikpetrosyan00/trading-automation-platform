@@ -104,8 +104,15 @@ def test_run_backtest_returns_structured_result(
     assert body["losing_trades"] == 1
     assert len(body["trades"]) == body["number_of_trades"]
     assert [trade["side"] for trade in body["trades"]] == ["buy", "sell"]
+    assert [trade["decision"] for trade in body["trades"]] == ["buy", "sell"]
     assert body["trades"][0]["price"] == "20.00000000"
+    assert body["trades"][0]["cash_balance"] == "80.00000000"
+    assert body["trades"][0]["position_quantity"] == "1"
+    assert body["trades"][0]["decision_reason"] == "short moving average crossed above long moving average"
     assert body["trades"][1]["realized_pnl"] == "-10.00000000"
+    assert body["trades"][1]["cash_balance"] == "90.00000000"
+    assert body["trades"][1]["position_quantity"] == "0"
+    assert body["trades"][1]["decision_reason"] == "short moving average crossed below long moving average"
 
 
 def test_run_backtest_missing_strategy_returns_404(
@@ -194,7 +201,14 @@ def test_run_backtest_response_includes_balances_pnl_trade_counts_and_trades(
     assert body["entry_price"] == "20.00000000"
     assert len(body["trades"]) == 1
     assert len(body["trades"]) == body["number_of_trades"]
+    assert body["trades"][0]["decision"] == "buy"
     assert body["trades"][0]["side"] == "buy"
+    assert body["trades"][0]["price"] == "20.00000000"
+    assert body["trades"][0]["quantity"] == "1"
+    assert body["trades"][0]["cash_balance"] == "80.00000000"
+    assert body["trades"][0]["position_quantity"] == "1"
+    assert body["trades"][0]["realized_pnl"] == "0"
+    assert body["trades"][0]["decision_reason"] == "short moving average crossed above long moving average"
 
 
 def test_run_moving_average_cross_backtest_with_source_through_api(
@@ -299,3 +313,13 @@ def test_run_price_threshold_backtest_behavior_is_preserved_through_api(
     assert body["realized_pnl"] == "10.00000000"
     assert body["unrealized_pnl"] == "0"
     assert [trade["side"] for trade in body["trades"]] == ["buy", "sell"]
+    assert [trade["decision"] for trade in body["trades"]] == ["buy", "sell"]
+    assert body["trades"][0]["price"] == "10.00000000"
+    assert body["trades"][0]["cash_balance"] == "90.00000000"
+    assert body["trades"][0]["position_quantity"] == "1"
+    assert body["trades"][0]["decision_reason"] == "price is below strategy buy_below"
+    assert body["trades"][1]["price"] == "20.00000000"
+    assert body["trades"][1]["cash_balance"] == "110.00000000"
+    assert body["trades"][1]["position_quantity"] == "0"
+    assert body["trades"][1]["realized_pnl"] == "10.00000000"
+    assert body["trades"][1]["decision_reason"] == "price is above strategy sell_above and position exists"

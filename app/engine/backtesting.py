@@ -20,8 +20,13 @@ class BacktestTrade:
     price: Decimal
     opened_at: datetime
     cash_balance: Decimal
+    position_quantity: Decimal
     realized_pnl: Decimal = ZERO
     decision_reason: str | None = None
+
+    @property
+    def decision(self) -> str:
+        return self.side
 
 
 @dataclass(frozen=True)
@@ -111,6 +116,7 @@ class BacktestingEngine:
                         price=candle.close_price,
                         opened_at=candle.close_time,
                         cash_balance=cash_balance,
+                        position_quantity=position_quantity,
                         decision_reason=decision.reason,
                     )
                 )
@@ -134,6 +140,7 @@ class BacktestingEngine:
                         price=candle.close_price,
                         opened_at=candle.close_time,
                         cash_balance=cash_balance,
+                        position_quantity=ZERO,
                         realized_pnl=trade_pnl,
                         decision_reason=decision.reason,
                     )

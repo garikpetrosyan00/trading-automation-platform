@@ -15,12 +15,14 @@ class BacktestRunRequest(BaseModel):
 
 
 class BacktestTradeResponse(BaseModel):
+    decision: str
     side: str
     symbol: str
     quantity: Decimal
     price: Decimal
     opened_at: datetime
     cash_balance: Decimal
+    position_quantity: Decimal
     realized_pnl: Decimal
     decision_reason: str | None = None
 
