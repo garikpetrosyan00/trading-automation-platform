@@ -117,8 +117,13 @@ const translations = {
     strategy_parameters_updated: "Strategy parameters updated.",
     strategy_parameters_save_failed: "Could not update Strategy parameters.",
     enter_strategy_parameters: "Enter buy below, sell above, and quantity.",
+    enter_moving_average_parameters: "Enter short window and long window.",
     strategy_parameters_must_be_numbers: "Strategy parameters must be positive numbers.",
-    strategy_parameters_edit_unavailable: "Editing is available for Price Threshold strategies only.",
+    moving_average_windows_must_be_integers: "Short window and long window must be positive integers.",
+    moving_average_short_less_than_long: "Short window must be smaller than long window.",
+    moving_average_parameters_help:
+      "Short window must be smaller than long window. Both windows must be positive integers.",
+    strategy_parameters_edit_unavailable: "Editing is not available for this strategy type yet.",
     backtest: "Backtest",
     backtest_aria: "Run backtest",
     run_backtest: "Run Backtest",
@@ -360,8 +365,13 @@ const translations = {
     strategy_parameters_updated: "Strategy-ի parameters-ները թարմացվեցին։",
     strategy_parameters_save_failed: "Չհաջողվեց թարմացնել Strategy-ի parameters-ները։",
     enter_strategy_parameters: "Մուտքագրիր buy below, sell above և quantity։",
+    enter_moving_average_parameters: "Մուտքագրիր short window և long window։",
     strategy_parameters_must_be_numbers: "Strategy-ի parameters-ները պետք է լինեն դրական թվեր։",
-    strategy_parameters_edit_unavailable: "Խմբագրումը հասանելի է միայն Price Threshold strategies-ի համար։",
+    moving_average_windows_must_be_integers: "Short window-ը և long window-ը պետք է լինեն դրական ամբողջ թվեր։",
+    moving_average_short_less_than_long: "Short window-ը պետք է փոքր լինի long window-ից։",
+    moving_average_parameters_help:
+      "Short window-ը պետք է փոքր լինի long window-ից։ Երկու window-ներն էլ պետք է դրական ամբողջ թվեր լինեն։",
+    strategy_parameters_edit_unavailable: "Այս strategy type-ի համար խմբագրումը դեռ հասանելի չէ։",
     backtest: "Backtest",
     backtest_aria: "Գործարկել backtest",
     run_backtest: "Գործարկել Backtest",
@@ -762,7 +772,7 @@ function normalizeBot(rawBot) {
     strategyId: rawBot.strategy_id ?? rawBot.strategyId ?? null,
     status: rawBot.status ?? "idle",
     isPaused: rawBot.is_paused ?? false,
-    strategyType: rawBot.strategy_type ?? "",
+    strategyType: normalizeStrategyType(rawBot.strategy_type ?? rawBot.strategyType ?? ""),
     symbol: rawBot.symbol ?? "",
     cooldownActive: rawBot.cooldown_active ?? false,
     cooldownUntil: rawBot.cooldown_until ?? null,
@@ -800,7 +810,7 @@ function normalizeStrategy(rawStrategy) {
     name: rawStrategy.name ?? "",
     symbol: rawStrategy.symbol ?? "",
     timeframe: rawStrategy.timeframe ?? "",
-    strategyType: rawStrategy.strategy_type ?? rawStrategy.strategyType ?? "",
+    strategyType: normalizeStrategyType(rawStrategy.strategy_type ?? rawStrategy.strategyType ?? ""),
     parameters:
       rawStrategy.parameters && typeof rawStrategy.parameters === "object"
         ? rawStrategy.parameters
@@ -812,6 +822,14 @@ function normalizeStrategy(rawStrategy) {
 function normalizeStrategiesResponse(data) {
   const rawStrategies = Array.isArray(data) ? data : data?.items ?? [];
   return Array.isArray(rawStrategies) ? rawStrategies.map(normalizeStrategy) : [];
+}
+
+function normalizeStrategyType(value) {
+  return String(value || "")
+    .trim()
+    .toLowerCase()
+    .replaceAll("-", "_")
+    .replace(/\s+/g, "_");
 }
 
 function normalizeBotConfig(rawBot) {
@@ -843,7 +861,7 @@ function normalizeBacktestResult(rawResult) {
   return {
     symbol: rawResult.symbol ?? "",
     timeframe: rawResult.timeframe ?? "",
-    strategyType: rawResult.strategy_type ?? "",
+    strategyType: normalizeStrategyType(rawResult.strategy_type ?? rawResult.strategyType ?? ""),
     source: rawResult.source ?? "",
     initialBalance: rawResult.initial_balance ?? null,
     finalBalance: rawResult.final_balance ?? null,
@@ -881,7 +899,7 @@ function normalizeBacktestHistoryItem(rawItem) {
     strategyId: rawItem.strategy_id ?? rawItem.strategyId ?? null,
     symbol: rawItem.symbol ?? "",
     timeframe: rawItem.timeframe ?? "",
-    strategyType: rawItem.strategy_type ?? rawItem.strategyType ?? "",
+    strategyType: normalizeStrategyType(rawItem.strategy_type ?? rawItem.strategyType ?? ""),
     source: rawItem.source ?? "",
     initialBalance: rawItem.initial_balance ?? null,
     finalBalance: rawItem.final_balance ?? null,
@@ -1086,8 +1104,27 @@ function selectedStrategyType() {
   return selectedSummary?.strategyType || "price_threshold";
 }
 
+function selectedStrategyParameterFields() {
+  const strategyType = selectedStrategyType();
+  if (strategyType === "moving_average_cross") {
+    return [
+      { key: "short_window", label: t("short_window_label"), input: strategyBuyBelow, labelEl: strategyBuyBelowLabel },
+      { key: "long_window", label: t("long_window_label"), input: strategySellAbove, labelEl: strategySellAboveLabel },
+      { key: "quantity", label: t("quantity"), input: strategyQuantity, labelEl: strategyQuantityLabel },
+    ];
+  }
+  if (strategyType === "price_threshold") {
+    return [
+      { key: "buy_below", label: t("buy_below_label"), input: strategyBuyBelow, labelEl: strategyBuyBelowLabel },
+      { key: "sell_above", label: t("sell_above_label"), input: strategySellAbove, labelEl: strategySellAboveLabel },
+      { key: "quantity", label: t("quantity"), input: strategyQuantity, labelEl: strategyQuantityLabel },
+    ];
+  }
+  return [];
+}
+
 function canEditSelectedStrategyParameters() {
-  return selectedStrategyType() === "price_threshold";
+  return selectedStrategyParameterFields().length > 0;
 }
 
 function selectedBotSymbol() {
@@ -1101,9 +1138,15 @@ function strategyParameterInputValue(key) {
 }
 
 function populateStrategyParametersForm() {
-  strategyBuyBelow.value = strategyParameterInputValue("buy_below");
-  strategySellAbove.value = strategyParameterInputValue("sell_above");
-  strategyQuantity.value = strategyParameterInputValue("quantity");
+  const fields = selectedStrategyParameterFields();
+  [strategyBuyBelow, strategySellAbove, strategyQuantity].forEach((input) => {
+    input.value = "";
+    input.name = "";
+  });
+  fields.forEach((field) => {
+    field.input.value = strategyParameterInputValue(field.key);
+    field.input.name = field.key;
+  });
 }
 
 function parsePositiveParameter(value) {
@@ -1113,29 +1156,64 @@ function parsePositiveParameter(value) {
   return Number.isFinite(parsed) && parsed > 0 ? trimmed : null;
 }
 
+function parsePositiveIntegerParameter(value) {
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+  if (!/^[1-9]\d*$/.test(trimmed)) return null;
+  const parsed = Number(trimmed);
+  return Number.isInteger(parsed) && parsed > 0 ? parsed : null;
+}
+
 function validateStrategyParametersForm() {
   if (!strategyIdForSelectedBot()) return t("strategy_details_unavailable");
   if (!canEditSelectedStrategyParameters()) return t("strategy_parameters_edit_unavailable");
 
-  const values = [
-    strategyBuyBelow.value.trim(),
-    strategySellAbove.value.trim(),
-    strategyQuantity.value.trim(),
-  ];
-  if (values.some((value) => !value)) return t("enter_strategy_parameters");
-  if (
-    parsePositiveParameter(strategyBuyBelow.value) === null ||
-    parsePositiveParameter(strategySellAbove.value) === null ||
-    parsePositiveParameter(strategyQuantity.value) === null
-  ) {
-    return t("strategy_parameters_must_be_numbers");
+  if (selectedStrategyType() === "moving_average_cross") {
+    const shortWindow = parsePositiveIntegerParameter(strategyBuyBelow.value);
+    const longWindow = parsePositiveIntegerParameter(strategySellAbove.value);
+    const quantity = strategyQuantity.value.trim();
+    if (!strategyBuyBelow.value.trim() || !strategySellAbove.value.trim()) {
+      return t("enter_moving_average_parameters");
+    }
+    if (shortWindow === null || longWindow === null) {
+      return t("moving_average_windows_must_be_integers");
+    }
+    if (shortWindow >= longWindow) {
+      return t("moving_average_short_less_than_long");
+    }
+    if (quantity && parsePositiveParameter(quantity) === null) {
+      return t("strategy_parameters_must_be_numbers");
+    }
+    return "";
   }
+
+  const values = [strategyBuyBelow.value.trim(), strategySellAbove.value.trim(), strategyQuantity.value.trim()];
+  if (values.some((value) => !value)) return t("enter_strategy_parameters");
+  if (values.some((value) => parsePositiveParameter(value) === null)) return t("strategy_parameters_must_be_numbers");
   return "";
+}
+
+function strategyParameterPayload() {
+  const parameters = { ...(selectedSummary?.strategyParameters ?? {}) };
+  selectedStrategyParameterFields().forEach((field) => {
+    const value = field.input.value.trim();
+    if (value) {
+      parameters[field.key] = value;
+    } else {
+      delete parameters[field.key];
+    }
+  });
+  return parameters;
 }
 
 function renderStrategyParametersForm() {
   const hasStrategyDetails = Boolean(selectedBotId && selectedSummary && strategyIdForSelectedBot());
   const canEditParameters = hasStrategyDetails && canEditSelectedStrategyParameters();
+  const fields = selectedStrategyParameterFields();
+  const movingAverageHelp =
+    hasStrategyDetails && selectedStrategyType() === "moving_average_cross"
+      ? t("moving_average_parameters_help")
+      : "";
   const shouldDisable =
     !hasStrategyDetails ||
     !canEditParameters ||
@@ -1145,10 +1223,15 @@ function renderStrategyParametersForm() {
     isTogglingPause;
   const visibleMessage =
     strategyParametersMessage ||
-    (hasStrategyDetails && !canEditParameters ? t("strategy_parameters_edit_unavailable") : "");
+    (hasStrategyDetails && !canEditParameters
+      ? t("strategy_parameters_edit_unavailable")
+      : movingAverageHelp);
   const visibleMessageType =
     strategyParametersMessageType || (visibleMessage && visibleMessage !== strategyParametersMessage ? "note" : "");
 
+  fields.forEach((field) => {
+    field.labelEl.textContent = field.label;
+  });
   editStrategyParameters.textContent = t("edit_strategy_parameters");
   editStrategyParameters.disabled = shouldDisable || isEditingStrategyParameters;
   strategyParametersForm.setAttribute("data-open", String(isEditingStrategyParameters));
@@ -1156,9 +1239,12 @@ function renderStrategyParametersForm() {
   strategyParametersSubmit.disabled = shouldDisable;
   strategyParametersCancel.textContent = t("cancel");
   strategyParametersCancel.disabled = isSavingStrategyParameters;
-  strategyBuyBelow.disabled = shouldDisable;
-  strategySellAbove.disabled = shouldDisable;
-  strategyQuantity.disabled = shouldDisable;
+  [strategyBuyBelow, strategySellAbove, strategyQuantity].forEach((input) => {
+    input.disabled = shouldDisable;
+  });
+  strategyBuyBelow.inputMode = selectedStrategyType() === "moving_average_cross" ? "numeric" : "decimal";
+  strategySellAbove.inputMode = selectedStrategyType() === "moving_average_cross" ? "numeric" : "decimal";
+  strategyQuantity.inputMode = "decimal";
   strategyParametersMessageEl.textContent = visibleMessage;
   strategyParametersMessageEl.className = visibleMessageType
     ? `form-message ${visibleMessageType}`
@@ -2255,12 +2341,7 @@ async function submitStrategyParameters(event) {
   strategyParametersMessageType = "";
   render();
 
-  const parameters = {
-    ...(selectedSummary?.strategyParameters ?? {}),
-    buy_below: strategyBuyBelow.value.trim(),
-    sell_above: strategySellAbove.value.trim(),
-    quantity: strategyQuantity.value.trim(),
-  };
+  const parameters = strategyParameterPayload();
 
   try {
     await fetchJson(`/api/v1/strategies/${strategyId}`, {
@@ -2805,7 +2886,7 @@ function renderSummary() {
   selectedStatus.className = `status-pill ${statusClass(bot.status)}`;
   selectedState.textContent = stateLabel(bot);
   selectedMode.textContent = botMode;
-  selectedStrategy.textContent = formatValue(bot.strategyType);
+  selectedStrategy.textContent = bot.strategyType ? humanizeMessage(bot.strategyType) : "—";
   selectedCooldown.textContent = cooldownText(bot);
   selectedPrice.textContent = formatDecimal(bot.lastPrice);
   selectedLastRun.textContent = formatDateTime(bot.updatedAt);

@@ -740,6 +740,10 @@ dd {
   font-weight: 800;
 }
 
+.summary-grid dd {
+  overflow-wrap: break-word;
+}
+
 .bot-settings-panel,
 .strategy-parameters-panel,
 .backtest-panel {
@@ -809,6 +813,11 @@ dd {
   display: grid;
   gap: 5px;
   min-width: 0;
+}
+
+.bot-settings-grid dd,
+.strategy-parameters-grid dd {
+  overflow-wrap: break-word;
 }
 
 .strategy-parameters-empty {
