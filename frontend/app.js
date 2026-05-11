@@ -132,14 +132,17 @@ const translations = {
     could_not_run_backtest: "Could not run backtest.",
     backtest_strategy_not_found: "Strategy could not be found.",
     no_backtest_result: "Run a backtest to see simulated results.",
-    backtest_trade_actions: "Trade actions",
+    backtest_trade_actions: "Backtest Trades",
+    opened_at_label: "Opened",
+    cash_balance_label: "Cash balance",
+    reason_label: "Reason",
     final_balance_label: "Final balance",
     realized_pnl_label: "Realized PnL",
     unrealized_pnl_label: "Unrealized PnL",
     number_of_trades_label: "Trades",
     closed_trades_label: "Closed trades",
     open_position_label: "Open position",
-    no_backtest_trades: "No trade actions were simulated.",
+    no_backtest_trades: "No trades were executed during this backtest.",
     recent_backtests: "Recent Backtests",
     recent_backtests_aria: "Recent Backtests",
     loading_recent_backtests: "Loading recent backtests...",
@@ -372,14 +375,17 @@ const translations = {
     could_not_run_backtest: "Չհաջողվեց գործարկել backtest-ը։",
     backtest_strategy_not_found: "Strategy-ն չգտնվեց։",
     no_backtest_result: "Գործարկիր backtest՝ simulation արդյունքները տեսնելու համար։",
-    backtest_trade_actions: "Trade գործողություններ",
+    backtest_trade_actions: "Backtest Trades",
+    opened_at_label: "Բացվել է",
+    cash_balance_label: "Cash balance",
+    reason_label: "Պատճառ",
     final_balance_label: "Վերջնական balance",
     realized_pnl_label: "Realized PnL",
     unrealized_pnl_label: "Unrealized PnL",
     number_of_trades_label: "Trades",
     closed_trades_label: "Closed trades",
     open_position_label: "Բաց position",
-    no_backtest_trades: "Trade գործողություններ չեն simulation արվել։",
+    no_backtest_trades: "Այս backtest-ի ընթացքում trade-եր չեն կատարվել։",
     recent_backtests: "Վերջին Backtest-երը",
     recent_backtests_aria: "Վերջին Backtest-եր",
     loading_recent_backtests: "Բեռնվում են վերջին backtest-երը...",
@@ -848,7 +854,24 @@ function normalizeBacktestResult(rawResult) {
     openPosition: rawResult.open_position ?? false,
     positionQuantity: rawResult.position_quantity ?? null,
     entryPrice: rawResult.entry_price ?? null,
-    trades: Array.isArray(rawResult.trades) ? rawResult.trades : [],
+    trades: Array.isArray(rawResult.trades) ? rawResult.trades.map(normalizeBacktestTrade) : [],
+  };
+}
+
+function normalizeBacktestTrade(rawTrade) {
+  const trade = rawTrade && typeof rawTrade === "object" ? rawTrade : {};
+  const side = firstAvailable(trade.side, trade.decision, "");
+  return {
+    openedAt: firstAvailable(trade.opened_at, trade.openedAt, null),
+    decision: firstAvailable(trade.decision, side, ""),
+    side,
+    symbol: firstAvailable(trade.symbol, ""),
+    price: firstAvailable(trade.price, null),
+    quantity: firstAvailable(trade.quantity, null),
+    cashBalance: firstAvailable(trade.cash_balance, trade.cashBalance, null),
+    positionQuantity: firstAvailable(trade.position_quantity, trade.positionQuantity, null),
+    realizedPnl: firstAvailable(trade.realized_pnl, trade.realizedPnl, null),
+    decisionReason: firstAvailable(trade.decision_reason, trade.decisionReason, trade.reason, ""),
   };
 }
 
@@ -1230,20 +1253,37 @@ function renderBacktestPanel() {
     empty.textContent = t("no_backtest_trades");
     tradesList.append(empty);
   } else {
-    backtestResult.trades.slice(0, 6).forEach((trade) => {
+    backtestResult.trades.forEach((trade) => {
       const item = document.createElement("li");
-      const side = formatActivitySide(trade.side);
+      const sideValue = trade.decision || trade.side;
+      const side = sideValue ? formatActivitySide(sideValue) : "—";
       const detailParts = [
+        `${t("opened_at_label")}: ${formatDateTime(trade.openedAt)}`,
+        `${t("symbol")}: ${formatValue(trade.symbol)}`,
         `${t("quantity_label")}: ${formatDecimal(trade.quantity)}`,
         `${t("price_label")}: ${formatDecimal(trade.price)}`,
+        `${t("cash_balance_label")}: ${formatDecimal(trade.cashBalance)}`,
+        `${t("position_qty_label")}: ${formatDecimal(trade.positionQuantity)}`,
+        `${t("realized_pnl_label")}: ${formatDecimal(trade.realizedPnl)}`,
       ];
-      if (trade.realized_pnl !== null && trade.realized_pnl !== undefined) {
-        detailParts.push(`${t("realized_pnl_label")}: ${formatDecimal(trade.realized_pnl)}`);
-      }
-      item.innerHTML = `
-        <span class="backtest-trade-side">${side}</span>
-        <span class="backtest-trade-detail">${detailParts.join(" · ")}</span>
-      `;
+      const sideEl = document.createElement("span");
+      sideEl.className = "backtest-trade-side";
+      sideEl.textContent = side;
+
+      const main = document.createElement("div");
+      main.className = "backtest-trade-main";
+
+      const detail = document.createElement("span");
+      detail.className = "backtest-trade-detail";
+      detail.textContent = detailParts.join(" · ");
+      main.append(detail);
+
+      const reason = document.createElement("span");
+      reason.className = "backtest-trade-reason";
+      reason.textContent = `${t("reason_label")}: ${formatValue(trade.decisionReason)}`;
+      main.append(reason);
+
+      item.append(sideEl, main);
       tradesList.append(item);
     });
   }

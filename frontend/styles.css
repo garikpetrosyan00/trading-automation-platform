@@ -985,7 +985,6 @@ dd {
   color: var(--muted);
   font-size: 0.82rem;
   letter-spacing: 0;
-  text-transform: uppercase;
 }
 
 .backtest-trades {
@@ -1010,6 +1009,7 @@ dd {
 .backtest-trade-side {
   display: inline-flex;
   align-items: center;
+  justify-content: center;
   min-height: 24px;
   border-radius: 999px;
   background: var(--blue-soft);
@@ -1019,11 +1019,28 @@ dd {
   font-weight: 800;
 }
 
+.backtest-trade-main {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
 .backtest-trade-detail,
+.backtest-trade-reason,
 .backtest-trade-empty {
   color: var(--muted);
   font-size: 0.84rem;
   font-weight: 800;
+}
+
+.backtest-trade-detail,
+.backtest-trade-reason {
+  overflow-wrap: anywhere;
+}
+
+.backtest-trade-reason {
+  color: var(--text);
+  font-weight: 700;
 }
 
 .activity-panel {
