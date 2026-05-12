@@ -32,6 +32,13 @@ class BacktestRun(Base):
     winning_trades: Mapped[int] = mapped_column(nullable=False)
     losing_trades: Mapped[int] = mapped_column(nullable=False)
     candles_processed: Mapped[int] = mapped_column(nullable=False)
+    total_return: Mapped[Decimal | None] = mapped_column(Numeric(28, 8), nullable=True)
+    total_return_percent: Mapped[Decimal | None] = mapped_column(Numeric(28, 8), nullable=True)
+    win_rate: Mapped[Decimal | None] = mapped_column(Numeric(28, 8), nullable=True)
+    average_trade_pnl: Mapped[Decimal | None] = mapped_column(Numeric(28, 8), nullable=True)
+    best_trade_pnl: Mapped[Decimal | None] = mapped_column(Numeric(28, 8), nullable=True)
+    worst_trade_pnl: Mapped[Decimal | None] = mapped_column(Numeric(28, 8), nullable=True)
+    profit_factor: Mapped[Decimal | None] = mapped_column(Numeric(28, 8), nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         server_default=func.now(),

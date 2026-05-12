@@ -47,6 +47,13 @@ class BacktestService:
             winning_trades=result.winning_trades,
             losing_trades=result.losing_trades,
             candles_processed=result.candles_processed,
+            total_return=result.total_return,
+            total_return_percent=result.total_return_percent,
+            win_rate=result.win_rate,
+            average_trade_pnl=result.average_trade_pnl,
+            best_trade_pnl=result.best_trade_pnl,
+            worst_trade_pnl=result.worst_trade_pnl,
+            profit_factor=result.profit_factor,
         )
         return result, self.backtest_run_repository.create(backtest_run)
 

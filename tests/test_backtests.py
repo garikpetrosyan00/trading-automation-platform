@@ -85,6 +85,13 @@ def test_post_backtest_persists_result(
     assert persisted.closed_trades == body["closed_trades"]
     assert persisted.open_position == body["open_position"]
     assert persisted.position_quantity == Decimal(body["position_quantity"])
+    assert persisted.total_return == Decimal(body["total_return"])
+    assert persisted.total_return_percent == Decimal(body["total_return_percent"])
+    assert persisted.win_rate is None
+    assert persisted.average_trade_pnl is None
+    assert persisted.best_trade_pnl is None
+    assert persisted.worst_trade_pnl is None
+    assert persisted.profit_factor is None
 
 
 def test_get_backtests_returns_persisted_results_newest_first(
@@ -116,6 +123,13 @@ def test_get_backtests_returns_persisted_results_newest_first(
     assert body[0]["id"] > body[1]["id"]
     assert body[0]["created_at"] is not None
     assert body[0]["initial_balance"] == "200.00000000"
+    assert body[0]["total_return"] == "5.00000000"
+    assert body[0]["total_return_percent"] == "2.50000000"
+    assert body[0]["win_rate"] is None
+    assert body[0]["average_trade_pnl"] is None
+    assert body[0]["best_trade_pnl"] is None
+    assert body[0]["worst_trade_pnl"] is None
+    assert body[0]["profit_factor"] is None
     assert body[1]["initial_balance"] == "100.00000000"
 
 

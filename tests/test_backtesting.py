@@ -2,7 +2,7 @@ from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 from types import SimpleNamespace
 
-from app.engine.backtesting import BacktestingEngine
+from app.engine.backtesting import BacktestTrade, BacktestingEngine
 from app.engine.strategy_engine import StrategyEngine
 from app.models.market_candle import MarketCandle
 from app.repositories.market_candle import MarketCandleRepository
@@ -87,6 +87,13 @@ def test_backtest_insufficient_candles_returns_safe_no_trade_result(db_session) 
     assert result.final_balance == Decimal("100")
     assert result.realized_pnl == Decimal("0")
     assert result.unrealized_pnl == Decimal("0")
+    assert result.total_return == Decimal("0")
+    assert result.total_return_percent == Decimal("0")
+    assert result.win_rate is None
+    assert result.average_trade_pnl is None
+    assert result.best_trade_pnl is None
+    assert result.worst_trade_pnl is None
+    assert result.profit_factor is None
     assert all(decision.decision == "skip" for decision in result.decisions)
 
 
@@ -147,6 +154,13 @@ def test_backtest_bearish_crossover_closes_position(db_session) -> None:
     assert result.realized_pnl == Decimal("-10.00000000")
     assert result.losing_trades == 1
     assert result.winning_trades == 0
+    assert result.total_return == Decimal("-10.00000000")
+    assert result.total_return_percent == Decimal("-10.00000000")
+    assert result.win_rate == Decimal("0")
+    assert result.average_trade_pnl == Decimal("-10.00000000")
+    assert result.best_trade_pnl == Decimal("-10.00000000")
+    assert result.worst_trade_pnl == Decimal("-10.00000000")
+    assert result.profit_factor == Decimal("0")
 
 
 def test_backtest_invalid_moving_average_parameters_return_safe_no_trade_result(db_session) -> None:
@@ -254,3 +268,52 @@ def test_backtest_price_threshold_behavior_is_preserved(db_session) -> None:
     assert result.cash_balance == Decimal("110.00000000")
     assert result.realized_pnl == Decimal("10.00000000")
     assert result.final_balance == Decimal("110.00000000")
+    assert result.total_return == Decimal("10.00000000")
+    assert result.total_return_percent == Decimal("10.00000000")
+    assert result.win_rate == Decimal("100")
+    assert result.average_trade_pnl == Decimal("10.00000000")
+    assert result.best_trade_pnl == Decimal("10.00000000")
+    assert result.worst_trade_pnl == Decimal("10.00000000")
+    assert result.profit_factor is None
+
+
+def test_backtest_performance_metrics_support_mixed_wins_and_losses() -> None:
+    now = datetime(2026, 4, 28, 12, 0, tzinfo=timezone.utc)
+    trades = [
+        BacktestTrade(
+            side="sell",
+            symbol="BTCUSDT",
+            quantity=Decimal("1"),
+            price=Decimal("120"),
+            opened_at=now,
+            cash_balance=Decimal("120"),
+            position_quantity=Decimal("0"),
+            realized_pnl=Decimal("20"),
+        ),
+        BacktestTrade(
+            side="sell",
+            symbol="BTCUSDT",
+            quantity=Decimal("1"),
+            price=Decimal("90"),
+            opened_at=now + timedelta(minutes=1),
+            cash_balance=Decimal("90"),
+            position_quantity=Decimal("0"),
+            realized_pnl=Decimal("-10"),
+        ),
+    ]
+
+    metrics = BacktestingEngine._performance_metrics(
+        initial_balance=Decimal("100"),
+        final_balance=Decimal("110"),
+        realized_pnl=Decimal("10"),
+        closed_trades=2,
+        trades=trades,
+    )
+
+    assert metrics["total_return"] == Decimal("10")
+    assert metrics["total_return_percent"] == Decimal("10.0")
+    assert metrics["win_rate"] == Decimal("50.0")
+    assert metrics["average_trade_pnl"] == Decimal("5")
+    assert metrics["best_trade_pnl"] == Decimal("20")
+    assert metrics["worst_trade_pnl"] == Decimal("-10")
+    assert metrics["profit_factor"] == Decimal("2")

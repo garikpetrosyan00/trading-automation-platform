@@ -102,6 +102,13 @@ def test_run_backtest_returns_structured_result(
     assert body["open_position"] is False
     assert body["winning_trades"] == 0
     assert body["losing_trades"] == 1
+    assert body["total_return"] == "-10.00000000"
+    assert body["total_return_percent"] == "-10.00000000"
+    assert body["win_rate"] == "0"
+    assert body["average_trade_pnl"] == "-10.00000000"
+    assert body["best_trade_pnl"] == "-10.00000000"
+    assert body["worst_trade_pnl"] == "-10.00000000"
+    assert body["profit_factor"] == "0"
     assert len(body["trades"]) == body["number_of_trades"]
     assert [trade["side"] for trade in body["trades"]] == ["buy", "sell"]
     assert [trade["decision"] for trade in body["trades"]] == ["buy", "sell"]
@@ -188,12 +195,26 @@ def test_run_backtest_response_includes_balances_pnl_trade_counts_and_trades(
         "open_position",
         "winning_trades",
         "losing_trades",
+        "total_return",
+        "total_return_percent",
+        "win_rate",
+        "average_trade_pnl",
+        "best_trade_pnl",
+        "worst_trade_pnl",
+        "profit_factor",
         "trades",
     }
     assert expected_keys <= set(body)
     assert body["final_balance"] == "105.00000000"
     assert body["realized_pnl"] == "0"
     assert body["unrealized_pnl"] == "5.00000000"
+    assert body["total_return"] == "5.00000000"
+    assert body["total_return_percent"] == "5.00000000"
+    assert body["win_rate"] is None
+    assert body["average_trade_pnl"] is None
+    assert body["best_trade_pnl"] is None
+    assert body["worst_trade_pnl"] is None
+    assert body["profit_factor"] is None
     assert body["number_of_trades"] == 1
     assert body["closed_trades"] == 0
     assert body["open_position"] is True
@@ -312,6 +333,13 @@ def test_run_price_threshold_backtest_behavior_is_preserved_through_api(
     assert body["closed_trades"] == 1
     assert body["realized_pnl"] == "10.00000000"
     assert body["unrealized_pnl"] == "0"
+    assert body["total_return"] == "10.00000000"
+    assert body["total_return_percent"] == "10.00000000"
+    assert body["win_rate"] == "100"
+    assert body["average_trade_pnl"] == "10.00000000"
+    assert body["best_trade_pnl"] == "10.00000000"
+    assert body["worst_trade_pnl"] == "10.00000000"
+    assert body["profit_factor"] is None
     assert [trade["side"] for trade in body["trades"]] == ["buy", "sell"]
     assert [trade["decision"] for trade in body["trades"]] == ["buy", "sell"]
     assert body["trades"][0]["price"] == "10.00000000"

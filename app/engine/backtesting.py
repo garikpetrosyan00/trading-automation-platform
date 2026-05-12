@@ -10,6 +10,7 @@ from app.engine.strategy_engine import StrategyDecision, StrategyEngine
 from app.repositories.market_candle import MarketCandleRepository
 
 ZERO = Decimal("0")
+HUNDRED = Decimal("100")
 
 
 @dataclass(frozen=True)
@@ -47,6 +48,13 @@ class BacktestResult:
     winning_trades: int
     losing_trades: int
     candles_processed: int
+    total_return: Decimal
+    total_return_percent: Decimal | None
+    win_rate: Decimal | None
+    average_trade_pnl: Decimal | None
+    best_trade_pnl: Decimal | None
+    worst_trade_pnl: Decimal | None
+    profit_factor: Decimal | None
     source: str | None = None
     trades: list[BacktestTrade] = field(default_factory=list)
     decisions: list[StrategyDecision] = field(default_factory=list)
@@ -154,6 +162,13 @@ class BacktestingEngine:
             unrealized_pnl = (last_price - entry_price) * position_quantity
         final_balance = cash_balance + (position_quantity * last_price)
         open_position = position_quantity > ZERO
+        metrics = self._performance_metrics(
+            initial_balance=initial_balance,
+            final_balance=final_balance,
+            realized_pnl=realized_pnl,
+            closed_trades=closed_trades,
+            trades=trades,
+        )
 
         return BacktestResult(
             symbol=symbol,
@@ -172,10 +187,65 @@ class BacktestingEngine:
             winning_trades=winning_trades,
             losing_trades=losing_trades,
             candles_processed=len(candles),
+            total_return=metrics["total_return"],
+            total_return_percent=metrics["total_return_percent"],
+            win_rate=metrics["win_rate"],
+            average_trade_pnl=metrics["average_trade_pnl"],
+            best_trade_pnl=metrics["best_trade_pnl"],
+            worst_trade_pnl=metrics["worst_trade_pnl"],
+            profit_factor=metrics["profit_factor"],
             source=candle_source,
             trades=trades,
             decisions=decisions,
         )
+
+    @staticmethod
+    def _performance_metrics(
+        *,
+        initial_balance: Decimal,
+        final_balance: Decimal,
+        realized_pnl: Decimal,
+        closed_trades: int,
+        trades: list[BacktestTrade],
+    ) -> dict[str, Decimal | None]:
+        total_return = final_balance - initial_balance
+        total_return_percent = None
+        if initial_balance > ZERO:
+            total_return_percent = (total_return / initial_balance) * HUNDRED
+
+        closed_trade_pnls = [trade.realized_pnl for trade in trades if trade.side == "sell"]
+        if closed_trades == 0 or not closed_trade_pnls:
+            return {
+                "total_return": total_return,
+                "total_return_percent": total_return_percent,
+                "win_rate": None,
+                "average_trade_pnl": None,
+                "best_trade_pnl": None,
+                "worst_trade_pnl": None,
+                "profit_factor": None,
+            }
+
+        winning_pnls = [pnl for pnl in closed_trade_pnls if pnl > ZERO]
+        losing_pnls = [pnl for pnl in closed_trade_pnls if pnl < ZERO]
+        gross_winning_pnl = sum(winning_pnls, ZERO)
+        gross_losing_pnl = abs(sum(losing_pnls, ZERO))
+        profit_factor = None
+        if gross_losing_pnl > ZERO and gross_winning_pnl > ZERO:
+            profit_factor = gross_winning_pnl / gross_losing_pnl
+        elif gross_losing_pnl > ZERO:
+            profit_factor = ZERO
+        elif gross_winning_pnl == ZERO:
+            profit_factor = ZERO
+
+        return {
+            "total_return": total_return,
+            "total_return_percent": total_return_percent,
+            "win_rate": (Decimal(len(winning_pnls)) / Decimal(closed_trades)) * HUNDRED,
+            "average_trade_pnl": realized_pnl / Decimal(closed_trades),
+            "best_trade_pnl": max(closed_trade_pnls),
+            "worst_trade_pnl": min(closed_trade_pnls),
+            "profit_factor": profit_factor,
+        }
 
     @staticmethod
     def _strategy_candle_source(parameters: dict[str, Any] | None) -> str | None:

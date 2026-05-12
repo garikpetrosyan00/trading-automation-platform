@@ -48,6 +48,13 @@ class BacktestResultResponse(BaseModel):
     winning_trades: int
     losing_trades: int
     candles_processed: int
+    total_return: Decimal
+    total_return_percent: Decimal | None = None
+    win_rate: Decimal | None = None
+    average_trade_pnl: Decimal | None = None
+    best_trade_pnl: Decimal | None = None
+    worst_trade_pnl: Decimal | None = None
+    profit_factor: Decimal | None = None
     trades: list[BacktestTradeResponse]
 
     model_config = ConfigDict(from_attributes=True)
@@ -73,6 +80,13 @@ class BacktestRunHistoryResponse(BaseModel):
     winning_trades: int
     losing_trades: int
     candles_processed: int
+    total_return: Decimal | None = None
+    total_return_percent: Decimal | None = None
+    win_rate: Decimal | None = None
+    average_trade_pnl: Decimal | None = None
+    best_trade_pnl: Decimal | None = None
+    worst_trade_pnl: Decimal | None = None
+    profit_factor: Decimal | None = None
     created_at: datetime
 
     model_config = ConfigDict(from_attributes=True)
