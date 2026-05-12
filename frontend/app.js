@@ -151,6 +151,13 @@ const translations = {
     number_of_trades_label: "Trades",
     closed_trades_label: "Closed trades",
     open_position_label: "Open position",
+    total_return_label: "Total return",
+    return_percent_label: "Return %",
+    win_rate_label: "Win rate",
+    average_trade_pnl_label: "Avg trade PnL",
+    best_trade_pnl_label: "Best trade PnL",
+    worst_trade_pnl_label: "Worst trade PnL",
+    profit_factor_label: "Profit factor",
     no_backtest_trades: "No trades were executed during this backtest.",
     recent_backtests: "Recent Backtests",
     recent_backtests_aria: "Recent Backtests",
@@ -403,6 +410,13 @@ const translations = {
     number_of_trades_label: "Գործարքներ",
     closed_trades_label: "Փակված գործարքներ",
     open_position_label: "Բաց position",
+    total_return_label: "Ընդհանուր վերադարձ",
+    return_percent_label: "Վերադարձ %",
+    win_rate_label: "Win rate",
+    average_trade_pnl_label: "Միջին trade PnL",
+    best_trade_pnl_label: "Լավագույն trade PnL",
+    worst_trade_pnl_label: "Վատագույն trade PnL",
+    profit_factor_label: "Profit factor",
     no_backtest_trades: "Այս backtest-ի ընթացքում trade-եր չեն կատարվել։",
     recent_backtests: "Վերջին Backtest-երը",
     recent_backtests_aria: "Վերջին Backtest-եր",
@@ -880,6 +894,13 @@ function normalizeBacktestResult(rawResult) {
     openPosition: rawResult.open_position ?? false,
     positionQuantity: rawResult.position_quantity ?? null,
     entryPrice: rawResult.entry_price ?? null,
+    totalReturn: rawResult.total_return ?? null,
+    totalReturnPercent: rawResult.total_return_percent ?? null,
+    winRate: rawResult.win_rate ?? null,
+    averageTradePnl: rawResult.average_trade_pnl ?? null,
+    bestTradePnl: rawResult.best_trade_pnl ?? null,
+    worstTradePnl: rawResult.worst_trade_pnl ?? null,
+    profitFactor: rawResult.profit_factor ?? null,
     trades: Array.isArray(rawResult.trades) ? rawResult.trades.map(normalizeBacktestTrade) : [],
   };
 }
@@ -912,6 +933,10 @@ function normalizeBacktestHistoryItem(rawItem) {
     initialBalance: rawItem.initial_balance ?? null,
     finalBalance: rawItem.final_balance ?? null,
     realizedPnl: rawItem.realized_pnl ?? null,
+    totalReturn: rawItem.total_return ?? null,
+    totalReturnPercent: rawItem.total_return_percent ?? null,
+    winRate: rawItem.win_rate ?? null,
+    profitFactor: rawItem.profit_factor ?? null,
     numberOfTrades: rawItem.number_of_trades ?? 0,
     winningTrades: rawItem.winning_trades ?? null,
     losingTrades: rawItem.losing_trades ?? null,
@@ -1053,6 +1078,26 @@ function formatDecimal(value, fallback = "—") {
   return new Intl.NumberFormat([], {
     minimumFractionDigits: 0,
     maximumFractionDigits: 8,
+  }).format(parsed);
+}
+
+function formatPercent(value, fallback = "—") {
+  if (value === null || value === undefined || value === "") return fallback;
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) return String(value);
+  return `${new Intl.NumberFormat([], {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  }).format(parsed)}%`;
+}
+
+function formatRatio(value, fallback = "—") {
+  if (value === null || value === undefined || value === "") return fallback;
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) return String(value);
+  return new Intl.NumberFormat([], {
+    minimumFractionDigits: 0,
+    maximumFractionDigits: 2,
   }).format(parsed);
 }
 
@@ -1341,6 +1386,33 @@ function renderBacktestPanel() {
       value: formatDecimal(backtestResult.unrealizedPnl),
       className: pnlClass(backtestResult.unrealizedPnl),
     },
+    {
+      label: t("total_return_label"),
+      value: formatDecimal(backtestResult.totalReturn),
+      className: pnlClass(backtestResult.totalReturn),
+    },
+    {
+      label: t("return_percent_label"),
+      value: formatPercent(backtestResult.totalReturnPercent),
+      className: pnlClass(backtestResult.totalReturnPercent),
+    },
+    { label: t("win_rate_label"), value: formatPercent(backtestResult.winRate) },
+    {
+      label: t("average_trade_pnl_label"),
+      value: formatDecimal(backtestResult.averageTradePnl),
+      className: pnlClass(backtestResult.averageTradePnl),
+    },
+    {
+      label: t("best_trade_pnl_label"),
+      value: formatDecimal(backtestResult.bestTradePnl),
+      className: pnlClass(backtestResult.bestTradePnl),
+    },
+    {
+      label: t("worst_trade_pnl_label"),
+      value: formatDecimal(backtestResult.worstTradePnl),
+      className: pnlClass(backtestResult.worstTradePnl),
+    },
+    { label: t("profit_factor_label"), value: formatRatio(backtestResult.profitFactor) },
     { label: t("number_of_trades_label"), value: formatDecimal(backtestResult.numberOfTrades) },
     { label: t("closed_trades_label"), value: formatDecimal(backtestResult.closedTrades) },
     { label: t("open_position_label"), value: formatBoolean(backtestResult.openPosition) },
@@ -1489,6 +1561,18 @@ function renderBacktestHistory() {
         value: formatDecimal(item.realizedPnl),
         className: pnlClass(item.realizedPnl),
       },
+      {
+        label: t("total_return_label"),
+        value: formatDecimal(item.totalReturn),
+        className: pnlClass(item.totalReturn),
+      },
+      {
+        label: t("return_percent_label"),
+        value: formatPercent(item.totalReturnPercent),
+        className: pnlClass(item.totalReturnPercent),
+      },
+      { label: t("win_rate_label"), value: formatPercent(item.winRate) },
+      { label: t("profit_factor_label"), value: formatRatio(item.profitFactor) },
       { label: t("number_of_trades_label"), value: formatDecimal(item.numberOfTrades) },
       {
         label: t("winning_losing_trades_label"),
