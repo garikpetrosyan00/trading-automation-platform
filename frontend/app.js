@@ -168,6 +168,9 @@ const translations = {
     refreshing_backtest_history: "Refreshing…",
     backtest_strategy_fallback: "Strategy #{id}",
     winning_losing_trades_label: "Wins / losses",
+    best_recent_run: "Best recent run",
+    best_recent_run_help: "Based on recent saved backtests for this strategy.",
+    run_more_backtests_to_compare: "Run more backtests to compare recent results.",
     candles_processed_label: "Candles",
     recent_activity: "Recent Activity",
     set_price: "Set price",
@@ -427,6 +430,9 @@ const translations = {
     refreshing_backtest_history: "Թարմացվում է…",
     backtest_strategy_fallback: "Strategy #{id}",
     winning_losing_trades_label: "Հաղթ. / պարտ.",
+    best_recent_run: "Լավագույն վերջին run-ը",
+    best_recent_run_help: "Հիմնված է այս strategy-ի վերջին պահպանված backtest-երի վրա։",
+    run_more_backtests_to_compare: "Գործարկիր ավելի շատ backtest-եր՝ վերջին արդյունքները համեմատելու համար։",
     candles_processed_label: "Մոմեր",
     recent_activity: "Վերջին ակտիվություն",
     set_price: "Սահմանել գինը",
@@ -948,6 +954,37 @@ function normalizeBacktestHistoryItem(rawItem) {
 function normalizeBacktestHistoryResponse(data) {
   const rawItems = Array.isArray(data) ? data : data?.items ?? [];
   return Array.isArray(rawItems) ? rawItems.map(normalizeBacktestHistoryItem) : [];
+}
+
+function comparableNumber(value) {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function selectBestRecentBacktest(items) {
+  return items.reduce((best, item) => {
+    if (!best) return item;
+
+    const itemReturnPercent = comparableNumber(item.totalReturnPercent);
+    const bestReturnPercent = comparableNumber(best.totalReturnPercent);
+    if (itemReturnPercent !== bestReturnPercent) {
+      if (itemReturnPercent === null) return best;
+      if (bestReturnPercent === null) return item;
+      return itemReturnPercent > bestReturnPercent ? item : best;
+    }
+
+    const itemTotalReturn = comparableNumber(item.totalReturn);
+    const bestTotalReturn = comparableNumber(best.totalReturn);
+    if (itemTotalReturn !== bestTotalReturn) {
+      if (itemTotalReturn === null) return best;
+      if (bestTotalReturn === null) return item;
+      return itemTotalReturn > bestTotalReturn ? item : best;
+    }
+
+    const itemTime = new Date(item.createdAt || 0).getTime();
+    const bestTime = new Date(best.createdAt || 0).getTime();
+    return itemTime > bestTime ? item : best;
+  }, null);
 }
 
 function statusClass(status) {
@@ -1518,6 +1555,60 @@ function renderBacktestHistory() {
     return;
   }
 
+  const fragments = [];
+  if (backtestHistory.length >= 2) {
+    const bestRun = selectBestRecentBacktest(backtestHistory);
+    if (bestRun) {
+      const summary = document.createElement("section");
+      summary.className = "backtest-best-run";
+      const heading = document.createElement("div");
+      heading.className = "backtest-best-run-heading";
+      const title = document.createElement("strong");
+      title.textContent = t("best_recent_run");
+      const createdAt = document.createElement("span");
+      createdAt.textContent = formatDateTime(bestRun.createdAt);
+      heading.append(title, createdAt);
+
+      const help = document.createElement("p");
+      help.textContent = t("best_recent_run_help");
+
+      const metrics = document.createElement("dl");
+      metrics.className = "backtest-history-metrics";
+      [
+        {
+          label: t("return_percent_label"),
+          value: formatPercent(bestRun.totalReturnPercent),
+          className: pnlClass(bestRun.totalReturnPercent),
+        },
+        {
+          label: t("total_return_label"),
+          value: formatDecimal(bestRun.totalReturn),
+          className: pnlClass(bestRun.totalReturn),
+        },
+        { label: t("win_rate_label"), value: formatPercent(bestRun.winRate) },
+        { label: t("profit_factor_label"), value: formatRatio(bestRun.profitFactor) },
+        { label: t("closed_trades_label"), value: formatDecimal(bestRun.closedTrades) },
+      ].forEach((metric) => {
+        const group = document.createElement("div");
+        const label = document.createElement("dt");
+        const value = document.createElement("dd");
+        label.textContent = metric.label;
+        value.textContent = metric.value;
+        if (metric.className) value.classList.add(metric.className);
+        group.append(label, value);
+        metrics.append(group);
+      });
+
+      summary.append(heading, help, metrics);
+      fragments.push(summary);
+    }
+  } else {
+    const note = document.createElement("p");
+    note.className = "backtest-compare-note";
+    note.textContent = t("run_more_backtests_to_compare");
+    fragments.push(note);
+  }
+
   const list = document.createElement("ul");
   list.className = "backtest-history-list";
   backtestHistory.forEach((item) => {
@@ -1598,7 +1689,7 @@ function renderBacktestHistory() {
   });
 
   backtestHistoryEl.className = "backtest-history";
-  backtestHistoryEl.append(list);
+  backtestHistoryEl.append(...fragments, list);
 }
 
 function cooldownText(bot) {

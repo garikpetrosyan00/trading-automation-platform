@@ -915,6 +915,44 @@ dd {
   margin-top: 0;
 }
 
+.backtest-best-run,
+.backtest-compare-note {
+  margin: 0 0 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface);
+  padding: 12px;
+}
+
+.backtest-best-run {
+  display: grid;
+  gap: 8px;
+}
+
+.backtest-best-run-heading {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px 10px;
+}
+
+.backtest-best-run-heading strong {
+  font-size: 0.92rem;
+}
+
+.backtest-best-run-heading span,
+.backtest-best-run p,
+.backtest-compare-note {
+  color: var(--muted);
+  font-size: 0.78rem;
+  font-weight: 800;
+}
+
+.backtest-best-run p {
+  margin: 0;
+}
+
 .backtest-history-list {
   display: grid;
   gap: 10px;
