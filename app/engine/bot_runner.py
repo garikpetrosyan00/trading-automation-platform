@@ -330,15 +330,16 @@ class BotRunner:
 
         bot_run = self._ensure_running_run(bot_run_service, bot_id, trigger_type="system")
         if not strategy.is_active:
-            self._record_event(
-                db,
-                bot_run.id,
-                event_type="system",
-                level="info",
-                message="strategy_inactive",
-                payload={"symbol": strategy.symbol, "strategy_id": strategy.id},
-            )
-            db.commit()
+            if record_noop_events:
+                self._record_event(
+                    db,
+                    bot_run.id,
+                    event_type="system",
+                    level="info",
+                    message="strategy_inactive",
+                    payload={"symbol": strategy.symbol, "strategy_id": strategy.id},
+                )
+                db.commit()
             return
 
         strategy_type = self._strategy_type(strategy)
@@ -379,27 +380,29 @@ class BotRunner:
                 decision_payload["candle_source"] = candle_source
 
         if strategy_type not in {PRICE_THRESHOLD_STRATEGY_TYPE, MOVING_AVERAGE_CROSS_STRATEGY_TYPE}:
-            self._record_event(
-                db,
-                bot_run.id,
-                event_type="system",
-                level="warning",
-                message="unsupported_strategy_type",
-                payload={"symbol": strategy.symbol, **decision_payload},
-            )
-            db.commit()
+            if record_noop_events:
+                self._record_event(
+                    db,
+                    bot_run.id,
+                    event_type="system",
+                    level="warning",
+                    message="unsupported_strategy_type",
+                    payload={"symbol": strategy.symbol, **decision_payload},
+                )
+                db.commit()
             return
 
         if decision.metadata.get("parameter") is not None:
-            self._record_event(
-                db,
-                bot_run.id,
-                event_type="system",
-                level="warning",
-                message="evaluation_skipped",
-                payload={"symbol": strategy.symbol, **decision_payload, "reason": "invalid_strategy_parameter"},
-            )
-            db.commit()
+            if record_noop_events:
+                self._record_event(
+                    db,
+                    bot_run.id,
+                    event_type="system",
+                    level="warning",
+                    message="evaluation_skipped",
+                    payload={"symbol": strategy.symbol, **decision_payload, "reason": "invalid_strategy_parameter"},
+                )
+                db.commit()
             return
 
         cooldown_until = self._get_cooldown_until(RunEventRepository(db), bot.id, profile.cooldown_seconds)
@@ -410,27 +413,29 @@ class BotRunner:
             and cooldown_until is not None
             and self.now_provider() < cooldown_until
         ):
-            self._record_event(
-                db,
-                bot_run.id,
-                event_type="system",
-                level="info",
-                message="cooldown_active",
-                payload={"symbol": strategy.symbol, "cooldown_until": cooldown_until.isoformat(), **decision_payload},
-            )
-            db.commit()
+            if record_noop_events:
+                self._record_event(
+                    db,
+                    bot_run.id,
+                    event_type="system",
+                    level="info",
+                    message="cooldown_active",
+                    payload={"symbol": strategy.symbol, "cooldown_until": cooldown_until.isoformat(), **decision_payload},
+                )
+                db.commit()
             return
 
         if decision.action == "skip":
-            self._record_event(
-                db,
-                bot_run.id,
-                event_type="system",
-                level="warning",
-                message="evaluation_skipped",
-                payload={"symbol": strategy.symbol, **decision_payload},
-            )
-            db.commit()
+            if record_noop_events:
+                self._record_event(
+                    db,
+                    bot_run.id,
+                    event_type="system",
+                    level="warning",
+                    message="evaluation_skipped",
+                    payload={"symbol": strategy.symbol, **decision_payload},
+                )
+                db.commit()
             return
 
         if decision.action == "hold":
@@ -451,21 +456,22 @@ class BotRunner:
             detail = "strategy quantity is missing"
             if strategy_type == PRICE_THRESHOLD_STRATEGY_TYPE:
                 detail = "strategy quantity is missing and execution profile order_quantity is not configured"
-            self._record_event(
-                db,
-                bot_run.id,
-                event_type="system",
-                level="warning",
-                message="evaluation_skipped",
-                payload={
-                    **decision_payload,
-                    "reason": "order_quantity_not_configured",
-                    "detail": detail,
-                    "decision": "skipped",
-                    "symbol": strategy.symbol,
-                },
-            )
-            db.commit()
+            if record_noop_events:
+                self._record_event(
+                    db,
+                    bot_run.id,
+                    event_type="system",
+                    level="warning",
+                    message="evaluation_skipped",
+                    payload={
+                        **decision_payload,
+                        "reason": "order_quantity_not_configured",
+                        "detail": detail,
+                        "decision": "skipped",
+                        "symbol": strategy.symbol,
+                    },
+                )
+                db.commit()
             return
 
         if decision.action == "sell":

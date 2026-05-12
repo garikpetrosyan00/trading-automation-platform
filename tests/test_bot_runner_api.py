@@ -323,7 +323,7 @@ def test_bot_activity_returns_recent_activity_for_a_bot(db_session_factory, acti
 
     assert response.bot_id == bot_id
     assert response.items
-    assert response.items[0].message == "cooldown_active"
+    assert response.items[0].message == "sell_filled"
     assert any(item.message == "buy_filled" for item in response.items)
     assert any(item.message == "sell_filled" for item in response.items)
 
@@ -335,19 +335,17 @@ def test_bot_activity_newest_items_come_first(db_session_factory, activity_bot_i
         response = asyncio.run(get_bot_activity(bot_id, session, limit=20))
 
     messages = [item.message for item in response.items]
-    assert messages[:4] == ["cooldown_active", "sell_filled", "sell_signal", "buy_filled"]
+    assert messages[:4] == ["sell_filled", "sell_signal", "buy_filled", "buy_signal"]
 
 
-def test_bot_activity_includes_cooldown_active_when_present(db_session_factory, activity_bot_id) -> None:
+def test_bot_activity_omits_background_cooldown_noise(db_session_factory, activity_bot_id) -> None:
     bot_id = activity_bot_id
 
     with db_session_factory() as session:
         response = asyncio.run(get_bot_activity(bot_id, session, limit=20))
 
     cooldown_items = [item for item in response.items if item.message == "cooldown_active"]
-    assert len(cooldown_items) == 1
-    assert cooldown_items[0].type == "run_event"
-    assert cooldown_items[0].cooldown_until is not None
+    assert cooldown_items == []
 
 
 def test_bot_activity_respects_limit(db_session_factory, activity_bot_id) -> None:
@@ -356,7 +354,7 @@ def test_bot_activity_respects_limit(db_session_factory, activity_bot_id) -> Non
     with db_session_factory() as session:
         response = asyncio.run(get_bot_activity(bot_id, session, limit=2))
 
-    assert [item.message for item in response.items] == ["cooldown_active", "sell_filled"]
+    assert [item.message for item in response.items] == ["sell_filled", "sell_signal"]
 
 
 def test_bot_activity_api_returns_newest_items_first(activity_bot_id) -> None:
@@ -365,10 +363,10 @@ def test_bot_activity_api_returns_newest_items_first(activity_bot_id) -> None:
 
     assert response.status_code == 200
     assert [item["message"] for item in response.json()["items"]] == [
-        "cooldown_active",
         "sell_filled",
         "sell_signal",
         "buy_filled",
+        "buy_signal",
     ]
 
 

@@ -101,7 +101,7 @@ def test_bot_start_and_stop(db_session, db_session_factory, stub_market_data_ser
     assert stop_status.active_run_status is None
 
 
-def test_no_buy_when_latest_price_missing(
+def test_background_missing_price_does_not_record_skipped_activity_noise(
     db_session,
     db_session_factory,
     stub_market_data_service,
@@ -114,12 +114,14 @@ def test_no_buy_when_latest_price_missing(
     runner.start_bot(bot.id)
 
     asyncio.run(runner.run_cycle())
+    asyncio.run(runner.run_cycle())
+    asyncio.run(runner.run_cycle())
 
     orders = PortfolioRepository(db_session).list_orders()
     events = RunEventRepository(db_session).list_for_bot(bot.id)
 
     assert orders == []
-    assert any(event.message == "evaluation_skipped" for event in events)
+    assert [event.message for event in events].count("evaluation_skipped") == 0
 
 
 def test_buy_signal_triggers_one_buy_and_no_duplicate_buy(
@@ -829,7 +831,7 @@ def test_inactive_strategy_is_skipped_without_placing_orders(
     assert not any(event.message == "order_filled" for event in events)
 
 
-def test_bot_does_not_rebuy_during_cooldown(
+def test_background_bot_does_not_rebuy_or_record_cooldown_noise(
     db_session,
     db_session_factory,
     stub_market_data_service,
@@ -848,6 +850,8 @@ def test_bot_does_not_rebuy_during_cooldown(
     asyncio.run(runner.run_cycle())
     stub_market_data_service.set_price("BTCUSDT", "95")
     asyncio.run(runner.run_cycle())
+    asyncio.run(runner.run_cycle())
+    asyncio.run(runner.run_cycle())
 
     repository = PortfolioRepository(db_session)
     orders = repository.list_orders()
@@ -857,7 +861,7 @@ def test_bot_does_not_rebuy_during_cooldown(
     assert len(orders) == 2
     assert orders[0].side == "sell"
     assert orders[1].side == "buy"
-    assert any(event.message == "cooldown_active" for event in events)
+    assert [event.message for event in events].count("cooldown_active") == 0
     assert status.cooldown_active is True
     assert status.current_position_quantity == Decimal("0E-8")
 
@@ -1339,7 +1343,7 @@ def test_bot_summary_recent_activity_preview_is_capped(
     funded_account,
 ) -> None:
     funded_account(db_session)
-    _, bot, _ = bot_stack_factory(db_session, name="Capped summary bot", symbol="BTCUSDT", cooldown_seconds=1)
+    _, bot, _ = bot_stack_factory(db_session, name="Capped summary bot", symbol="BTCUSDT", cooldown_seconds=0)
     runner = build_runner(db_session_factory, stub_market_data_service)
     runner.start_bot(bot.id)
     for _ in range(6):
