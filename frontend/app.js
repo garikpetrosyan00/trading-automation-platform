@@ -138,8 +138,10 @@ const translations = {
     backtest_strategy_not_found: "Strategy could not be found.",
     no_backtest_result: "Run a backtest to see simulated results.",
     backtest_trade_actions: "Backtest Trades",
-    opened_at_label: "Opened",
+    action_time_label: "Time",
     cash_balance_label: "Cash balance",
+    entry_price_label: "Entry price",
+    open_position_qty_label: "Open position qty",
     reason_label: "Reason",
     final_balance_label: "Final balance",
     realized_pnl_label: "Realized PnL",
@@ -151,7 +153,7 @@ const translations = {
     recent_backtests: "Recent Backtests",
     recent_backtests_aria: "Recent Backtests",
     loading_recent_backtests: "Loading recent backtests...",
-    no_backtests_yet: "No backtests yet.",
+    no_backtests_yet: "No backtests yet. Run one for the selected strategy to build history.",
     failed_to_load_backtest_history: "Failed to load backtest history.",
     refresh_backtest_history: "Refresh",
     refreshing_backtest_history: "Refreshing…",
@@ -385,27 +387,29 @@ const translations = {
     could_not_run_backtest: "Չհաջողվեց գործարկել backtest-ը։",
     backtest_strategy_not_found: "Strategy-ն չգտնվեց։",
     no_backtest_result: "Գործարկիր backtest՝ simulation արդյունքները տեսնելու համար։",
-    backtest_trade_actions: "Backtest Trades",
-    opened_at_label: "Բացվել է",
-    cash_balance_label: "Cash balance",
+    backtest_trade_actions: "Backtest գործարքներ",
+    action_time_label: "Ժամանակ",
+    cash_balance_label: "Կանխիկ balance",
+    entry_price_label: "Մուտքի գին",
+    open_position_qty_label: "Բաց position-ի քանակ",
     reason_label: "Պատճառ",
     final_balance_label: "Վերջնական balance",
-    realized_pnl_label: "Realized PnL",
-    unrealized_pnl_label: "Unrealized PnL",
-    number_of_trades_label: "Trades",
-    closed_trades_label: "Closed trades",
+    realized_pnl_label: "Իրացված PnL",
+    unrealized_pnl_label: "Չիրացված PnL",
+    number_of_trades_label: "Գործարքներ",
+    closed_trades_label: "Փակված գործարքներ",
     open_position_label: "Բաց position",
     no_backtest_trades: "Այս backtest-ի ընթացքում trade-եր չեն կատարվել։",
     recent_backtests: "Վերջին Backtest-երը",
     recent_backtests_aria: "Վերջին Backtest-եր",
     loading_recent_backtests: "Բեռնվում են վերջին backtest-երը...",
-    no_backtests_yet: "Backtest-եր դեռ չկան։",
+    no_backtests_yet: "Backtest-եր դեռ չկան։ Գործարկիր մեկը ընտրված strategy-ի համար՝ history ստեղծելու համար։",
     failed_to_load_backtest_history: "Չհաջողվեց բեռնել backtest history-ն։",
     refresh_backtest_history: "Թարմացնել",
     refreshing_backtest_history: "Թարմացվում է…",
     backtest_strategy_fallback: "Strategy #{id}",
     winning_losing_trades_label: "Հաղթ. / պարտ.",
-    candles_processed_label: "Candles",
+    candles_processed_label: "Մոմեր",
     recent_activity: "Վերջին ակտիվություն",
     set_price: "Սահմանել գինը",
     fetch_binance_price: "Բեռնել Binance գինը",
@@ -1048,6 +1052,16 @@ function formatDecimal(value, fallback = "—") {
   }).format(parsed);
 }
 
+function pnlClass(value, baseline = 0) {
+  const parsed = Number(value);
+  const parsedBaseline = Number(baseline);
+  if (!Number.isFinite(parsed) || !Number.isFinite(parsedBaseline)) return "pnl-neutral";
+  const diff = parsed - parsedBaseline;
+  if (diff > 0) return "pnl-positive";
+  if (diff < 0) return "pnl-negative";
+  return "pnl-neutral";
+}
+
 function formatParameterValue(value) {
   if (value === null || value === undefined || value === "") return "—";
   if (typeof value === "number" || typeof value === "bigint") return formatDecimal(value);
@@ -1305,15 +1319,31 @@ function renderBacktestPanel() {
     { label: t("strategy_type_label"), value: humanizeMessage(backtestResult.strategyType) },
     { label: t("source_label"), value: formatValue(backtestResult.source) },
     { label: t("initial_balance_label"), value: formatDecimal(backtestResult.initialBalance) },
-    { label: t("final_balance_label"), value: formatDecimal(backtestResult.finalBalance) },
-    { label: t("realized_pnl_label"), value: formatDecimal(backtestResult.realizedPnl) },
-    { label: t("unrealized_pnl_label"), value: formatDecimal(backtestResult.unrealizedPnl) },
+    {
+      label: t("final_balance_label"),
+      value: formatDecimal(backtestResult.finalBalance),
+      className: pnlClass(backtestResult.finalBalance, backtestResult.initialBalance),
+    },
+    {
+      label: t("realized_pnl_label"),
+      value: formatDecimal(backtestResult.realizedPnl),
+      className: pnlClass(backtestResult.realizedPnl),
+    },
+    {
+      label: t("unrealized_pnl_label"),
+      value: formatDecimal(backtestResult.unrealizedPnl),
+      className: pnlClass(backtestResult.unrealizedPnl),
+    },
     { label: t("number_of_trades_label"), value: formatDecimal(backtestResult.numberOfTrades) },
     { label: t("closed_trades_label"), value: formatDecimal(backtestResult.closedTrades) },
     { label: t("open_position_label"), value: formatBoolean(backtestResult.openPosition) },
-    { label: t("position_qty_label"), value: formatDecimal(backtestResult.positionQuantity) },
-    { label: t("price_label"), value: formatDecimal(backtestResult.entryPrice) },
   ];
+  if (backtestResult.openPosition) {
+    rows.push(
+      { label: t("open_position_qty_label"), value: formatDecimal(backtestResult.positionQuantity) },
+      { label: t("entry_price_label"), value: formatDecimal(backtestResult.entryPrice) },
+    );
+  }
 
   const grid = document.createElement("dl");
   grid.className = "backtest-result-grid";
@@ -1323,6 +1353,7 @@ function renderBacktestPanel() {
     const value = document.createElement("dd");
     label.textContent = item.label;
     value.textContent = item.value;
+    if (item.className) value.classList.add(item.className);
     row.append(label, value);
     grid.append(row);
   });
@@ -1344,13 +1375,13 @@ function renderBacktestPanel() {
       const sideValue = trade.decision || trade.side;
       const side = sideValue ? formatActivitySide(sideValue) : "—";
       const detailParts = [
-        `${t("opened_at_label")}: ${formatDateTime(trade.openedAt)}`,
-        `${t("symbol")}: ${formatValue(trade.symbol)}`,
-        `${t("quantity_label")}: ${formatDecimal(trade.quantity)}`,
-        `${t("price_label")}: ${formatDecimal(trade.price)}`,
-        `${t("cash_balance_label")}: ${formatDecimal(trade.cashBalance)}`,
-        `${t("position_qty_label")}: ${formatDecimal(trade.positionQuantity)}`,
-        `${t("realized_pnl_label")}: ${formatDecimal(trade.realizedPnl)}`,
+        [t("action_time_label"), formatDateTime(trade.openedAt)],
+        [t("symbol"), formatValue(trade.symbol)],
+        [t("quantity_label"), formatDecimal(trade.quantity)],
+        [t("price_label"), formatDecimal(trade.price)],
+        [t("cash_balance_label"), formatDecimal(trade.cashBalance)],
+        [t("position_qty_label"), formatDecimal(trade.positionQuantity)],
+        [t("realized_pnl_label"), formatDecimal(trade.realizedPnl), pnlClass(trade.realizedPnl)],
       ];
       const sideEl = document.createElement("span");
       sideEl.className = "backtest-trade-side";
@@ -1359,9 +1390,14 @@ function renderBacktestPanel() {
       const main = document.createElement("div");
       main.className = "backtest-trade-main";
 
-      const detail = document.createElement("span");
+      const detail = document.createElement("div");
       detail.className = "backtest-trade-detail";
-      detail.textContent = detailParts.join(" · ");
+      detailParts.forEach(([label, value, className]) => {
+        const chip = document.createElement("span");
+        chip.textContent = `${label}: ${value}`;
+        if (className) chip.classList.add(className);
+        detail.append(chip);
+      });
       main.append(detail);
 
       const reason = document.createElement("span");
@@ -1436,8 +1472,16 @@ function renderBacktestHistory() {
     metrics.className = "backtest-history-metrics";
     [
       { label: t("initial_balance_label"), value: formatDecimal(item.initialBalance) },
-      { label: t("final_balance_label"), value: formatDecimal(item.finalBalance) },
-      { label: t("realized_pnl_label"), value: formatDecimal(item.realizedPnl) },
+      {
+        label: t("final_balance_label"),
+        value: formatDecimal(item.finalBalance),
+        className: pnlClass(item.finalBalance, item.initialBalance),
+      },
+      {
+        label: t("realized_pnl_label"),
+        value: formatDecimal(item.realizedPnl),
+        className: pnlClass(item.realizedPnl),
+      },
       { label: t("number_of_trades_label"), value: formatDecimal(item.numberOfTrades) },
       {
         label: t("winning_losing_trades_label"),
@@ -1453,6 +1497,7 @@ function renderBacktestHistory() {
       const value = document.createElement("dd");
       label.textContent = metric.label;
       value.textContent = metric.value;
+      if (metric.className) value.classList.add(metric.className);
       group.append(label, value);
       metrics.append(group);
     });

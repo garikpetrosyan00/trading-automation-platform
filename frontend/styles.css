@@ -989,6 +989,18 @@ dd {
   font-size: 0.9rem;
 }
 
+.pnl-positive {
+  color: var(--green);
+}
+
+.pnl-negative {
+  color: var(--danger);
+}
+
+.pnl-neutral {
+  color: var(--muted);
+}
+
 .backtest-trades-heading {
   margin: 14px 0 8px;
   color: var(--muted);
@@ -1030,7 +1042,7 @@ dd {
 
 .backtest-trade-main {
   display: grid;
-  gap: 4px;
+  gap: 6px;
   min-width: 0;
 }
 
@@ -1045,6 +1057,21 @@ dd {
 .backtest-trade-detail,
 .backtest-trade-reason {
   overflow-wrap: anywhere;
+}
+
+.backtest-trade-detail {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.backtest-trade-detail span {
+  display: inline-flex;
+  align-items: center;
+  min-height: 24px;
+  border-radius: 999px;
+  background: #eef2f0;
+  padding: 0 9px;
 }
 
 .backtest-trade-reason {
