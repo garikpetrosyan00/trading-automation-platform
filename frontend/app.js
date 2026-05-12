@@ -86,7 +86,7 @@ const translations = {
     selected_strategy_label: "Strategy",
     selected_cooldown_label: "Cooldown",
     selected_price_label: "Last price",
-    selected_last_run_label: "Last run",
+    selected_last_run_label: "Updated",
     bot_settings: "Bot Settings",
     bot_settings_aria: "Bot settings",
     bot_settings_unavailable: "Bot settings unavailable",
@@ -123,6 +123,8 @@ const translations = {
     moving_average_short_less_than_long: "Short window must be smaller than long window.",
     moving_average_parameters_help:
       "Short window must be smaller than long window. Both windows must be positive integers.",
+    price_threshold_parameters_help:
+      "Buy below is the entry trigger, sell above is the exit trigger, and quantity is the simulated trade amount.",
     strategy_parameters_edit_unavailable: "Editing is not available for this strategy type yet.",
     backtest: "Backtest",
     backtest_aria: "Run backtest",
@@ -336,28 +338,28 @@ const translations = {
     selected_strategy_label: "Strategy",
     selected_cooldown_label: "Cooldown",
     selected_price_label: "Վերջին գին",
-    selected_last_run_label: "Վերջին գործարկում",
+    selected_last_run_label: "Թարմացվել է",
     bot_settings: "Bot-ի կարգավորումներ",
     bot_settings_aria: "Bot-ի կարգավորումներ",
     bot_settings_unavailable: "Bot-ի կարգավորումները հասանելի չեն",
     bot_name_label: "Bot-ի անուն",
-    status_label: "Status",
-    paper_live_mode_label: "Mode",
+    status_label: "Կարգավիճակ",
+    paper_live_mode_label: "Ռեժիմ",
     paused_label: "Դադարեցված",
     cooldown_active_label: "Cooldown ակտիվ է",
-    current_position_qty_label: "Position քանակ",
+    current_position_qty_label: "Position-ի քանակ",
     updated_time_label: "Թարմացվել է",
     yes: "Այո",
     no: "Ոչ",
     not_available: "Հասանելի չէ",
-    strategy_parameters: "Strategy Parameters",
+    strategy_parameters: "Strategy-ի պարամետրեր",
     strategy_name_label: "Strategy",
-    strategy_type_label: "Type",
-    timeframe_label: "Timeframe",
-    buy_below_label: "Buy below",
-    sell_above_label: "Sell above",
-    short_window_label: "Short window",
-    long_window_label: "Long window",
+    strategy_type_label: "Տեսակ",
+    timeframe_label: "Ժամանակային միջակայք",
+    buy_below_label: "Գնել՝ ցածր քան",
+    sell_above_label: "Վաճառել՝ բարձր քան",
+    short_window_label: "Կարճ պատուհան",
+    long_window_label: "Երկար պատուհան",
     no_strategy_selected: "Strategy ընտրված չէ",
     no_strategy_parameters_configured: "Strategy-ի parameters-ները կարգավորված չեն",
     strategy_details_unavailable: "Strategy-ի մանրամասները հասանելի չեն",
@@ -366,13 +368,15 @@ const translations = {
     save: "Պահպանել",
     strategy_parameters_updated: "Strategy-ի parameters-ները թարմացվեցին։",
     strategy_parameters_save_failed: "Չհաջողվեց թարմացնել Strategy-ի parameters-ները։",
-    enter_strategy_parameters: "Մուտքագրիր buy below, sell above և quantity։",
-    enter_moving_average_parameters: "Մուտքագրիր short window և long window։",
+    enter_strategy_parameters: "Մուտքագրիր buy below, sell above և quantity արժեքները։",
+    enter_moving_average_parameters: "Մուտքագրիր short window և long window արժեքները։",
     strategy_parameters_must_be_numbers: "Strategy-ի parameters-ները պետք է լինեն դրական թվեր։",
     moving_average_windows_must_be_integers: "Short window-ը և long window-ը պետք է լինեն դրական ամբողջ թվեր։",
     moving_average_short_less_than_long: "Short window-ը պետք է փոքր լինի long window-ից։",
     moving_average_parameters_help:
       "Short window-ը պետք է փոքր լինի long window-ից։ Երկու window-ներն էլ պետք է դրական ամբողջ թվեր լինեն։",
+    price_threshold_parameters_help:
+      "Buy below-ը մուտքի trigger-ն է, sell above-ը՝ ելքի trigger-ը, իսկ quantity-ն՝ simulated գործարքի քանակը։",
     strategy_parameters_edit_unavailable: "Այս strategy type-ի համար խմբագրումը դեռ հասանելի չէ։",
     backtest: "Backtest",
     backtest_aria: "Գործարկել backtest",
@@ -1224,10 +1228,13 @@ function renderStrategyParametersForm() {
   const hasStrategyDetails = Boolean(selectedBotId && selectedSummary && strategyIdForSelectedBot());
   const canEditParameters = hasStrategyDetails && canEditSelectedStrategyParameters();
   const fields = selectedStrategyParameterFields();
-  const movingAverageHelp =
-    hasStrategyDetails && selectedStrategyType() === "moving_average_cross"
+  const strategyType = selectedStrategyType();
+  const parameterHelp =
+    hasStrategyDetails && strategyType === "moving_average_cross"
       ? t("moving_average_parameters_help")
-      : "";
+      : hasStrategyDetails && strategyType === "price_threshold"
+        ? t("price_threshold_parameters_help")
+        : "";
   const shouldDisable =
     !hasStrategyDetails ||
     !canEditParameters ||
@@ -1239,7 +1246,7 @@ function renderStrategyParametersForm() {
     strategyParametersMessage ||
     (hasStrategyDetails && !canEditParameters
       ? t("strategy_parameters_edit_unavailable")
-      : movingAverageHelp);
+      : parameterHelp);
   const visibleMessageType =
     strategyParametersMessageType || (visibleMessage && visibleMessage !== strategyParametersMessage ? "note" : "");
 
