@@ -22,6 +22,7 @@ let isCreateBotOpen = false;
 let isEditBotOpen = false;
 let isLoadingEditBot = false;
 let isSavingEditBot = false;
+let isCreatingExecutionProfile = false;
 let isEditingStrategyParameters = false;
 let isSavingStrategyParameters = false;
 let isSavingRiskSettings = false;
@@ -37,6 +38,8 @@ let createBotMessage = "";
 let createBotMessageType = "";
 let editBotMessage = "";
 let editBotMessageType = "";
+let executionSettingsMessage = "";
+let executionSettingsMessageType = "";
 let strategyParametersMessage = "";
 let strategyParametersMessageType = "";
 let riskSettingsMessage = "";
@@ -86,7 +89,7 @@ const translations = {
     edit_bot: "Edit Bot",
     edit: "Edit",
     edit_bot_summary:
-      "This form updates only basic bot details. Status and mode are shown here for context and are not editable in this form.",
+      "This form updates bot details and the selected Strategy. Status and mode are shown here for context and are not editable in this form.",
     selected_strategy_label: "Strategy",
     selected_cooldown_label: "Cooldown",
     selected_price_label: "Last price",
@@ -94,6 +97,21 @@ const translations = {
     bot_settings: "Bot Settings",
     bot_settings_aria: "Bot settings",
     bot_settings_unavailable: "Bot settings unavailable",
+    execution_settings: "Execution Settings",
+    execution_settings_aria: "Execution settings",
+    create_execution_settings_aria: "Create execution settings",
+    execution_settings_help: "Create execution settings before activating this draft bot.",
+    create_execution_settings: "Create execution settings",
+    creating_execution_settings: "Creating…",
+    execution_settings_created: "Execution settings created. You can activate this bot now.",
+    execution_settings_create_failed: "Could not create execution settings.",
+    execution_settings_positive_numbers: "Execution settings must use positive numbers.",
+    execution_settings_positive_integers: "Cooldown seconds and max open positions must be positive integers.",
+    execution_settings_required_fields: "Fill in all required execution settings.",
+    cooldown_seconds_label: "Cooldown seconds",
+    max_position_size_usd_label: "Max position size USD",
+    max_daily_loss_usd_label: "Max daily loss USD",
+    max_open_positions_label: "Max open positions",
     bot_name_label: "Bot name",
     status_label: "Status",
     paper_live_mode_label: "Mode",
@@ -209,6 +227,9 @@ const translations = {
     not_runnable: "Not runnable",
     loading_actions: "Loading bot actions...",
     activate_draft_before_running: "Activate this draft Bot before running it.",
+    activate_bot: "Activate bot",
+    activating_bot: "Activating…",
+    execution_settings_required_to_activate: "Execution settings are required before this draft Bot can be activated.",
     resume_automatic_checks: "Resume to re-enable automatic checks.",
     paper_mode_orders: "Paper mode uses simulated orders.",
     live_mode_orders: "Live mode places real orders.",
@@ -277,6 +298,7 @@ const translations = {
     could_not_run_bot: "Could not run Bot.",
     could_not_pause_bot: "Could not pause Bot.",
     could_not_resume_bot: "Could not resume Bot.",
+    could_not_activate_bot: "Could not activate Bot.",
     market_price_update: "Market price update",
     language_switcher: "Language switcher",
     bot_dashboard_aria: "Bot dashboard",
@@ -361,7 +383,7 @@ const translations = {
     edit_bot: "Խմբագրել Bot",
     edit: "Խմբագրել",
     edit_bot_summary:
-      "Այս ձևը թարմացնում է միայն Bot-ի հիմնական դաշտերը։ Status-ը և mode-ը այստեղ ցուցադրվում են միայն տեղեկության համար և չեն խմբագրվում։",
+      "Այս ձևը թարմացնում է Bot-ի դաշտերը և ընտրված Strategy-ն։ Status-ը և mode-ը այստեղ ցուցադրվում են միայն տեղեկության համար և չեն խմբագրվում։",
     selected_strategy_label: "Strategy",
     selected_cooldown_label: "Cooldown",
     selected_price_label: "Վերջին գին",
@@ -369,6 +391,21 @@ const translations = {
     bot_settings: "Bot-ի կարգավորումներ",
     bot_settings_aria: "Bot-ի կարգավորումներ",
     bot_settings_unavailable: "Bot-ի կարգավորումները հասանելի չեն",
+    execution_settings: "Execution կարգավորումներ",
+    execution_settings_aria: "Execution կարգավորումներ",
+    create_execution_settings_aria: "Ստեղծել execution կարգավորումներ",
+    execution_settings_help: "Ստեղծիր execution կարգավորումներ՝ նախքան այս draft Bot-ը ակտիվացնելը։",
+    create_execution_settings: "Ստեղծել execution կարգավորումներ",
+    creating_execution_settings: "Ստեղծվում է…",
+    execution_settings_created: "Execution կարգավորումները ստեղծվեցին։ Այժմ կարող ես ակտիվացնել այս Bot-ը։",
+    execution_settings_create_failed: "Չհաջողվեց ստեղծել execution կարգավորումները։",
+    execution_settings_positive_numbers: "Execution կարգավորումները պետք է լինեն դրական թվեր։",
+    execution_settings_positive_integers: "Cooldown վայրկյանները և max open positions-ը պետք է լինեն դրական ամբողջ թվեր։",
+    execution_settings_required_fields: "Լրացրու բոլոր պարտադիր execution կարգավորումները։",
+    cooldown_seconds_label: "Cooldown վայրկյաններ",
+    max_position_size_usd_label: "Առավելագույն position size USD",
+    max_daily_loss_usd_label: "Առավելագույն daily loss USD",
+    max_open_positions_label: "Առավելագույն open positions",
     bot_name_label: "Bot-ի անուն",
     status_label: "Կարգավիճակ",
     paper_live_mode_label: "Ռեժիմ",
@@ -484,6 +521,9 @@ const translations = {
     not_runnable: "Չի կարող գործարկվել",
     loading_actions: "Բեռնվում են Bot-ի գործողությունները...",
     activate_draft_before_running: "Ակտիվացրու այս draft Bot-ը՝ նախքան գործարկելը։",
+    activate_bot: "Ակտիվացնել Bot-ը",
+    activating_bot: "Ակտիվացվում է…",
+    execution_settings_required_to_activate: "Execution կարգավորումները պարտադիր են այս draft Bot-ը ակտիվացնելուց առաջ։",
     resume_automatic_checks: "Վերսկսիր՝ automatic checks-ը նորից միացնելու համար։",
     paper_mode_orders: "Paper mode-ը օգտագործում է simulated orders։",
     live_mode_orders: "Live mode-ը տեղադրում է real orders։",
@@ -552,6 +592,7 @@ const translations = {
     could_not_run_bot: "Չհաջողվեց գործարկել Bot-ը։",
     could_not_pause_bot: "Չհաջողվեց դադարեցնել Bot-ը։",
     could_not_resume_bot: "Չհաջողվեց վերսկսել Bot-ը։",
+    could_not_activate_bot: "Չհաջողվեց ակտիվացնել Bot-ը։",
     market_price_update: "Market price update",
     language_switcher: "Լեզվի ընտրիչ",
     bot_dashboard_aria: "Bot dashboard",
@@ -680,6 +721,36 @@ const selectedLastRunLabel = document.querySelector("#selected-last-run-label");
 const botSettingsPanel = document.querySelector(".bot-settings-panel");
 const botSettingsHeading = document.querySelector("#bot-settings-heading");
 const botSettingsContent = document.querySelector("#bot-settings-content");
+const executionSettingsPanel = document.querySelector(".execution-settings-panel");
+const executionSettingsHeading = document.querySelector("#execution-settings-heading");
+const executionSettingsHelp = document.querySelector("#execution-settings-help");
+const executionSettingsForm = document.querySelector("#execution-settings-form");
+const executionExchangeLabel = document.querySelector("#execution-exchange-label");
+const executionExchangeName = document.querySelector("#execution-exchange-name");
+const executionIsPaper = document.querySelector("#execution-is-paper");
+const executionIsPaperLabel = document.querySelector("#execution-is-paper-label");
+const executionBuyThresholdLabel = document.querySelector("#execution-buy-threshold-label");
+const executionBuyThreshold = document.querySelector("#execution-buy-threshold");
+const executionSellThresholdLabel = document.querySelector("#execution-sell-threshold-label");
+const executionSellThreshold = document.querySelector("#execution-sell-threshold");
+const executionQuantityLabel = document.querySelector("#execution-quantity-label");
+const executionQuantity = document.querySelector("#execution-quantity");
+const executionCooldownSecondsLabel = document.querySelector("#execution-cooldown-seconds-label");
+const executionCooldownSeconds = document.querySelector("#execution-cooldown-seconds");
+const executionMaxPositionSizeLabel = document.querySelector("#execution-max-position-size-label");
+const executionMaxPositionSize = document.querySelector("#execution-max-position-size");
+const executionMaxDailyLossLabel = document.querySelector("#execution-max-daily-loss-label");
+const executionMaxDailyLoss = document.querySelector("#execution-max-daily-loss");
+const executionMaxOpenPositionsLabel = document.querySelector("#execution-max-open-positions-label");
+const executionMaxOpenPositions = document.querySelector("#execution-max-open-positions");
+const executionMaxTradeQuantityLabel = document.querySelector("#execution-max-trade-quantity-label");
+const executionMaxTradeQuantity = document.querySelector("#execution-max-trade-quantity");
+const executionMaxPositionQuantityLabel = document.querySelector("#execution-max-position-quantity-label");
+const executionMaxPositionQuantity = document.querySelector("#execution-max-position-quantity");
+const executionStopLossPercentLabel = document.querySelector("#execution-stop-loss-percent-label");
+const executionStopLossPercent = document.querySelector("#execution-stop-loss-percent");
+const executionSettingsSubmit = document.querySelector("#execution-settings-submit");
+const executionSettingsMessageEl = document.querySelector("#execution-settings-message");
 const strategyParametersHeading = document.querySelector("#strategy-parameters-heading");
 const strategyParametersContent = document.querySelector("#strategy-parameters-content");
 const editStrategyParameters = document.querySelector("#edit-strategy-parameters");
@@ -802,6 +873,25 @@ function applyStaticTranslations() {
   selectedLastRunLabel.textContent = t("selected_last_run_label");
   botSettingsHeading.textContent = t("bot_settings");
   botSettingsPanel?.setAttribute("aria-label", t("bot_settings_aria"));
+  executionSettingsHeading.textContent = t("execution_settings");
+  executionSettingsPanel?.setAttribute("aria-label", t("execution_settings_aria"));
+  executionSettingsForm.setAttribute("aria-label", t("create_execution_settings_aria"));
+  executionSettingsHelp.textContent = t("execution_settings_help");
+  executionExchangeLabel.textContent = t("exchange");
+  executionIsPaperLabel.textContent = t("paper_mode");
+  executionBuyThresholdLabel.textContent = t("buy_threshold_label");
+  executionSellThresholdLabel.textContent = t("sell_threshold_label");
+  executionQuantityLabel.textContent = t("quantity");
+  executionCooldownSecondsLabel.textContent = t("cooldown_seconds_label");
+  executionMaxPositionSizeLabel.textContent = t("max_position_size_usd_label");
+  executionMaxDailyLossLabel.textContent = t("max_daily_loss_usd_label");
+  executionMaxOpenPositionsLabel.textContent = t("max_open_positions_label");
+  executionMaxTradeQuantityLabel.textContent = t("max_trade_quantity_label");
+  executionMaxPositionQuantityLabel.textContent = t("max_position_quantity_label");
+  executionStopLossPercentLabel.textContent = t("stop_loss_percent_label");
+  executionSettingsSubmit.textContent = isCreatingExecutionProfile
+    ? t("creating_execution_settings")
+    : t("create_execution_settings");
   strategyParametersHeading.textContent = t("strategy_parameters");
   editStrategyParameters.textContent = t("edit_strategy_parameters");
   editStrategyParameters.setAttribute("aria-label", t("edit_strategy_parameters_aria"));
@@ -1071,8 +1161,13 @@ function shouldPause(status) {
 }
 
 function pauseResumeLabel(status) {
-  if (status === "draft") return t("pause_resume");
+  if (status === "draft") return t("activate_bot");
   return shouldPause(status) ? t("pause") : t("resume");
+}
+
+function pauseResumeLoadingLabel(status) {
+  if (status === "draft") return t("activating_bot");
+  return `${pauseResumeLabel(status)}…`;
 }
 
 function isRunnableStatus(status) {
@@ -1405,6 +1500,105 @@ function riskSettingsPayload() {
   };
 }
 
+function populateExecutionSettingsForm() {
+  executionExchangeName.value = selectedBotConfig?.exchangeName || "binance";
+  executionIsPaper.checked = selectedBotConfig?.isPaper !== false;
+  executionBuyThreshold.value = executionBuyThreshold.value || "100000";
+  executionSellThreshold.value = executionSellThreshold.value || "200000";
+  executionQuantity.value = executionQuantity.value || "0.001";
+  executionCooldownSeconds.value = executionCooldownSeconds.value || "60";
+  executionMaxPositionSize.value = executionMaxPositionSize.value || "100000";
+  executionMaxDailyLoss.value = executionMaxDailyLoss.value || "10000";
+  executionMaxOpenPositions.value = executionMaxOpenPositions.value || "1";
+  executionMaxTradeQuantity.value = executionMaxTradeQuantity.value || "";
+  executionMaxPositionQuantity.value = executionMaxPositionQuantity.value || "";
+  executionStopLossPercent.value = executionStopLossPercent.value || "";
+}
+
+function resetExecutionSettingsForm() {
+  [
+    executionExchangeName,
+    executionBuyThreshold,
+    executionSellThreshold,
+    executionQuantity,
+    executionCooldownSeconds,
+    executionMaxPositionSize,
+    executionMaxDailyLoss,
+    executionMaxOpenPositions,
+    executionMaxTradeQuantity,
+    executionMaxPositionQuantity,
+    executionStopLossPercent,
+  ].forEach((input) => {
+    input.value = "";
+  });
+  executionIsPaper.checked = true;
+}
+
+function validateExecutionSettingsForm() {
+  if (!selectedBotId) return t("select_bot_to_view_details");
+  if (!executionExchangeName.value.trim()) return t("enter_exchange_name");
+
+  const requiredNumbers = [
+    executionBuyThreshold.value.trim(),
+    executionSellThreshold.value.trim(),
+    executionQuantity.value.trim(),
+    executionMaxPositionSize.value.trim(),
+    executionMaxDailyLoss.value.trim(),
+  ];
+  if (requiredNumbers.some((value) => !value) || !executionCooldownSeconds.value.trim() || !executionMaxOpenPositions.value.trim()) {
+    return t("execution_settings_required_fields");
+  }
+  if (requiredNumbers.some((value) => parsePositiveParameter(value) === null)) {
+    return t("execution_settings_positive_numbers");
+  }
+  if (
+    parsePositiveIntegerParameter(executionCooldownSeconds.value) === null ||
+    parsePositiveIntegerParameter(executionMaxOpenPositions.value) === null
+  ) {
+    return t("execution_settings_positive_integers");
+  }
+
+  const optionalRiskValues = [
+    executionMaxTradeQuantity.value.trim(),
+    executionMaxPositionQuantity.value.trim(),
+    executionStopLossPercent.value.trim(),
+  ];
+  if (optionalRiskValues.some((value) => value && parsePositiveParameter(value) === null)) {
+    return t("risk_settings_must_be_positive");
+  }
+  return "";
+}
+
+function executionProfilePayload() {
+  return {
+    max_position_size_usd: executionMaxPositionSize.value.trim(),
+    max_daily_loss_usd: executionMaxDailyLoss.value.trim(),
+    max_open_positions: parsePositiveIntegerParameter(executionMaxOpenPositions.value),
+    strategy_type: "price_threshold",
+    entry_below: executionBuyThreshold.value.trim(),
+    exit_above: executionSellThreshold.value.trim(),
+    order_quantity: executionQuantity.value.trim(),
+    cooldown_seconds: parsePositiveIntegerParameter(executionCooldownSeconds.value),
+    default_order_type: "market",
+    is_enabled: true,
+    max_trade_quantity: executionMaxTradeQuantity.value.trim() || null,
+    max_position_quantity: executionMaxPositionQuantity.value.trim() || null,
+    stop_loss_percent: executionStopLossPercent.value.trim() || null,
+  };
+}
+
+function executionBotUpdatePayload() {
+  const payload = {};
+  const exchangeName = executionExchangeName.value.trim();
+  if (exchangeName && exchangeName !== selectedBotConfig?.exchangeName) {
+    payload.exchange_name = exchangeName;
+  }
+  if (executionIsPaper.checked !== selectedBotConfig?.isPaper) {
+    payload.is_paper = executionIsPaper.checked;
+  }
+  return payload;
+}
+
 function renderStrategyParametersForm() {
   const hasStrategyDetails = Boolean(selectedBotId && selectedSummary && strategyIdForSelectedBot());
   const canEditParameters = hasStrategyDetails && canEditSelectedStrategyParameters();
@@ -1455,6 +1649,7 @@ function renderStrategyParametersForm() {
 
 function renderRiskSettingsForm() {
   const hasProfile = Boolean(selectedBotId && selectedExecutionProfile);
+  riskSettingsPanel.hidden = !hasProfile;
   const shouldDisable =
     !hasProfile ||
     isLoadingSummary ||
@@ -1484,6 +1679,47 @@ function renderRiskSettingsForm() {
   riskSettingsMessageEl.textContent = visibleMessage;
   riskSettingsMessageEl.className = visibleMessageType
     ? `form-message ${visibleMessageType}`
+    : "form-message";
+}
+
+function renderExecutionSettingsForm() {
+  const shouldShow = Boolean(selectedBotId && !selectedExecutionProfile && !isLoadingSummary);
+  executionSettingsPanel.hidden = !shouldShow;
+  if (!shouldShow) {
+    executionSettingsMessageEl.textContent = "";
+    executionSettingsMessageEl.className = "form-message";
+    return;
+  }
+
+  if (!isCreatingExecutionProfile && !executionSettingsMessageType) {
+    populateExecutionSettingsForm();
+  }
+
+  const shouldDisable = isCreatingExecutionProfile || isRunningNow || isTogglingPause;
+  [
+    executionExchangeName,
+    executionIsPaper,
+    executionBuyThreshold,
+    executionSellThreshold,
+    executionQuantity,
+    executionCooldownSeconds,
+    executionMaxPositionSize,
+    executionMaxDailyLoss,
+    executionMaxOpenPositions,
+    executionMaxTradeQuantity,
+    executionMaxPositionQuantity,
+    executionStopLossPercent,
+  ].forEach((input) => {
+    input.disabled = shouldDisable;
+  });
+
+  executionSettingsSubmit.textContent = isCreatingExecutionProfile
+    ? t("creating_execution_settings")
+    : t("create_execution_settings");
+  executionSettingsSubmit.disabled = shouldDisable;
+  executionSettingsMessageEl.textContent = executionSettingsMessage;
+  executionSettingsMessageEl.className = executionSettingsMessageType
+    ? `form-message ${executionSettingsMessageType}`
     : "form-message";
 }
 
@@ -1858,6 +2094,9 @@ function actionHelpText(bot) {
   }
 
   if (bot.status === "draft") {
+    if (!selectedExecutionProfile && !isLoadingSummary) {
+      return t("execution_settings_required_to_activate");
+    }
     return t("activate_draft_before_running");
   }
 
@@ -2231,6 +2470,9 @@ function clearSelectedBotMessages() {
   actionMessageType = "";
   editBotMessage = "";
   editBotMessageType = "";
+  executionSettingsMessage = "";
+  executionSettingsMessageType = "";
+  resetExecutionSettingsForm();
   latestDecisionExplanation = null;
   strategyParametersMessage = "";
   strategyParametersMessageType = "";
@@ -2257,6 +2499,7 @@ function hasInFlightAction() {
     isCreatingBot ||
     isLoadingEditBot ||
     isSavingEditBot ||
+    isCreatingExecutionProfile ||
     isSavingStrategyParameters ||
     isSavingRiskSettings ||
     isRunningBacktest
@@ -2412,7 +2655,15 @@ async function togglePauseResume() {
   const bot = selectedSummary || bots.find((item) => botIdsEqual(item.id, selectedBotId));
   if (!bot || isTogglingPause) return;
 
-  const action = shouldPause(bot.status) ? "pause" : "resume";
+  if (bot.status === "draft" && !selectedExecutionProfile) {
+    actionMessage = t("execution_settings_required_to_activate");
+    actionMessageType = "note";
+    render();
+    return;
+  }
+
+  const action = bot.status === "draft" || !shouldPause(bot.status) ? "resume" : "pause";
+  hasUserSelectedBot = true;
   isTogglingPause = true;
   actionMessage = "";
   actionMessageType = "";
@@ -2424,7 +2675,11 @@ async function togglePauseResume() {
   } catch (error) {
     actionMessage = requestErrorMessage(
       error,
-      action === "pause" ? t("could_not_pause_bot") : t("could_not_resume_bot"),
+      bot.status === "draft"
+        ? t("could_not_activate_bot")
+        : action === "pause"
+          ? t("could_not_pause_bot")
+          : t("could_not_resume_bot"),
     );
     actionMessageType = "error";
   } finally {
@@ -2668,17 +2923,17 @@ async function submitEditBot(event) {
     return;
   }
 
-  isSavingEditBot = true;
-  editBotMessage = "";
-  editBotMessageType = "";
-  render();
-
   const payload = {
     name: editBotName.value.trim(),
     strategy_id: Number(editBotStrategyId.value.trim()),
     exchange_name: editBotExchangeName.value.trim(),
     notes: editBotNotes.value.trim() || null,
   };
+
+  isSavingEditBot = true;
+  editBotMessage = "";
+  editBotMessageType = "";
+  render();
 
   try {
     const updatedBot = await fetchJson(`/api/v1/bots/${selectedBotId}`, {
@@ -2697,6 +2952,53 @@ async function submitEditBot(event) {
     render();
   } finally {
     isSavingEditBot = false;
+    render();
+  }
+}
+
+async function submitExecutionSettings(event) {
+  event.preventDefault();
+  if (!selectedBotId || selectedExecutionProfile || isCreatingExecutionProfile) return;
+
+  const validationError = validateExecutionSettingsForm();
+  if (validationError) {
+    executionSettingsMessage = validationError;
+    executionSettingsMessageType = "error";
+    render();
+    return;
+  }
+
+  isCreatingExecutionProfile = true;
+  executionSettingsMessage = "";
+  executionSettingsMessageType = "";
+  hasUserSelectedBot = true;
+  render();
+
+  try {
+    const botUpdatePayload = executionBotUpdatePayload();
+    if (Object.keys(botUpdatePayload).length > 0) {
+      const updatedBot = await fetchJson(`/api/v1/bots/${selectedBotId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(botUpdatePayload),
+      });
+      selectedBotConfig = normalizeBotConfig(updatedBot);
+    }
+
+    const createdProfile = await fetchJson(`/api/v1/bots/${selectedBotId}/execution-profile`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(executionProfilePayload()),
+    });
+    selectedExecutionProfile = normalizeExecutionProfile(createdProfile);
+    actionMessage = t("execution_settings_created");
+    actionMessageType = "success";
+    await refreshSelectedData();
+  } catch (error) {
+    executionSettingsMessage = requestErrorMessage(error, t("execution_settings_create_failed"));
+    executionSettingsMessageType = "error";
+  } finally {
+    isCreatingExecutionProfile = false;
     render();
   }
 }
@@ -3058,7 +3360,9 @@ function renderEditBotForm() {
   editBotMode.textContent = selectedBotConfig?.isPaper === false ? t("live_mode") : t("paper_mode");
   editBotCancel.textContent = t("cancel");
 
-  renderStrategySelect(editBotStrategyId, selectedBotConfig?.strategyId ?? editBotStrategyId.value);
+  if (!isSavingEditBot) {
+    renderStrategySelect(editBotStrategyId, selectedBotConfig?.strategyId ?? editBotStrategyId.value);
+  }
 
   editBotStrategyHelp.textContent = isLoadingStrategies
     ? t("loading_available_strategies")
@@ -3247,7 +3551,7 @@ function renderSummary() {
   const bot = selectedSummary || listBot;
   const botMode = modeLabel(selectedBotConfig?.isPaper);
   const canRunNow = Boolean(selectedBotId && bot && isRunnableStatus(bot.status) && !bot.isPaused);
-  const canPauseResume = Boolean(selectedBotId && bot && !["draft"].includes(bot.status));
+  const canUseLifecycleControl = Boolean(selectedBotId && bot);
   const binanceSymbol = selectedBotSymbol();
   const binanceHelpMessage = !selectedBotId
     ? t("select_bot_for_binance_price")
@@ -3272,6 +3576,7 @@ function renderSummary() {
     selectedPrice.textContent = "—";
     selectedLastRun.textContent = bots.length === 0 ? t("no_bot_activity_yet") : "—";
     renderBotSettings(null);
+    renderExecutionSettingsForm();
     renderStrategyParameters(null);
     renderRiskSettingsForm();
     pauseResume.textContent = t("pause");
@@ -3312,17 +3617,24 @@ function renderSummary() {
   selectedPrice.textContent = formatDecimal(bot.lastPrice);
   selectedLastRun.textContent = formatDateTime(bot.updatedAt);
   renderBotSettings(bot);
+  renderExecutionSettingsForm();
   renderStrategyParameters(bot);
   renderRiskSettingsForm();
   pauseResume.textContent = isTogglingPause
-    ? `${pauseResumeLabel(bot.status)}…`
+    ? pauseResumeLoadingLabel(bot.status)
     : pauseResumeLabel(bot.status);
-  pauseResume.disabled = !canPauseResume || isTogglingPause || isLoadingSummary || isRunningNow;
+  pauseResume.disabled = !canUseLifecycleControl || isTogglingPause || isLoadingSummary || isRunningNow || isCreatingExecutionProfile;
   runNow.textContent = isRunningNow ? t("running_now") : t("run_now");
-  runNow.disabled = !canRunNow || isRunningNow || isLoadingSummary || isTogglingPause;
+  runNow.disabled = !canRunNow || isRunningNow || isLoadingSummary || isTogglingPause || isCreatingExecutionProfile;
   editBot.textContent = isLoadingEditBot ? t("loading_generic") : t("edit");
   editBot.disabled =
-    !selectedBotId || isLoadingSummary || isLoadingEditBot || isSavingEditBot || isRunningNow || isTogglingPause;
+    !selectedBotId ||
+    isLoadingSummary ||
+    isLoadingEditBot ||
+    isSavingEditBot ||
+    isRunningNow ||
+    isTogglingPause ||
+    isCreatingExecutionProfile;
   actionHelp.textContent = actionHelpText(bot);
   if (!symbolTouched) {
     priceSymbol.value = formatValue(bot.symbol, "");
@@ -3502,6 +3814,7 @@ editStrategyParameters.addEventListener("click", openStrategyParametersForm);
 strategyParametersCancel.addEventListener("click", closeStrategyParametersForm);
 createBotForm.addEventListener("submit", submitCreateBot);
 editBotForm.addEventListener("submit", submitEditBot);
+executionSettingsForm.addEventListener("submit", submitExecutionSettings);
 strategyParametersForm.addEventListener("submit", submitStrategyParameters);
 riskSettingsForm.addEventListener("submit", submitRiskSettings);
 backtestForm.addEventListener("submit", submitBacktest);

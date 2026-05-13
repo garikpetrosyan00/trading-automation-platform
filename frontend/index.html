@@ -4,7 +4,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Dashboard</title>
-    <link rel="stylesheet" href="/static/styles.css?v=risk-settings" />
+    <link rel="stylesheet" href="/static/styles.css?v=execution-settings-setup" />
   </head>
   <body>
     <main class="dashboard-shell">
@@ -186,6 +186,69 @@
             </div>
           </section>
 
+          <section class="execution-settings-panel" aria-label="Execution settings" hidden>
+            <div class="panel-heading compact-heading">
+              <h2 id="execution-settings-heading">Execution Settings</h2>
+            </div>
+            <p id="execution-settings-help" class="execution-settings-help">
+              Create execution settings before activating this draft bot.
+            </p>
+            <form id="execution-settings-form" class="execution-settings-form" aria-label="Create execution settings">
+              <label>
+                <span id="execution-exchange-label">Exchange</span>
+                <input id="execution-exchange-name" name="exchange_name" autocomplete="off" />
+              </label>
+              <label class="checkbox-field">
+                <input id="execution-is-paper" name="is_paper" type="checkbox" />
+                <span id="execution-is-paper-label">Paper mode</span>
+              </label>
+              <label>
+                <span id="execution-buy-threshold-label">Buy threshold</span>
+                <input id="execution-buy-threshold" name="buy_threshold" inputmode="decimal" autocomplete="off" />
+              </label>
+              <label>
+                <span id="execution-sell-threshold-label">Sell threshold</span>
+                <input id="execution-sell-threshold" name="sell_threshold" inputmode="decimal" autocomplete="off" />
+              </label>
+              <label>
+                <span id="execution-quantity-label">Quantity</span>
+                <input id="execution-quantity" name="quantity" inputmode="decimal" autocomplete="off" />
+              </label>
+              <label>
+                <span id="execution-cooldown-seconds-label">Cooldown seconds</span>
+                <input id="execution-cooldown-seconds" name="cooldown_seconds" inputmode="numeric" autocomplete="off" />
+              </label>
+              <label>
+                <span id="execution-max-position-size-label">Max position size USD</span>
+                <input id="execution-max-position-size" name="max_position_size_usd" inputmode="decimal" autocomplete="off" />
+              </label>
+              <label>
+                <span id="execution-max-daily-loss-label">Max daily loss USD</span>
+                <input id="execution-max-daily-loss" name="max_daily_loss_usd" inputmode="decimal" autocomplete="off" />
+              </label>
+              <label>
+                <span id="execution-max-open-positions-label">Max open positions</span>
+                <input id="execution-max-open-positions" name="max_open_positions" inputmode="numeric" autocomplete="off" />
+              </label>
+              <label>
+                <span id="execution-max-trade-quantity-label">Max trade quantity</span>
+                <input id="execution-max-trade-quantity" name="max_trade_quantity" inputmode="decimal" autocomplete="off" />
+              </label>
+              <label>
+                <span id="execution-max-position-quantity-label">Max position quantity</span>
+                <input id="execution-max-position-quantity" name="max_position_quantity" inputmode="decimal" autocomplete="off" />
+              </label>
+              <label>
+                <span id="execution-stop-loss-percent-label">Stop loss %</span>
+                <input id="execution-stop-loss-percent" name="stop_loss_percent" inputmode="decimal" autocomplete="off" />
+              </label>
+              <div class="execution-settings-actions">
+                <button id="execution-settings-submit" type="submit">Create execution settings</button>
+                <span id="execution-settings-message" class="form-message" role="status"></span>
+              </div>
+            </form>
+          </section>
+
           <section class="strategy-parameters-panel" aria-label="Strategy parameters">
             <div class="panel-heading compact-heading">
               <h2 id="strategy-parameters-heading">Strategy Parameters</h2>
@@ -297,6 +360,6 @@
       </section>
     </main>
 
-    <script src="/static/app.js?v=risk-settings"></script>
+    <script src="/static/app.js?v=execution-settings-setup"></script>
   </body>
 </html>

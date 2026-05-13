@@ -745,6 +745,7 @@ dd {
 }
 
 .bot-settings-panel,
+.execution-settings-panel,
 .strategy-parameters-panel,
 .risk-settings-panel,
 .backtest-panel {
@@ -853,6 +854,45 @@ dd {
 
 .strategy-parameters-panel > .form-message {
   margin-top: 8px;
+}
+
+.execution-settings-help {
+  margin: -2px 0 10px;
+  color: var(--muted);
+  font-size: 0.84rem;
+  font-weight: 800;
+}
+
+.execution-settings-form {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fbfcfa;
+  padding: 14px;
+}
+
+.checkbox-field {
+  align-content: end;
+  min-height: 66px;
+}
+
+.checkbox-field input {
+  width: auto;
+}
+
+.checkbox-field span {
+  display: inline;
+  margin-left: 6px;
+}
+
+.execution-settings-actions {
+  grid-column: 1 / -1;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
 }
 
 .risk-settings-help {
@@ -1277,6 +1317,7 @@ dd {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
+  .execution-settings-form,
   .strategy-parameters-form,
   .risk-settings-form,
   .backtest-form {
@@ -1317,6 +1358,7 @@ dd {
   .decision-grid,
   .bot-settings-grid,
   .strategy-parameters-grid,
+  .execution-settings-form,
   .strategy-parameters-form,
   .risk-settings-form,
   .backtest-result-grid,
