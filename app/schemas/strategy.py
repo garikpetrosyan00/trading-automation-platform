@@ -2,12 +2,24 @@ from datetime import datetime
 from decimal import Decimal, InvalidOperation
 from typing import Annotated, Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, StringConstraints, model_validator
+from pydantic import AfterValidator, BaseModel, ConfigDict, Field, StringConstraints, model_validator
 
 NonEmptyStr = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1)]
+PLACEHOLDER_STRING = "string"
+PlaceholderSafeStr = Annotated[
+    str,
+    StringConstraints(strip_whitespace=True, min_length=1),
+    AfterValidator(lambda value: reject_placeholder_string(value)),
+]
 StrategyType = Literal["price_threshold", "moving_average_cross"]
 PRICE_THRESHOLD_PARAMETER_KEYS = ("buy_below", "sell_above", "quantity")
 MOVING_AVERAGE_CROSS_PARAMETER_KEYS = ("short_window", "long_window", "quantity")
+
+
+def reject_placeholder_string(value: str) -> str:
+    if value.strip().lower() == PLACEHOLDER_STRING:
+        raise ValueError("must not be the placeholder value 'string'")
+    return value
 
 
 def validate_price_threshold_parameters(parameters: dict[str, Any] | None) -> dict[str, Any] | None:
@@ -85,10 +97,10 @@ def validate_moving_average_cross_parameters(parameters: dict[str, Any] | None) 
 
 
 class StrategyBase(BaseModel):
-    name: NonEmptyStr
+    name: PlaceholderSafeStr
     description: str | None = None
-    symbol: NonEmptyStr
-    timeframe: NonEmptyStr
+    symbol: PlaceholderSafeStr
+    timeframe: PlaceholderSafeStr
     strategy_type: StrategyType = "price_threshold"
     parameters: dict[str, Any] = Field(default_factory=dict)
     is_active: bool = True
@@ -107,10 +119,10 @@ class StrategyCreate(StrategyBase):
 
 
 class StrategyUpdate(BaseModel):
-    name: NonEmptyStr | None = None
+    name: PlaceholderSafeStr | None = None
     description: str | None = None
-    symbol: NonEmptyStr | None = None
-    timeframe: NonEmptyStr | None = None
+    symbol: PlaceholderSafeStr | None = None
+    timeframe: PlaceholderSafeStr | None = None
     strategy_type: StrategyType | None = None
     parameters: dict[str, Any] | None = None
     is_active: bool | None = None

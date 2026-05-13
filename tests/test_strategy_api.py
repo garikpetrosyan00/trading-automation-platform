@@ -120,6 +120,30 @@ def test_create_strategy_with_unsupported_strategy_type_fails_cleanly(
     assert response.json()["detail"] == "Request validation failed"
 
 
+def test_create_strategy_rejects_openapi_placeholder_display_fields(
+    stub_market_data_service,
+    bot_runner_factory,
+    configure_app_state,
+) -> None:
+    configure_app_state(
+        market_data_service=stub_market_data_service,
+        bot_runner=bot_runner_factory(),
+    )
+
+    with TestClient(app) as client:
+        response = client.post(
+            "/api/v1/strategies",
+            json={
+                "name": "string",
+                "symbol": "string",
+                "timeframe": "string",
+            },
+        )
+
+    assert response.status_code == 422
+    assert response.json()["detail"] == "Request validation failed"
+
+
 def test_create_moving_average_cross_strategy_with_valid_parameters_succeeds(
     stub_market_data_service,
     bot_runner_factory,

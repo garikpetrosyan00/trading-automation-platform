@@ -97,6 +97,36 @@ def test_create_bot_with_invalid_payload_returns_validation_error(
     assert any(item["loc"][-1] == "name" for item in payload["errors"])
 
 
+def test_create_bot_rejects_openapi_placeholder_display_fields(
+    db_session_factory,
+    stub_market_data_service,
+    bot_runner_factory,
+    configure_app_state,
+) -> None:
+    with db_session_factory() as session:
+        strategy_id = create_strategy(session).id
+
+    configure_app_state(
+        market_data_service=stub_market_data_service,
+        bot_runner=bot_runner_factory(),
+    )
+
+    with TestClient(app) as client:
+        response = client.post(
+            "/api/v1/bots",
+            json={
+                "name": "string",
+                "strategy_id": strategy_id,
+                "exchange_name": "string",
+                "status": "draft",
+                "is_paper": True,
+            },
+        )
+
+    assert response.status_code == 422
+    assert response.json()["detail"] == "Request validation failed"
+
+
 def test_update_bot_basic_fields_returns_updated_bot(
     db_session_factory,
     stub_market_data_service,
