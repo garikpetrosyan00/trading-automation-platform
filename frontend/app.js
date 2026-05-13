@@ -214,6 +214,8 @@ const translations = {
     fetched_binance_price: "Fetched {symbol} from Binance: {price}",
     select_bot_for_binance_price: "Select a Bot to fetch its Binance price.",
     missing_symbol_for_binance_price: "Selected Bot has no symbol.",
+    binance_symbol_not_found:
+      "Binance could not fetch data for this symbol. Use a valid symbol like BTCUSDT, or use Set price for local testing.",
     could_not_fetch_binance_price: "Could not fetch Binance price.",
     updating: "Updating…",
     price: "Price",
@@ -508,6 +510,8 @@ const translations = {
     fetched_binance_price: "Բեռնվեց {symbol}-ի Binance գինը՝ {price}",
     select_bot_for_binance_price: "Ընտրիր Bot՝ Binance գինը բեռնելու համար։",
     missing_symbol_for_binance_price: "Ընտրված Bot-ը symbol չունի։",
+    binance_symbol_not_found:
+      "Binance-ը չկարողացավ տվյալներ գտնել այս symbol-ի համար։ Օգտագործիր վավեր symbol, օրինակ՝ BTCUSDT, կամ local testing-ի համար օգտագործիր Set price։",
     could_not_fetch_binance_price: "Չհաջողվեց բեռնել Binance գինը։",
     updating: "Թարմացվում է…",
     price: "Գին",
@@ -2733,6 +2737,14 @@ function editBotValidationMessage(error) {
   return requestErrorMessage(error, t("could_not_update_bot"));
 }
 
+function binancePriceErrorMessage(error) {
+  const message = String(error?.message || "");
+  if (error?.status === 400 || message.includes("status 400")) {
+    return t("binance_symbol_not_found");
+  }
+  return requestErrorMessage(error, t("could_not_fetch_binance_price"));
+}
+
 function validateCreateBotForm() {
   if (!createBotName.value.trim()) {
     return t("enter_bot_name");
@@ -3204,7 +3216,7 @@ async function fetchBinancePriceForSelectedBot() {
       await refreshSelectedData();
     }
   } catch (error) {
-    priceMessage = requestErrorMessage(error, t("could_not_fetch_binance_price"));
+    priceMessage = binancePriceErrorMessage(error);
     priceMessageType = "error";
   } finally {
     isFetchingBinancePrice = false;
