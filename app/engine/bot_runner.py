@@ -9,6 +9,7 @@ from decimal import Decimal
 from app.core.errors import NotFoundError
 from app.core.logging import get_logger
 from app.data.schemas import MarketEvent
+from app.engine.risk import RISK_REASON_STOP_LOSS_TRIGGERED, RiskLimits, RiskManager
 from app.engine.strategy_engine import (
     MOVING_AVERAGE_CROSS_STRATEGY_TYPE,
     PRICE_THRESHOLD_STRATEGY_TYPE,
@@ -48,11 +49,20 @@ class RunnerConfig:
 
 
 class BotRunner:
-    def __init__(self, session_factory, market_data_service, config: RunnerConfig, now_provider=None):
+    def __init__(
+        self,
+        session_factory,
+        market_data_service,
+        config: RunnerConfig,
+        now_provider=None,
+        risk_manager: RiskManager | None = None,
+    ):
         self.session_factory = session_factory
         self.market_data_service = market_data_service
         self.config = config
         self.now_provider = now_provider or (lambda: datetime.now(timezone.utc))
+        self.risk_manager = risk_manager or RiskManager()
+        self._risk_manager_override = risk_manager is not None
         self._task: asyncio.Task[None] | None = None
         self._cycle_lock = asyncio.Lock()
 
@@ -425,7 +435,47 @@ class BotRunner:
                 db.commit()
             return
 
-        if decision.action == "skip":
+        risk_manager = self.risk_manager
+        if not self._risk_manager_override:
+            risk_manager = RiskManager(RiskLimits.from_profile(profile))
+        risk_quantity = position_quantity if decision.action == "sell" else decision.metadata.get("_order_quantity")
+        risk_decision = risk_manager.evaluate(
+            action=decision.action,
+            quantity=risk_quantity,
+            current_position_quantity=position_quantity,
+            entry_price=position.average_entry_price if position is not None else None,
+            current_price=decision.current_price if decision.current_price is not None else latest_price,
+        )
+        if not risk_decision.allowed:
+            self._record_event(
+                db,
+                bot_run.id,
+                event_type="system",
+                level="warning",
+                message="risk_limit_blocked",
+                payload={
+                    **decision_payload,
+                    "symbol": strategy.symbol,
+                    "reason": risk_decision.reason,
+                    "detail": risk_decision.reason,
+                    "decision": "skipped",
+                    "risk": risk_decision.details,
+                },
+            )
+            db.commit()
+            return
+
+        execution_action = risk_decision.action
+        if risk_decision.reason == RISK_REASON_STOP_LOSS_TRIGGERED:
+            decision_payload = {
+                **decision_payload,
+                "decision": "sell",
+                "reason": risk_decision.reason,
+                "detail": risk_decision.reason,
+                "risk": risk_decision.details,
+            }
+
+        if execution_action == "skip":
             if record_noop_events:
                 self._record_event(
                     db,
@@ -438,7 +488,7 @@ class BotRunner:
                 db.commit()
             return
 
-        if decision.action == "hold":
+        if execution_action == "hold":
             if record_noop_events:
                 self._record_event(
                     db,
@@ -452,6 +502,9 @@ class BotRunner:
             return
 
         quantity = decision.metadata.get("_order_quantity")
+        if execution_action == "sell":
+            quantity = position_quantity
+
         if quantity is None:
             detail = "strategy quantity is missing"
             if strategy_type == PRICE_THRESHOLD_STRATEGY_TYPE:
@@ -474,15 +527,12 @@ class BotRunner:
                 db.commit()
             return
 
-        if decision.action == "sell":
-            quantity = position_quantity
-
         self._record_event(
             db,
             bot_run.id,
             event_type="system",
             level="info",
-            message=f"{decision.action}_signal",
+            message=f"{execution_action}_signal",
             payload={
                 "symbol": strategy.symbol,
                 "quantity": str(quantity),
@@ -498,7 +548,7 @@ class BotRunner:
                 event_type="system",
                 level="warning",
                 message="live_mode_not_implemented",
-                payload={"side": decision.action, "symbol": strategy.symbol, "quantity": str(quantity), **decision_payload},
+                payload={"side": execution_action, "symbol": strategy.symbol, "quantity": str(quantity), **decision_payload},
             )
             db.commit()
             return
@@ -511,7 +561,7 @@ class BotRunner:
             slippage_bps=self.config.simulation_slippage_bps,
         )
         result = execution_service.submit_market_order(
-            MarketOrderRequest(symbol=strategy.symbol, side=decision.action, quantity=quantity)
+            MarketOrderRequest(symbol=strategy.symbol, side=execution_action, quantity=quantity)
         )
 
         self._record_event(
@@ -521,7 +571,7 @@ class BotRunner:
             level="info" if result.accepted else "warning",
             message="order_filled" if result.accepted else "order_rejected",
             payload={
-                "side": decision.action,
+                "side": execution_action,
                 "symbol": strategy.symbol,
                 "message": result.message,
                 "order_id": result.order.id,

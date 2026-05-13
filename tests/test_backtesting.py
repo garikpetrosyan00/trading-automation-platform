@@ -277,6 +277,33 @@ def test_backtest_price_threshold_behavior_is_preserved(db_session) -> None:
     assert result.profit_factor is None
 
 
+def test_backtest_uses_profile_stop_loss_risk_limit(db_session) -> None:
+    add_candles(db_session, closes=["10", "9"])
+    profile = SimpleNamespace(
+        entry_below=None,
+        exit_above=None,
+        order_quantity=None,
+        stop_loss_percent=Decimal("5"),
+    )
+
+    result = run_backtest(
+        db_session,
+        price_threshold_strategy(sell_above="19"),
+        initial_balance="100",
+    )
+    stop_loss_result = BacktestingEngine(MarketCandleRepository(db_session)).run(
+        strategy=price_threshold_strategy(sell_above="19"),
+        initial_balance=Decimal("100"),
+        profile=profile,
+    )
+
+    assert result.number_of_trades == 1
+    assert result.open_position is True
+    assert [trade.side for trade in stop_loss_result.trades] == ["buy", "sell"]
+    assert stop_loss_result.open_position is False
+    assert stop_loss_result.trades[1].decision_reason == "stop_loss_triggered"
+
+
 def test_backtest_performance_metrics_support_mixed_wins_and_losses() -> None:
     now = datetime(2026, 4, 28, 12, 0, tzinfo=timezone.utc)
     trades = [

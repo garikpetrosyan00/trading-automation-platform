@@ -41,6 +41,9 @@ class ExecutionProfile(Base):
     entry_below: Mapped[Decimal | None] = mapped_column(Numeric(18, 8), nullable=True)
     exit_above: Mapped[Decimal | None] = mapped_column(Numeric(18, 8), nullable=True)
     order_quantity: Mapped[Decimal | None] = mapped_column(Numeric(18, 8), nullable=True)
+    max_trade_quantity: Mapped[Decimal | None] = mapped_column(Numeric(18, 8), nullable=True)
+    max_position_quantity: Mapped[Decimal | None] = mapped_column(Numeric(18, 8), nullable=True)
+    stop_loss_percent: Mapped[Decimal | None] = mapped_column(Numeric(18, 8), nullable=True)
     cooldown_seconds: Mapped[int] = mapped_column(nullable=False, default=60, server_default="60")
     default_order_type: Mapped[str] = mapped_column(
         String(20),

@@ -6,6 +6,7 @@ from decimal import Decimal
 from types import SimpleNamespace
 from typing import Any
 
+from app.engine.risk import RISK_REASON_STOP_LOSS_TRIGGERED, RiskLimits, RiskManager
 from app.engine.strategy_engine import StrategyDecision, StrategyEngine
 from app.repositories.market_candle import MarketCandleRepository
 
@@ -61,8 +62,9 @@ class BacktestResult:
 
 
 class BacktestingEngine:
-    def __init__(self, market_candle_repository: MarketCandleRepository):
+    def __init__(self, market_candle_repository: MarketCandleRepository, risk_manager: RiskManager | None = None):
         self.market_candle_repository = market_candle_repository
+        self.risk_manager = risk_manager
 
     def run(
         self,
@@ -93,6 +95,7 @@ class BacktestingEngine:
         trades: list[BacktestTrade] = []
         decisions: list[StrategyDecision] = []
         strategy_profile = profile or SimpleNamespace(entry_below=None, exit_above=None, order_quantity=None)
+        risk_manager = self.risk_manager or RiskManager(RiskLimits.from_profile(strategy_profile))
 
         for index, candle in enumerate(candles):
             visible_candles = candles[: index + 1]
@@ -106,7 +109,23 @@ class BacktestingEngine:
             )
             decisions.append(decision)
 
-            if decision.decision == "buy" and position_quantity <= ZERO:
+            risk_quantity = position_quantity if decision.decision == "sell" else decision.metadata.get("_order_quantity")
+            risk_decision = risk_manager.evaluate(
+                action=decision.decision,
+                quantity=risk_quantity,
+                current_position_quantity=position_quantity,
+                entry_price=entry_price,
+                current_price=candle.close_price,
+            )
+            if not risk_decision.allowed:
+                continue
+
+            trade_action = risk_decision.action
+            decision_reason = (
+                risk_decision.reason if risk_decision.reason == RISK_REASON_STOP_LOSS_TRIGGERED else decision.reason
+            )
+
+            if trade_action == "buy" and position_quantity <= ZERO:
                 quantity = decision.metadata.get("_order_quantity")
                 if quantity is None:
                     continue
@@ -125,12 +144,12 @@ class BacktestingEngine:
                         opened_at=candle.close_time,
                         cash_balance=cash_balance,
                         position_quantity=position_quantity,
-                        decision_reason=decision.reason,
+                        decision_reason=decision_reason,
                     )
                 )
                 continue
 
-            if decision.decision == "sell" and position_quantity > ZERO and entry_price is not None:
+            if trade_action == "sell" and position_quantity > ZERO and entry_price is not None:
                 proceeds = position_quantity * candle.close_price
                 trade_pnl = (candle.close_price - entry_price) * position_quantity
                 cash_balance += proceeds
@@ -150,7 +169,7 @@ class BacktestingEngine:
                         cash_balance=cash_balance,
                         position_quantity=ZERO,
                         realized_pnl=trade_pnl,
-                        decision_reason=decision.reason,
+                        decision_reason=decision_reason,
                     )
                 )
                 position_quantity = ZERO

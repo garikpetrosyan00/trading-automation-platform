@@ -150,6 +150,94 @@ def test_buy_signal_triggers_one_buy_and_no_duplicate_buy(
     assert position.quantity == Decimal("0.10000000")
 
 
+def test_runtime_risk_blocks_buy_when_max_trade_quantity_is_exceeded(
+    db_session,
+    db_session_factory,
+    stub_market_data_service,
+    bot_stack_factory,
+    funded_account,
+) -> None:
+    funded_account(db_session)
+    _, bot, profile = bot_stack_factory(db_session)
+    assert profile is not None
+    profile.max_trade_quantity = Decimal("0.05")
+    db_session.add(profile)
+    db_session.commit()
+
+    runner = build_runner(db_session_factory, stub_market_data_service)
+    runner.start_bot(bot.id)
+    stub_market_data_service.set_price("BTCUSDT", "95")
+
+    asyncio.run(runner.run_cycle())
+
+    orders = PortfolioRepository(db_session).list_orders()
+    events = RunEventRepository(db_session).list_for_bot(bot.id)
+
+    assert orders == []
+    blocked_event = next(event for event in events if event.message == "risk_limit_blocked")
+    assert blocked_event.payload["reason"] == "max_trade_quantity_exceeded"
+    assert blocked_event.payload["decision"] == "skipped"
+    assert blocked_event.payload["risk"]["max_trade_quantity"] == "0.05000000"
+
+
+def test_runtime_risk_blocks_buy_when_max_position_quantity_is_exceeded(
+    db_session,
+    db_session_factory,
+    stub_market_data_service,
+    bot_stack_factory,
+    funded_account,
+) -> None:
+    funded_account(db_session)
+    _, bot, profile = bot_stack_factory(db_session)
+    assert profile is not None
+    profile.max_position_quantity = Decimal("0.05")
+    db_session.add(profile)
+    db_session.commit()
+
+    runner = build_runner(db_session_factory, stub_market_data_service)
+    runner.start_bot(bot.id)
+    stub_market_data_service.set_price("BTCUSDT", "95")
+
+    asyncio.run(runner.run_cycle())
+
+    orders = PortfolioRepository(db_session).list_orders()
+    events = RunEventRepository(db_session).list_for_bot(bot.id)
+
+    assert orders == []
+    blocked_event = next(event for event in events if event.message == "risk_limit_blocked")
+    assert blocked_event.payload["reason"] == "max_position_quantity_exceeded"
+    assert blocked_event.payload["risk"]["requested_position_quantity"] == "0.10000000"
+    assert blocked_event.payload["risk"]["max_position_quantity"] == "0.05000000"
+
+
+def test_runtime_null_risk_fields_preserve_existing_buy_behavior(
+    db_session,
+    db_session_factory,
+    stub_market_data_service,
+    bot_stack_factory,
+    funded_account,
+) -> None:
+    funded_account(db_session)
+    _, bot, profile = bot_stack_factory(db_session)
+    assert profile is not None
+    assert profile.max_trade_quantity is None
+    assert profile.max_position_quantity is None
+    assert profile.stop_loss_percent is None
+
+    runner = build_runner(db_session_factory, stub_market_data_service)
+    runner.start_bot(bot.id)
+    stub_market_data_service.set_price("BTCUSDT", "95")
+
+    asyncio.run(runner.run_cycle())
+
+    orders = PortfolioRepository(db_session).list_orders()
+    events = RunEventRepository(db_session).list_for_bot(bot.id)
+
+    assert len(orders) == 1
+    assert orders[0].side == "buy"
+    assert not any(event.message == "risk_limit_blocked" for event in events)
+
+
 def test_sell_signal_triggers_full_sell(
     db_session,
     db_session_factory,

@@ -16,6 +16,9 @@ class ExecutionProfileBase(BaseModel):
     entry_below: Decimal | None = Field(default=None, gt=0)
     exit_above: Decimal | None = Field(default=None, gt=0)
     order_quantity: Decimal | None = Field(default=None, gt=0)
+    max_trade_quantity: Decimal | None = Field(default=None, gt=0)
+    max_position_quantity: Decimal | None = Field(default=None, gt=0)
+    stop_loss_percent: Decimal | None = Field(default=None, gt=0)
     cooldown_seconds: int = Field(default=60, gt=0)
     default_order_type: ExecutionProfileOrderType = "limit"
     is_enabled: bool = True
@@ -33,6 +36,9 @@ class ExecutionProfileUpdate(BaseModel):
     entry_below: Decimal | None = Field(default=None, gt=0)
     exit_above: Decimal | None = Field(default=None, gt=0)
     order_quantity: Decimal | None = Field(default=None, gt=0)
+    max_trade_quantity: Decimal | None = Field(default=None, gt=0)
+    max_position_quantity: Decimal | None = Field(default=None, gt=0)
+    stop_loss_percent: Decimal | None = Field(default=None, gt=0)
     cooldown_seconds: int | None = Field(default=None, gt=0)
     default_order_type: ExecutionProfileOrderType | None = None
     is_enabled: bool | None = None
