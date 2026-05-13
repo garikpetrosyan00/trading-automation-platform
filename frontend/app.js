@@ -22,6 +22,7 @@ let isCreateBotOpen = false;
 let isEditBotOpen = false;
 let isLoadingEditBot = false;
 let isSavingEditBot = false;
+let isDeletingBot = false;
 let isCreatingExecutionProfile = false;
 let isEditingStrategyParameters = false;
 let isSavingStrategyParameters = false;
@@ -54,6 +55,7 @@ let strategyLoadError = "";
 let priceMessage = "";
 let priceMessageType = "";
 let refreshMessage = "";
+let refreshMessageType = "";
 let botSearchQuery = "";
 let lastRefreshedAt = null;
 let autoRefreshTimer = null;
@@ -90,6 +92,10 @@ const translations = {
     edit: "Edit",
     edit_bot_summary:
       "This form updates bot details and the selected Strategy. Status and mode are shown here for context and are not editable in this form.",
+    delete_bot: "Delete bot",
+    deleting_bot: "Deleting…",
+    delete_bot_confirm: 'Delete "{name}"? This cannot be undone.',
+    deleted_bot_success: 'Deleted "{name}".',
     selected_strategy_label: "Strategy",
     selected_cooldown_label: "Cooldown",
     selected_price_label: "Last price",
@@ -291,6 +297,7 @@ const translations = {
     could_not_update_price: "Could not update price.",
     could_not_create_bot: "Could not create Bot.",
     could_not_update_bot: "Could not update Bot.",
+    could_not_delete_bot: "Could not delete Bot.",
     could_not_load_bot_settings: "Could not load Bot settings.",
     could_not_load_bot_details: "Could not load Bot details.",
     could_not_load_bots: "Could not load Bots.",
@@ -386,6 +393,10 @@ const translations = {
     edit: "Խմբագրել",
     edit_bot_summary:
       "Այս ձևը թարմացնում է Bot-ի դաշտերը և ընտրված Strategy-ն։ Status-ը և mode-ը այստեղ ցուցադրվում են միայն տեղեկության համար և չեն խմբագրվում։",
+    delete_bot: "Ջնջել Bot-ը",
+    deleting_bot: "Ջնջվում է…",
+    delete_bot_confirm: 'Ջնջե՞լ "{name}" Bot-ը։ Այս գործողությունը հնարավոր չէ հետարկել։',
+    deleted_bot_success: 'Ջնջվեց "{name}" Bot-ը։',
     selected_strategy_label: "Strategy",
     selected_cooldown_label: "Cooldown",
     selected_price_label: "Վերջին գին",
@@ -587,6 +598,7 @@ const translations = {
     could_not_update_price: "Չհաջողվեց թարմացնել գինը։",
     could_not_create_bot: "Չհաջողվեց ստեղծել Bot։",
     could_not_update_bot: "Չհաջողվեց թարմացնել Bot-ը։",
+    could_not_delete_bot: "Չհաջողվեց ջնջել Bot-ը։",
     could_not_load_bot_settings: "Չհաջողվեց բեռնել Bot-ի կարգավորումները։",
     could_not_load_bot_details: "Չհաջողվեց բեռնել Bot-ի մանրամասները։",
     could_not_load_bots: "Չհաջողվեց բեռնել Bots։",
@@ -696,6 +708,7 @@ const selectedLastRun = document.querySelector("#selected-last-run");
 const pauseResume = document.querySelector("#pause-resume");
 const runNow = document.querySelector("#run-now");
 const editBot = document.querySelector("#edit-bot");
+const deleteBot = document.querySelector("#delete-bot");
 const actionHelp = document.querySelector("#action-help");
 const decisionPanel = document.querySelector("#decision-panel");
 const editBotForm = document.querySelector("#edit-bot-form");
@@ -935,6 +948,7 @@ function applyStaticTranslations() {
   toggleCreateBot.textContent = isCreateBotOpen ? t("close") : t("create_bot");
   createBotSubmit.textContent = isCreatingBot ? t("creating") : t("create_draft_bot");
   editBot.textContent = isLoadingEditBot ? t("loading_generic") : t("edit");
+  deleteBot.textContent = isDeletingBot ? t("deleting_bot") : t("delete_bot");
   editBotSubmit.textContent = isSavingEditBot ? t("saving") : t("save_changes");
   editBotCancel.textContent = t("cancel");
   priceSubmit.textContent = isUpdatingPrice ? t("updating") : t("set_price");
@@ -2503,6 +2517,7 @@ function hasInFlightAction() {
     isCreatingBot ||
     isLoadingEditBot ||
     isSavingEditBot ||
+    isDeletingBot ||
     isCreatingExecutionProfile ||
     isSavingStrategyParameters ||
     isSavingRiskSettings ||
@@ -2531,6 +2546,7 @@ async function loadBots() {
       clearSelectedBotMessages();
     }
     refreshMessage = "";
+    refreshMessageType = "";
     lastRefreshedAt = new Date();
     isLoadingBots = false;
     render();
@@ -2578,6 +2594,7 @@ async function refreshSelectedData() {
   }
   await loadBacktestHistory();
   refreshMessage = "";
+  refreshMessageType = "";
   lastRefreshedAt = new Date();
 }
 
@@ -2588,6 +2605,7 @@ async function refreshDashboardData({ silent = false } = {}) {
   isRefreshing = true;
   if (!silent) {
     refreshMessage = "";
+    refreshMessageType = "";
   }
   render();
 
@@ -2620,11 +2638,13 @@ async function refreshDashboardData({ silent = false } = {}) {
     }
     await loadBacktestHistory();
     refreshMessage = "";
+    refreshMessageType = "";
     lastRefreshedAt = new Date();
   } catch (error) {
     refreshMessage = silent
       ? t("auto_refresh_failed", { detail: requestErrorMessage(error, t("please_try_again")) })
       : requestErrorMessage(error, t("could_not_refresh"));
+    refreshMessageType = "error";
   } finally {
     isRefreshing = false;
     render();
@@ -2713,6 +2733,48 @@ async function runSelectedBotNow() {
     actionMessageType = "error";
   } finally {
     isRunningNow = false;
+    render();
+  }
+}
+
+async function deleteSelectedBot() {
+  const bot = selectedSummary || bots.find((item) => botIdsEqual(item.id, selectedBotId));
+  if (!bot || isDeletingBot) return;
+
+  const botName = formatValue(bot.name, t("unnamed_bot"));
+  if (!window.confirm(t("delete_bot_confirm", { name: botName }))) return;
+
+  isDeletingBot = true;
+  actionMessage = "";
+  actionMessageType = "";
+  refreshMessage = "";
+  refreshMessageType = "";
+  render();
+
+  try {
+    await fetchJson(`/api/v1/bots/${bot.id}`, { method: "DELETE" });
+    bots = bots.filter((item) => !botIdsEqual(item.id, bot.id));
+    hasUserSelectedBot = false;
+    selectedBotId = null;
+    selectedSummary = null;
+    selectedBotConfig = null;
+    selectedExecutionProfile = null;
+    isEditBotOpen = false;
+    await refreshDashboardData();
+
+    const successMessage = t("deleted_bot_success", { name: botName });
+    if (selectedBotId) {
+      actionMessage = successMessage;
+      actionMessageType = "success";
+    } else {
+      refreshMessage = successMessage;
+      refreshMessageType = "success";
+    }
+  } catch (error) {
+    actionMessage = requestErrorMessage(error, t("could_not_delete_bot"));
+    actionMessageType = "error";
+  } finally {
+    isDeletingBot = false;
     render();
   }
 }
@@ -3355,7 +3417,8 @@ function renderCreateBotForm() {
 function renderEditBotForm() {
   editBotForm.setAttribute("data-open", String(isEditBotOpen));
   editBot.textContent = isLoadingEditBot ? t("loading_generic") : t("edit");
-  editBot.disabled = !selectedBotId || isLoadingSummary || isLoadingEditBot || isSavingEditBot;
+  editBot.disabled =
+    !selectedBotId || isLoadingSummary || isLoadingEditBot || isSavingEditBot || isDeletingBot;
   editBotSubmit.textContent = isSavingEditBot ? t("saving") : t("save_changes");
   editBotSubmit.disabled =
     isSavingEditBot ||
@@ -3597,6 +3660,8 @@ function renderSummary() {
     runNow.disabled = true;
     editBot.textContent = t("edit");
     editBot.disabled = true;
+    deleteBot.textContent = t("delete_bot");
+    deleteBot.disabled = true;
     actionHelp.textContent = actionHelpText(null);
     if (!symbolTouched) {
       priceSymbol.value = "";
@@ -3635,12 +3700,35 @@ function renderSummary() {
   pauseResume.textContent = isTogglingPause
     ? pauseResumeLoadingLabel(bot.status)
     : pauseResumeLabel(bot.status);
-  pauseResume.disabled = !canUseLifecycleControl || isTogglingPause || isLoadingSummary || isRunningNow || isCreatingExecutionProfile;
+  pauseResume.disabled =
+    !canUseLifecycleControl ||
+    isTogglingPause ||
+    isDeletingBot ||
+    isLoadingSummary ||
+    isRunningNow ||
+    isCreatingExecutionProfile;
   runNow.textContent = isRunningNow ? t("running_now") : t("run_now");
-  runNow.disabled = !canRunNow || isRunningNow || isLoadingSummary || isTogglingPause || isCreatingExecutionProfile;
+  runNow.disabled =
+    !canRunNow ||
+    isRunningNow ||
+    isDeletingBot ||
+    isLoadingSummary ||
+    isTogglingPause ||
+    isCreatingExecutionProfile;
   editBot.textContent = isLoadingEditBot ? t("loading_generic") : t("edit");
   editBot.disabled =
     !selectedBotId ||
+    isLoadingSummary ||
+    isLoadingEditBot ||
+    isSavingEditBot ||
+    isDeletingBot ||
+    isRunningNow ||
+    isTogglingPause ||
+    isCreatingExecutionProfile;
+  deleteBot.textContent = isDeletingBot ? t("deleting_bot") : t("delete_bot");
+  deleteBot.disabled =
+    !selectedBotId ||
+    isDeletingBot ||
     isLoadingSummary ||
     isLoadingEditBot ||
     isSavingEditBot ||
@@ -3664,6 +3752,7 @@ function renderSummary() {
     isLoadingSummary ||
     isRunningNow ||
     isTogglingPause ||
+    isDeletingBot ||
     !selectedBotId ||
     !binanceSymbol;
   actionMessageEl.textContent = actionMessage;
@@ -3723,7 +3812,7 @@ function renderRefreshControl() {
   refreshDashboard.disabled = isRefreshing || hasInFlightAction();
   refreshMessageEl.textContent = refreshMessage;
   refreshMessageEl.className = refreshMessage
-    ? "refresh-message error"
+    ? `refresh-message ${refreshMessageType || "error"}`
     : "refresh-message";
 }
 
@@ -3821,6 +3910,7 @@ window.addEventListener("beforeunload", stopAutoRefresh);
 pauseResume.addEventListener("click", togglePauseResume);
 runNow.addEventListener("click", runSelectedBotNow);
 editBot.addEventListener("click", openEditBotForm);
+deleteBot.addEventListener("click", deleteSelectedBot);
 editBotCancel.addEventListener("click", closeEditBotForm);
 editStrategyParameters.addEventListener("click", openStrategyParametersForm);
 strategyParametersCancel.addEventListener("click", closeStrategyParametersForm);

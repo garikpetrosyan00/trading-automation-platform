@@ -197,6 +197,12 @@ h2 {
   padding: 6px 8px;
 }
 
+.refresh-message.success {
+  background: var(--green-soft);
+  color: var(--green);
+  padding: 6px 8px;
+}
+
 .form-message.success {
   background: var(--green-soft);
   color: var(--green);
@@ -333,6 +339,22 @@ button:disabled {
 
 button.secondary-button:not(:disabled):hover {
   background: var(--surface-muted);
+}
+
+.danger-button {
+  border: 1px solid var(--danger);
+  background: var(--danger);
+  color: #fff;
+}
+
+button.danger-button:not(:disabled):hover {
+  background: #873232;
+}
+
+button.danger-button:disabled {
+  border: 1px solid #c8d0cb;
+  background: #edf1ee;
+  color: #5f6964;
 }
 
 .create-bot-form {
