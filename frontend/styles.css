@@ -746,6 +746,7 @@ dd {
 
 .bot-settings-panel,
 .strategy-parameters-panel,
+.risk-settings-panel,
 .backtest-panel {
   margin: 0 0 18px;
   padding: 0;
@@ -852,6 +853,39 @@ dd {
 
 .strategy-parameters-panel > .form-message {
   margin-top: 8px;
+}
+
+.risk-settings-help {
+  margin: -2px 0 10px;
+  color: var(--muted);
+  font-size: 0.84rem;
+  font-weight: 800;
+}
+
+.risk-settings-form {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fbfcfa;
+  padding: 14px;
+}
+
+.risk-settings-form small {
+  display: block;
+  margin-top: 4px;
+  color: var(--muted);
+  font-size: 0.78rem;
+  line-height: 1.35;
+}
+
+.risk-settings-actions {
+  grid-column: 1 / -1;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
 }
 
 .backtest-form {
@@ -1244,6 +1278,7 @@ dd {
   }
 
   .strategy-parameters-form,
+  .risk-settings-form,
   .backtest-form {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
@@ -1283,6 +1318,7 @@ dd {
   .bot-settings-grid,
   .strategy-parameters-grid,
   .strategy-parameters-form,
+  .risk-settings-form,
   .backtest-result-grid,
   .backtest-history-metrics,
   .backtest-form {

@@ -24,6 +24,7 @@ let isLoadingEditBot = false;
 let isSavingEditBot = false;
 let isEditingStrategyParameters = false;
 let isSavingStrategyParameters = false;
+let isSavingRiskSettings = false;
 let isRunningBacktest = false;
 let isLoadingBacktestHistory = false;
 let backtestStrategyTouched = false;
@@ -38,6 +39,8 @@ let editBotMessage = "";
 let editBotMessageType = "";
 let strategyParametersMessage = "";
 let strategyParametersMessageType = "";
+let riskSettingsMessage = "";
+let riskSettingsMessageType = "";
 let backtestMessage = "";
 let backtestMessageType = "";
 let backtestResult = null;
@@ -52,6 +55,7 @@ let botSearchQuery = "";
 let lastRefreshedAt = null;
 let autoRefreshTimer = null;
 let selectedBotConfig = null;
+let selectedExecutionProfile = null;
 let hasUserSelectedBot = false;
 let currentLanguage = getStoredLanguage();
 
@@ -126,6 +130,19 @@ const translations = {
     price_threshold_parameters_help:
       "Buy below is the entry trigger, sell above is the exit trigger, and quantity is the simulated trade amount.",
     strategy_parameters_edit_unavailable: "Editing is not available for this strategy type yet.",
+    risk_settings: "Risk Settings",
+    risk_settings_aria: "Risk settings",
+    risk_settings_help: "Leave a field empty to disable that risk rule.",
+    max_trade_quantity_label: "Max trade quantity",
+    max_position_quantity_label: "Max position quantity",
+    stop_loss_percent_label: "Stop loss %",
+    max_trade_quantity_help: "Blocks one trade above this quantity.",
+    max_position_quantity_help: "Blocks buys that would exceed this position size.",
+    stop_loss_percent_help: "Forces a sell when the open position drops by this percentage.",
+    risk_settings_updated: "Risk settings updated.",
+    risk_settings_save_failed: "Could not update Risk settings.",
+    risk_settings_unavailable: "Risk settings unavailable.",
+    risk_settings_must_be_positive: "Risk settings must be positive numbers.",
     backtest: "Backtest",
     backtest_aria: "Run backtest",
     run_backtest: "Run Backtest",
@@ -388,6 +405,19 @@ const translations = {
     price_threshold_parameters_help:
       "Buy below-ը մուտքի trigger-ն է, sell above-ը՝ ելքի trigger-ը, իսկ quantity-ն՝ simulated գործարքի քանակը։",
     strategy_parameters_edit_unavailable: "Այս strategy type-ի համար խմբագրումը դեռ հասանելի չէ։",
+    risk_settings: "Risk կարգավորումներ",
+    risk_settings_aria: "Risk կարգավորումներ",
+    risk_settings_help: "Դաշտը դատարկ թող՝ այդ risk կանոնն անջատելու համար։",
+    max_trade_quantity_label: "Առավելագույն trade quantity",
+    max_position_quantity_label: "Առավելագույն position quantity",
+    stop_loss_percent_label: "Stop loss %",
+    max_trade_quantity_help: "Արգելում է մեկ trade, եթե quantity-ն այս արժեքից մեծ է։",
+    max_position_quantity_help: "Արգելում է buy-ը, եթե position-ի չափը կգերազանցի այս արժեքը։",
+    stop_loss_percent_help: "Ստիպում է sell, երբ բաց position-ը նվազում է այս տոկոսով։",
+    risk_settings_updated: "Risk կարգավորումները թարմացվեցին։",
+    risk_settings_save_failed: "Չհաջողվեց թարմացնել Risk կարգավորումները։",
+    risk_settings_unavailable: "Risk կարգավորումները հասանելի չեն։",
+    risk_settings_must_be_positive: "Risk կարգավորումները պետք է լինեն դրական թվեր։",
     backtest: "Backtest",
     backtest_aria: "Գործարկել backtest",
     run_backtest: "Գործարկել Backtest",
@@ -663,6 +693,21 @@ const strategyQuantity = document.querySelector("#strategy-quantity");
 const strategyParametersSubmit = document.querySelector("#strategy-parameters-submit");
 const strategyParametersCancel = document.querySelector("#strategy-parameters-cancel");
 const strategyParametersMessageEl = document.querySelector("#strategy-parameters-message");
+const riskSettingsPanel = document.querySelector(".risk-settings-panel");
+const riskSettingsHeading = document.querySelector("#risk-settings-heading");
+const riskSettingsHelp = document.querySelector("#risk-settings-help");
+const riskSettingsForm = document.querySelector("#risk-settings-form");
+const riskMaxTradeQuantityLabel = document.querySelector("#risk-max-trade-quantity-label");
+const riskMaxTradeQuantity = document.querySelector("#risk-max-trade-quantity");
+const riskMaxTradeQuantityHelp = document.querySelector("#risk-max-trade-quantity-help");
+const riskMaxPositionQuantityLabel = document.querySelector("#risk-max-position-quantity-label");
+const riskMaxPositionQuantity = document.querySelector("#risk-max-position-quantity");
+const riskMaxPositionQuantityHelp = document.querySelector("#risk-max-position-quantity-help");
+const riskStopLossPercentLabel = document.querySelector("#risk-stop-loss-percent-label");
+const riskStopLossPercent = document.querySelector("#risk-stop-loss-percent");
+const riskStopLossPercentHelp = document.querySelector("#risk-stop-loss-percent-help");
+const riskSettingsSubmit = document.querySelector("#risk-settings-submit");
+const riskSettingsMessageEl = document.querySelector("#risk-settings-message");
 const backtestPanel = document.querySelector(".backtest-panel");
 const backtestHeading = document.querySelector("#backtest-heading");
 const backtestForm = document.querySelector("#backtest-form");
@@ -769,6 +814,17 @@ function applyStaticTranslations() {
   document
     .querySelector(".strategy-parameters-panel")
     ?.setAttribute("aria-label", t("strategy_parameters"));
+  riskSettingsHeading.textContent = t("risk_settings");
+  riskSettingsPanel?.setAttribute("aria-label", t("risk_settings_aria"));
+  riskSettingsForm.setAttribute("aria-label", t("risk_settings_aria"));
+  riskSettingsHelp.textContent = t("risk_settings_help");
+  riskMaxTradeQuantityLabel.textContent = t("max_trade_quantity_label");
+  riskMaxPositionQuantityLabel.textContent = t("max_position_quantity_label");
+  riskStopLossPercentLabel.textContent = t("stop_loss_percent_label");
+  riskMaxTradeQuantityHelp.textContent = t("max_trade_quantity_help");
+  riskMaxPositionQuantityHelp.textContent = t("max_position_quantity_help");
+  riskStopLossPercentHelp.textContent = t("stop_loss_percent_help");
+  riskSettingsSubmit.textContent = isSavingRiskSettings ? t("saving") : t("save");
   backtestHeading.textContent = t("backtest");
   backtestPanel?.setAttribute("aria-label", t("backtest"));
   backtestForm.setAttribute("aria-label", t("backtest_aria"));
@@ -869,6 +925,17 @@ function normalizeBotConfig(rawBot) {
     notes: rawBot.notes ?? "",
     status: rawBot.status ?? "draft",
     isPaper: rawBot.is_paper ?? true,
+  };
+}
+
+function normalizeExecutionProfile(rawProfile) {
+  if (!rawProfile || typeof rawProfile !== "object") return null;
+  return {
+    id: rawProfile.id ?? null,
+    botId: rawProfile.bot_id ?? rawProfile.botId ?? null,
+    maxTradeQuantity: rawProfile.max_trade_quantity ?? rawProfile.maxTradeQuantity ?? null,
+    maxPositionQuantity: rawProfile.max_position_quantity ?? rawProfile.maxPositionQuantity ?? null,
+    stopLossPercent: rawProfile.stop_loss_percent ?? rawProfile.stopLossPercent ?? null,
   };
 }
 
@@ -1306,6 +1373,38 @@ function strategyParameterPayload() {
   return parameters;
 }
 
+function riskSettingsInputValue(key) {
+  const value = selectedExecutionProfile?.[key];
+  return value === null || value === undefined ? "" : String(value);
+}
+
+function populateRiskSettingsForm() {
+  riskMaxTradeQuantity.value = riskSettingsInputValue("maxTradeQuantity");
+  riskMaxPositionQuantity.value = riskSettingsInputValue("maxPositionQuantity");
+  riskStopLossPercent.value = riskSettingsInputValue("stopLossPercent");
+}
+
+function validateRiskSettingsForm() {
+  if (!selectedBotId || !selectedExecutionProfile) return t("risk_settings_unavailable");
+  const values = [
+    riskMaxTradeQuantity.value.trim(),
+    riskMaxPositionQuantity.value.trim(),
+    riskStopLossPercent.value.trim(),
+  ];
+  if (values.some((value) => value && parsePositiveParameter(value) === null)) {
+    return t("risk_settings_must_be_positive");
+  }
+  return "";
+}
+
+function riskSettingsPayload() {
+  return {
+    max_trade_quantity: riskMaxTradeQuantity.value.trim() || null,
+    max_position_quantity: riskMaxPositionQuantity.value.trim() || null,
+    stop_loss_percent: riskStopLossPercent.value.trim() || null,
+  };
+}
+
 function renderStrategyParametersForm() {
   const hasStrategyDetails = Boolean(selectedBotId && selectedSummary && strategyIdForSelectedBot());
   const canEditParameters = hasStrategyDetails && canEditSelectedStrategyParameters();
@@ -1350,6 +1449,40 @@ function renderStrategyParametersForm() {
   strategyQuantity.inputMode = "decimal";
   strategyParametersMessageEl.textContent = visibleMessage;
   strategyParametersMessageEl.className = visibleMessageType
+    ? `form-message ${visibleMessageType}`
+    : "form-message";
+}
+
+function renderRiskSettingsForm() {
+  const hasProfile = Boolean(selectedBotId && selectedExecutionProfile);
+  const shouldDisable =
+    !hasProfile ||
+    isLoadingSummary ||
+    isSavingRiskSettings ||
+    isRunningNow ||
+    isTogglingPause;
+
+  riskSettingsSubmit.textContent = isSavingRiskSettings ? t("saving") : t("save");
+  riskSettingsSubmit.disabled = shouldDisable;
+  [riskMaxTradeQuantity, riskMaxPositionQuantity, riskStopLossPercent].forEach((input) => {
+    input.disabled = shouldDisable;
+  });
+
+  if (hasProfile && !isSavingRiskSettings && !riskSettingsMessageType) {
+    populateRiskSettingsForm();
+  } else if (!hasProfile && !isSavingRiskSettings) {
+    [riskMaxTradeQuantity, riskMaxPositionQuantity, riskStopLossPercent].forEach((input) => {
+      input.value = "";
+    });
+  }
+
+  const visibleMessage =
+    riskSettingsMessage ||
+    (selectedBotId && !selectedExecutionProfile && !isLoadingSummary ? t("risk_settings_unavailable") : "");
+  const visibleMessageType =
+    riskSettingsMessageType || (visibleMessage && visibleMessage !== riskSettingsMessage ? "note" : "");
+  riskSettingsMessageEl.textContent = visibleMessage;
+  riskSettingsMessageEl.className = visibleMessageType
     ? `form-message ${visibleMessageType}`
     : "form-message";
 }
@@ -2048,6 +2181,16 @@ async function loadStrategies() {
   }
 }
 
+async function loadExecutionProfile(botId) {
+  try {
+    const data = await fetchJson(`/api/v1/bots/${botId}/execution-profile`);
+    return normalizeExecutionProfile(data);
+  } catch (error) {
+    if (error?.status === 404) return null;
+    throw error;
+  }
+}
+
 function describeManualRunResult(result) {
   const latestActivity = result?.recent_activity_preview?.[0]?.message;
   const activityLabel = formatActivityMessageText(
@@ -2091,6 +2234,8 @@ function clearSelectedBotMessages() {
   latestDecisionExplanation = null;
   strategyParametersMessage = "";
   strategyParametersMessageType = "";
+  riskSettingsMessage = "";
+  riskSettingsMessageType = "";
   backtestMessage = "";
   backtestMessageType = "";
   backtestResult = null;
@@ -2113,6 +2258,7 @@ function hasInFlightAction() {
     isLoadingEditBot ||
     isSavingEditBot ||
     isSavingStrategyParameters ||
+    isSavingRiskSettings ||
     isRunningBacktest
   );
 }
@@ -2132,6 +2278,7 @@ async function loadBots() {
     if (!selectedBotId || !botIdsEqual(selectedBotId, previousSelectedBotId)) {
       isEditBotOpen = false;
       selectedBotConfig = null;
+      selectedExecutionProfile = null;
     }
     if (!botIdsEqual(selectedBotId, previousSelectedBotId)) {
       clearSelectedBotMessages();
@@ -2149,6 +2296,7 @@ async function loadBots() {
     bots = [];
     selectedBotId = null;
     selectedSummary = null;
+    selectedExecutionProfile = null;
     isLoadingBots = false;
     botListError = requestErrorMessage(error, t("could_not_load_bots"));
     render();
@@ -2174,10 +2322,12 @@ async function refreshSelectedData() {
     ]);
     selectedSummary = normalizeSummary(summary);
     selectedBotConfig = normalizeBotConfig(config);
+    selectedExecutionProfile = await loadExecutionProfile(selectedBotId);
   } else {
     selectedSummary = null;
     isEditBotOpen = false;
     selectedBotConfig = null;
+    selectedExecutionProfile = null;
   }
   await loadBacktestHistory();
   refreshMessage = "";
@@ -2213,10 +2363,12 @@ async function refreshDashboardData({ silent = false } = {}) {
       ]);
       selectedSummary = normalizeSummary(summary);
       selectedBotConfig = normalizeBotConfig(config);
+      selectedExecutionProfile = await loadExecutionProfile(selectedBotId);
       summaryError = "";
     } else {
       selectedSummary = null;
       selectedBotConfig = null;
+      selectedExecutionProfile = null;
       summaryError = "";
     }
     await loadBacktestHistory();
@@ -2590,6 +2742,41 @@ async function submitStrategyParameters(event) {
   }
 }
 
+async function submitRiskSettings(event) {
+  event.preventDefault();
+  if (!selectedBotId || isSavingRiskSettings) return;
+
+  const validationError = validateRiskSettingsForm();
+  if (validationError) {
+    riskSettingsMessage = validationError;
+    riskSettingsMessageType = "error";
+    render();
+    return;
+  }
+
+  isSavingRiskSettings = true;
+  riskSettingsMessage = "";
+  riskSettingsMessageType = "";
+  render();
+
+  try {
+    const updatedProfile = await fetchJson(`/api/v1/bots/${selectedBotId}/execution-profile`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(riskSettingsPayload()),
+    });
+    selectedExecutionProfile = normalizeExecutionProfile(updatedProfile);
+    riskSettingsMessage = t("risk_settings_updated");
+    riskSettingsMessageType = "success";
+  } catch (error) {
+    riskSettingsMessage = requestErrorMessage(error, t("risk_settings_save_failed"));
+    riskSettingsMessageType = "error";
+  } finally {
+    isSavingRiskSettings = false;
+    render();
+  }
+}
+
 async function submitBacktest(event) {
   event.preventDefault();
   if (isRunningBacktest) return;
@@ -2730,12 +2917,14 @@ async function loadSelectedSummary(botId) {
   isLoadingSummary = true;
   selectedSummary = null;
   selectedBotConfig = null;
+  selectedExecutionProfile = null;
   render();
 
   try {
-    const [summaryResult, configResult] = await Promise.allSettled([
+    const [summaryResult, configResult, profileResult] = await Promise.allSettled([
       fetchJson(`/api/v1/bots/${botId}/summary`),
       fetchJson(`/api/v1/bots/${botId}`),
+      fetchJson(`/api/v1/bots/${botId}/execution-profile`),
     ]);
 
     if (summaryResult.status !== "fulfilled") {
@@ -2746,9 +2935,13 @@ async function loadSelectedSummary(botId) {
     if (configResult.status === "fulfilled") {
       selectedBotConfig = normalizeBotConfig(configResult.value);
     }
+    if (profileResult.status === "fulfilled") {
+      selectedExecutionProfile = normalizeExecutionProfile(profileResult.value);
+    }
   } catch (error) {
     selectedSummary = null;
     selectedBotConfig = null;
+    selectedExecutionProfile = null;
     summaryError = requestErrorMessage(error, t("could_not_load_bot_details"));
   } finally {
     isLoadingSummary = false;
@@ -3080,6 +3273,7 @@ function renderSummary() {
     selectedLastRun.textContent = bots.length === 0 ? t("no_bot_activity_yet") : "—";
     renderBotSettings(null);
     renderStrategyParameters(null);
+    renderRiskSettingsForm();
     pauseResume.textContent = t("pause");
     pauseResume.disabled = true;
     runNow.textContent = t("run_now");
@@ -3119,6 +3313,7 @@ function renderSummary() {
   selectedLastRun.textContent = formatDateTime(bot.updatedAt);
   renderBotSettings(bot);
   renderStrategyParameters(bot);
+  renderRiskSettingsForm();
   pauseResume.textContent = isTogglingPause
     ? `${pauseResumeLabel(bot.status)}…`
     : pauseResumeLabel(bot.status);
@@ -3308,6 +3503,7 @@ strategyParametersCancel.addEventListener("click", closeStrategyParametersForm);
 createBotForm.addEventListener("submit", submitCreateBot);
 editBotForm.addEventListener("submit", submitEditBot);
 strategyParametersForm.addEventListener("submit", submitStrategyParameters);
+riskSettingsForm.addEventListener("submit", submitRiskSettings);
 backtestForm.addEventListener("submit", submitBacktest);
 backtestSubmit.addEventListener("click", submitBacktest);
 refreshBacktestHistory.addEventListener("click", loadBacktestHistory);

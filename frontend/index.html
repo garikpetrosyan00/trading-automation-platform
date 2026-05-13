@@ -4,7 +4,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Dashboard</title>
-    <link rel="stylesheet" href="/static/styles.css?v=strategy-parameters-ma" />
+    <link rel="stylesheet" href="/static/styles.css?v=risk-settings" />
   </head>
   <body>
     <main class="dashboard-shell">
@@ -215,6 +215,36 @@
             <span id="strategy-parameters-message" class="form-message" role="status"></span>
           </section>
 
+          <section class="risk-settings-panel" aria-label="Risk settings">
+            <div class="panel-heading compact-heading">
+              <h2 id="risk-settings-heading">Risk Settings</h2>
+            </div>
+            <p id="risk-settings-help" class="risk-settings-help">
+              Leave a field empty to disable that risk rule.
+            </p>
+            <form id="risk-settings-form" class="risk-settings-form" aria-label="Risk settings">
+              <label>
+                <span id="risk-max-trade-quantity-label">Max trade quantity</span>
+                <input id="risk-max-trade-quantity" name="max_trade_quantity" inputmode="decimal" autocomplete="off" />
+                <small id="risk-max-trade-quantity-help">Blocks one trade above this quantity.</small>
+              </label>
+              <label>
+                <span id="risk-max-position-quantity-label">Max position quantity</span>
+                <input id="risk-max-position-quantity" name="max_position_quantity" inputmode="decimal" autocomplete="off" />
+                <small id="risk-max-position-quantity-help">Blocks buys that would exceed this position size.</small>
+              </label>
+              <label>
+                <span id="risk-stop-loss-percent-label">Stop loss %</span>
+                <input id="risk-stop-loss-percent" name="stop_loss_percent" inputmode="decimal" autocomplete="off" />
+                <small id="risk-stop-loss-percent-help">Forces a sell when the open position drops by this percentage.</small>
+              </label>
+              <div class="risk-settings-actions">
+                <button id="risk-settings-submit" type="submit">Save</button>
+                <span id="risk-settings-message" class="form-message" role="status"></span>
+              </div>
+            </form>
+          </section>
+
           <section class="backtest-panel" aria-label="Backtest">
             <div class="panel-heading compact-heading">
               <h2 id="backtest-heading">Backtest</h2>
@@ -267,6 +297,6 @@
       </section>
     </main>
 
-    <script src="/static/app.js?v=strategy-parameters-ma"></script>
+    <script src="/static/app.js?v=risk-settings"></script>
   </body>
 </html>
