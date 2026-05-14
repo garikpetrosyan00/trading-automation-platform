@@ -287,6 +287,11 @@ const translations = {
     manual_run_skipped: "Manual run skipped. {activity}.",
     manual_run_checked: "Manual run checked the Bot. {activity}.",
     decision_explanation: "Decision Explanation",
+    risk_limit_blocked_message: "Trade was blocked by risk settings.",
+    risk_max_trade_quantity_exceeded: "Trade quantity is higher than the allowed limit.",
+    risk_max_position_quantity_exceeded: "Position limit would be exceeded.",
+    risk_stop_loss_triggered: "Stop-loss rule was triggered.",
+    risk_missing_price: "Risk check could not run because the price is missing.",
     current_price_label: "Current price",
     buy_threshold_label: "Buy threshold",
     sell_threshold_label: "Sell threshold",
@@ -588,6 +593,11 @@ const translations = {
     manual_run_skipped: "Manual run-ը բաց թողնվեց։ {activity}։",
     manual_run_checked: "Manual run-ը ստուգեց Bot-ը։ {activity}։",
     decision_explanation: "Decision Explanation",
+    risk_limit_blocked_message: "Գործարքը արգելափակվեց ռիսկի կարգավորումներով։",
+    risk_max_trade_quantity_exceeded: "Գործարքի քանակը գերազանցում է թույլատրելի սահմանը։",
+    risk_max_position_quantity_exceeded: "Դիրքի սահմանաչափը կգերազանցվի։",
+    risk_stop_loss_triggered: "Stop-loss կանոնը գործարկվեց։",
+    risk_missing_price: "Ռիսկի ստուգումը հնարավոր չէ կատարել, քանի որ գինը բացակայում է։",
     current_price_label: "Ընթացիկ գին",
     buy_threshold_label: "Buy շեմ",
     sell_threshold_label: "Sell շեմ",
@@ -838,6 +848,14 @@ function t(key, params = {}) {
   );
 }
 
+const RISK_MESSAGE_LABELS = {
+  risk_limit_blocked: "risk_limit_blocked_message",
+  max_trade_quantity_exceeded: "risk_max_trade_quantity_exceeded",
+  max_position_quantity_exceeded: "risk_max_position_quantity_exceeded",
+  stop_loss_triggered: "risk_stop_loss_triggered",
+  missing_price: "risk_missing_price",
+};
+
 function setLanguage(language) {
   currentLanguage = SUPPORTED_LANGUAGES.has(language) ? language : DEFAULT_LANGUAGE;
   window.localStorage.setItem(LANGUAGE_STORAGE_KEY, currentLanguage);
@@ -1049,13 +1067,16 @@ function normalizeExecutionProfile(rawProfile) {
 
 function normalizeDecisionExplanation(rawExplanation) {
   if (!rawExplanation || typeof rawExplanation !== "object") return null;
+  const reason = firstAvailable(rawExplanation.reason, rawExplanation.detail, rawExplanation.message, "");
+  const reasonLabel = getRiskMessage(reason) || humanizeMessage(reason, reason);
   return {
     currentPrice: rawExplanation.current_price ?? null,
     buyBelow: rawExplanation.buy_below ?? null,
     sellAbove: rawExplanation.sell_above ?? null,
     positionQty: rawExplanation.position_qty ?? null,
     decision: rawExplanation.decision ?? "",
-    reason: rawExplanation.reason ?? "",
+    reason,
+    reasonLabel,
   };
 }
 
@@ -1905,7 +1926,7 @@ function renderBacktestPanel() {
 
       const reason = document.createElement("span");
       reason.className = "backtest-trade-reason";
-      reason.textContent = `${t("reason_label")}: ${formatValue(trade.decisionReason)}`;
+      reason.textContent = `${t("reason_label")}: ${formatRiskReason(trade.decisionReason)}`;
       main.append(reason);
 
       item.append(sideEl, main);
@@ -2149,6 +2170,8 @@ const ACTIVITY_MESSAGE_LABELS = {
   live_mode_not_implemented: "activity_live_mode_not_implemented",
   unsupported_strategy_type: "activity_unsupported_strategy_type",
   strategy_inactive: "activity_strategy_inactive",
+  risk_limit_blocked: "risk_limit_blocked_message",
+  missing_price: "risk_missing_price",
   started: "activity_started",
   stopped: "activity_stopped",
   error: "activity_error",
@@ -2158,6 +2181,30 @@ function normalizeActivityMessage(message) {
   return String(message || "")
     .trim()
     .toLowerCase();
+}
+
+function normalizeRiskReason(reason) {
+  return normalizeActivityMessage(reason)
+    .replaceAll("-", "_")
+    .replace(/[^\w\s]/g, "")
+    .replace(/\s+/g, "_");
+}
+
+function formatRiskReason(reason, fallback = t("activity_update")) {
+  return getRiskMessage(reason) || humanizeMessage(reason, fallback);
+}
+
+function getRiskMessage(value) {
+  const translationKey = RISK_MESSAGE_LABELS[normalizeRiskReason(value)];
+  return translationKey ? t(translationKey) : "";
+}
+
+function firstRiskMessage(...values) {
+  for (const value of values) {
+    const riskMessage = getRiskMessage(value);
+    if (riskMessage) return riskMessage;
+  }
+  return "";
 }
 
 function formatRunLifecycleMessage(message) {
@@ -2184,7 +2231,11 @@ function formatActivityMessageText(message, fallback = t("activity_update")) {
   const lifecycleLabel = formatRunLifecycleMessage(normalized);
   if (lifecycleLabel) return lifecycleLabel;
 
-  const translationKey = ACTIVITY_MESSAGE_LABELS[normalized];
+  const messageKey = normalizeRiskReason(message);
+  const riskTranslationKey = RISK_MESSAGE_LABELS[messageKey];
+  if (riskTranslationKey) return t(riskTranslationKey);
+
+  const translationKey = ACTIVITY_MESSAGE_LABELS[messageKey] ?? ACTIVITY_MESSAGE_LABELS[normalized];
   if (translationKey) return t(translationKey);
 
   return humanizeMessage(message, fallback);
@@ -2195,8 +2246,8 @@ function formatActivityMessage(item) {
 }
 
 function activityStatus(item) {
-  const message = String(item?.message || "").toLowerCase();
-  const type = String(item?.type || "").toLowerCase();
+  const message = normalizeRiskReason(item?.message);
+  const type = normalizeRiskReason(item?.type);
 
   if (message === "buy_filled" || message === "sell_filled" || type === "order_filled") {
     return { label: t("activity_success"), className: "activity-status-success" };
@@ -2213,6 +2264,8 @@ function activityStatus(item) {
       "live_mode_not_implemented",
       "unsupported_strategy_type",
       "strategy_inactive",
+      "risk_limit_blocked",
+      "missing_price",
     ].includes(message)
   ) {
     return { label: t("activity_skipped"), className: "activity-status-skipped" };
@@ -2250,8 +2303,22 @@ function formatActivitySide(side) {
   return humanizeMessage(side);
 }
 
+function activityRiskReason(item) {
+  return firstAvailable(
+    item?.reason,
+    item?.detail,
+    item?.details?.reason,
+    item?.details?.detail,
+    item?.payload?.reason,
+    item?.payload?.detail,
+    item?.decision_explanation?.reason,
+    item?.decisionExplanation?.reason,
+  );
+}
+
 function activityDetailParts(item) {
   const parts = [];
+  const reason = activityRiskReason(item);
 
   if (item?.side) {
     parts.push(`${t("side_label")}: ${formatActivitySide(item.side)}`);
@@ -2264,6 +2331,9 @@ function activityDetailParts(item) {
   }
   if (item?.cooldown_until) {
     parts.push(`${t("cooldown_until")} ${formatDateTime(item.cooldown_until)}`);
+  }
+  if (reason) {
+    parts.push(`${t("reason_label")}: ${formatRiskReason(reason)}`);
   }
 
   return parts;
@@ -2449,9 +2519,25 @@ async function loadExecutionProfile(botId) {
 }
 
 function describeManualRunResult(result) {
+  const explanation = result?.decision_explanation ?? {};
+  const riskMessage = firstRiskMessage(
+    result?.message,
+    explanation.reason,
+    explanation.detail,
+    explanation.message,
+    result?.recent_activity_preview?.[0]?.message,
+  );
+  if (riskMessage) {
+    return {
+      text: riskMessage,
+      type: "note",
+    };
+  }
+
   const latestActivity = result?.recent_activity_preview?.[0]?.message;
+  const activityMessage = latestActivity || result?.message;
   const activityLabel = formatActivityMessageText(
-    latestActivity || result?.message,
+    activityMessage,
     t("activity_update"),
   );
 
@@ -3802,7 +3888,10 @@ function renderDecisionExplanation() {
 
   const reason = document.createElement("p");
   reason.className = "decision-reason";
-  reason.textContent = latestDecisionExplanation.reason || humanizeMessage(decision);
+  reason.textContent =
+    getRiskMessage(latestDecisionExplanation.reason) ||
+    latestDecisionExplanation.reasonLabel ||
+    humanizeMessage(latestDecisionExplanation.reason, humanizeMessage(decision));
 
   decisionPanel.append(heading, grid, reason);
 }
