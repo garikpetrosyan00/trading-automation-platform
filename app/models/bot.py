@@ -39,11 +39,18 @@ class Bot(Base):
     strategy: Mapped["Strategy"] = relationship(back_populates="bots")
     execution_profile: Mapped["ExecutionProfile | None"] = relationship(
         back_populates="bot",
+        cascade="all, delete-orphan",
         uselist=False,
     )
-    runs: Mapped[list["BotRun"]] = relationship(back_populates="bot")
+    runs: Mapped[list["BotRun"]] = relationship(
+        back_populates="bot",
+        cascade="all, delete-orphan",
+    )
     alert_rules: Mapped[list["AlertRule"]] = relationship(
         back_populates="bot",
         cascade="all, delete-orphan",
     )
-    alert_events: Mapped[list["AlertEvent"]] = relationship(back_populates="bot")
+    alert_events: Mapped[list["AlertEvent"]] = relationship(
+        back_populates="bot",
+        cascade="all, delete-orphan",
+    )

@@ -49,5 +49,11 @@ class BotRun(Base):
     )
 
     bot: Mapped["Bot"] = relationship(back_populates="runs")
-    alert_events: Mapped[list["AlertEvent"]] = relationship(back_populates="bot_run")
-    events: Mapped[list["RunEvent"]] = relationship(back_populates="bot_run")
+    alert_events: Mapped[list["AlertEvent"]] = relationship(
+        back_populates="bot_run",
+        passive_deletes=True,
+    )
+    events: Mapped[list["RunEvent"]] = relationship(
+        back_populates="bot_run",
+        cascade="all, delete-orphan",
+    )

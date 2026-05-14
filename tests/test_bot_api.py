@@ -1,6 +1,14 @@
+from datetime import datetime, timezone
+
 from fastapi.testclient import TestClient
+from sqlalchemy import select
 
 from app.main import app
+from app.models.alert_event import AlertEvent
+from app.models.alert_rule import AlertRule
+from app.models.bot_run import BotRun
+from app.models.execution_profile import ExecutionProfile
+from app.models.run_event import RunEvent
 from app.models.strategy import Strategy
 
 
@@ -275,3 +283,109 @@ def test_bot_list_includes_newly_created_bots_for_dashboard(
         "last_price",
         "updated_at",
     }
+
+
+def test_delete_bot_with_operational_history_cascades_owned_records(
+    db_session_factory,
+    stub_market_data_service,
+    bot_runner_factory,
+    bot_stack_factory,
+    configure_app_state,
+) -> None:
+    with db_session_factory() as session:
+        strategy, bot, profile = bot_stack_factory(session, status="active")
+        assert profile is not None
+
+        alert_rule = AlertRule(
+            bot_id=bot.id,
+            name="Risk Spike",
+            field_name="last_price",
+            operator="gt",
+            threshold_value="100",
+            severity="critical",
+        )
+        bot_run = BotRun(
+            bot_id=bot.id,
+            trigger_type="manual",
+            status="running",
+            summary="Bot runner active",
+        )
+        session.add_all([alert_rule, bot_run])
+        session.commit()
+        session.refresh(alert_rule)
+        session.refresh(bot_run)
+
+        run_event = RunEvent(
+            bot_run_id=bot_run.id,
+            event_type="lifecycle",
+            level="info",
+            message="Run started",
+            payload={"source": "test"},
+        )
+        alert_event = AlertEvent(
+            bot_id=bot.id,
+            bot_run_id=bot_run.id,
+            alert_rule_id=alert_rule.id,
+            status="triggered",
+            severity="critical",
+            field_name="last_price",
+            operator="gt",
+            threshold_value="100",
+            actual_value="125",
+            title="Risk Spike",
+            message="Price crossed threshold",
+            triggered_at=datetime.now(timezone.utc),
+        )
+        session.add_all([run_event, alert_event])
+        session.commit()
+
+        bot_id = bot.id
+        strategy_id = strategy.id
+        profile_id = profile.id
+        bot_run_id = bot_run.id
+        run_event_id = run_event.id
+        alert_rule_id = alert_rule.id
+        alert_event_id = alert_event.id
+
+    configure_app_state(
+        market_data_service=stub_market_data_service,
+        bot_runner=bot_runner_factory(),
+    )
+
+    with TestClient(app) as client:
+        delete_response = client.delete(f"/api/v1/bots/{bot_id}")
+        get_response = client.get(f"/api/v1/bots/{bot_id}")
+        list_response = client.get("/api/v1/bots")
+
+    assert delete_response.status_code == 204
+    assert get_response.status_code == 404
+    assert get_response.json()["error_code"] == "bot_not_found"
+    assert list_response.status_code == 200
+    assert bot_id not in [item["bot_id"] for item in list_response.json()["items"]]
+
+    with db_session_factory() as session:
+        assert session.get(Strategy, strategy_id) is not None
+        assert session.get(ExecutionProfile, profile_id) is None
+        assert session.get(BotRun, bot_run_id) is None
+        assert session.get(RunEvent, run_event_id) is None
+        assert session.get(AlertRule, alert_rule_id) is None
+        assert session.get(AlertEvent, alert_event_id) is None
+        assert session.scalars(select(BotRun).where(BotRun.bot_id == bot_id)).all() == []
+        assert session.scalars(select(AlertEvent).where(AlertEvent.bot_id == bot_id)).all() == []
+
+
+def test_delete_bot_not_found_behavior_is_unchanged(
+    stub_market_data_service,
+    bot_runner_factory,
+    configure_app_state,
+) -> None:
+    configure_app_state(
+        market_data_service=stub_market_data_service,
+        bot_runner=bot_runner_factory(),
+    )
+
+    with TestClient(app) as client:
+        response = client.delete("/api/v1/bots/999999")
+
+    assert response.status_code == 404
+    assert response.json()["error_code"] == "bot_not_found"

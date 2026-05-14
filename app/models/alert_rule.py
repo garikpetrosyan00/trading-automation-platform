@@ -65,7 +65,10 @@ class AlertRule(Base):
     )
 
     bot: Mapped["Bot"] = relationship(back_populates="alert_rules")
-    alert_events: Mapped[list["AlertEvent"]] = relationship(back_populates="alert_rule")
+    alert_events: Mapped[list["AlertEvent"]] = relationship(
+        back_populates="alert_rule",
+        passive_deletes=True,
+    )
     notification_rules: Mapped[list["NotificationRule"]] = relationship(
         back_populates="alert_rule",
         cascade="all, delete-orphan",
