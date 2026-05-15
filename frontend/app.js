@@ -174,6 +174,8 @@ const translations = {
     risk_settings_must_be_positive: "Risk settings must be positive numbers.",
     backtest: "Backtest",
     backtest_aria: "Run backtest",
+    backtest_overview:
+      "Backtests replay historical candles from the selected source. They are simulated, place no real orders, and depend on the selected Strategy plus available candle data.",
     run_backtest: "Run Backtest",
     running_backtest: "Running…",
     initial_balance_label: "Initial balance",
@@ -185,6 +187,19 @@ const translations = {
     could_not_run_backtest: "Could not run backtest.",
     backtest_strategy_not_found: "Strategy could not be found.",
     no_backtest_result: "Run a backtest to see simulated results.",
+    no_backtest_result_hint: "Use historical candles from the selected source; no real orders are placed.",
+    backtest_no_candle_data: "No candle data found for the selected Strategy/source.",
+    backtest_not_enough_candle_data: "Not enough candle data for this Strategy yet.",
+    backtest_no_trade_hint:
+      "No trades were opened. The Strategy may not have found a signal, or it may need more candle data.",
+    backtest_simulated_note: "Simulated only: no real orders are placed.",
+    backtest_data_note: "Historical candles: {source}",
+    backtest_strategy_data_note: "Results depend on this Strategy and available candle data.",
+    profit_factor_help: "Gross profit divided by gross loss; above 1.00 means wins outweighed losses.",
+    win_rate_help: "Percent of closed trades that ended profitable.",
+    total_return_help: "Change from initial balance to final balance.",
+    closed_trades_help: "Trades that fully exited a position.",
+    open_position_help: "Whether the simulation ended while still holding a position.",
     backtest_trade_actions: "Backtest Trades",
     action_time_label: "Time",
     cash_balance_label: "Cash balance",
@@ -208,7 +223,8 @@ const translations = {
     recent_backtests: "Recent Backtests",
     recent_backtests_aria: "Recent Backtests",
     loading_recent_backtests: "Loading recent backtests...",
-    no_backtests_yet: "No backtests yet. Run one for the selected strategy to build history.",
+    no_backtests_yet: "No recent backtests yet.",
+    no_backtests_yet_hint: "Run one for the selected Strategy to build history and compare results.",
     failed_to_load_backtest_history: "Failed to load backtest history.",
     refresh_backtest_history: "Refresh",
     refreshing_backtest_history: "Refreshing…",
@@ -506,6 +522,8 @@ const translations = {
     risk_settings_must_be_positive: "Risk կարգավորումները պետք է լինեն դրական թվեր։",
     backtest: "Backtest",
     backtest_aria: "Գործարկել backtest",
+    backtest_overview:
+      "Backtest-ը վերարտադրում է ընտրված աղբյուրի historical candle-ները։ Այն simulation է, իրական order-ներ չի տեղադրում և կախված է ընտրված Strategy-ից ու հասանելի candle տվյալներից։",
     run_backtest: "Գործարկել Backtest",
     running_backtest: "Գործարկվում է…",
     initial_balance_label: "Սկզբնական balance",
@@ -517,6 +535,19 @@ const translations = {
     could_not_run_backtest: "Չհաջողվեց գործարկել backtest-ը։",
     backtest_strategy_not_found: "Strategy-ն չգտնվեց։",
     no_backtest_result: "Գործարկիր backtest՝ simulation արդյունքները տեսնելու համար։",
+    no_backtest_result_hint: "Օգտագործում է ընտրված աղբյուրի historical candle-ները․ իրական order-ներ չեն տեղադրվում։",
+    backtest_no_candle_data: "Ընտրված Strategy/source-ի համար candle տվյալներ չկան։",
+    backtest_not_enough_candle_data: "Այս Strategy-ի համար candle տվյալները դեռ բավարար չեն։",
+    backtest_no_trade_hint:
+      "Trade չի բացվել։ Strategy-ն կարող էր signal չգտնել կամ ավելի շատ candle տվյալների կարիք ունենալ։",
+    backtest_simulated_note: "Միայն simulation է․ իրական order-ներ չեն տեղադրվում։",
+    backtest_data_note: "Historical candle-ներ՝ {source}",
+    backtest_strategy_data_note: "Արդյունքները կախված են այս Strategy-ից և հասանելի candle տվյալներից։",
+    profit_factor_help: "Ընդհանուր profit-ը բաժանած ընդհանուր loss-ի․ 1.00-ից բարձրն ավելի լավ է։",
+    win_rate_help: "Profit-ով ավարտված փակված trade-երի տոկոսը։",
+    total_return_help: "Սկզբնական balance-ից մինչև վերջնական balance փոփոխությունը։",
+    closed_trades_help: "Trade-եր, որոնք ամբողջությամբ փակել են position-ը։",
+    open_position_help: "Ցույց է տալիս՝ simulation-ի վերջում position մնացե՞լ է բաց։",
     backtest_trade_actions: "Backtest գործարքներ",
     action_time_label: "Ժամանակ",
     cash_balance_label: "Կանխիկ balance",
@@ -540,7 +571,8 @@ const translations = {
     recent_backtests: "Վերջին Backtest-երը",
     recent_backtests_aria: "Վերջին Backtest-եր",
     loading_recent_backtests: "Բեռնվում են վերջին backtest-երը...",
-    no_backtests_yet: "Backtest-եր դեռ չկան։ Գործարկիր մեկը ընտրված strategy-ի համար՝ history ստեղծելու համար։",
+    no_backtests_yet: "Վերջին backtest-եր դեռ չկան։",
+    no_backtests_yet_hint: "Գործարկիր մեկը ընտրված Strategy-ի համար՝ history ստեղծելու և արդյունքները համեմատելու համար։",
     failed_to_load_backtest_history: "Չհաջողվեց բեռնել backtest history-ն։",
     refresh_backtest_history: "Թարմացնել",
     refreshing_backtest_history: "Թարմացվում է…",
@@ -861,6 +893,7 @@ const riskSettingsSubmit = document.querySelector("#risk-settings-submit");
 const riskSettingsMessageEl = document.querySelector("#risk-settings-message");
 const backtestPanel = document.querySelector(".backtest-panel");
 const backtestHeading = document.querySelector("#backtest-heading");
+const backtestOverview = document.querySelector("#backtest-overview");
 const backtestForm = document.querySelector("#backtest-form");
 const backtestStrategyLabel = document.querySelector("#backtest-strategy-label");
 const backtestStrategyId = document.querySelector("#backtest-strategy-id");
@@ -1024,6 +1057,7 @@ function applyStaticTranslations() {
   riskStopLossPercentHelp.textContent = t("stop_loss_percent_help");
   riskSettingsSubmit.textContent = isSavingRiskSettings ? t("saving") : t("save");
   backtestHeading.textContent = t("backtest");
+  backtestOverview.textContent = t("backtest_overview");
   backtestPanel?.setAttribute("aria-label", t("backtest"));
   backtestForm.setAttribute("aria-label", t("backtest_aria"));
   backtestStrategyLabel.textContent = t("strategy");
@@ -1178,6 +1212,7 @@ function normalizeBacktestResult(rawResult) {
     bestTradePnl: rawResult.best_trade_pnl ?? null,
     worstTradePnl: rawResult.worst_trade_pnl ?? null,
     profitFactor: rawResult.profit_factor ?? null,
+    candlesProcessed: rawResult.candles_processed ?? rawResult.candlesProcessed ?? null,
     trades: Array.isArray(rawResult.trades) ? rawResult.trades.map(normalizeBacktestTrade) : [],
   };
 }
@@ -1225,6 +1260,34 @@ function normalizeBacktestHistoryItem(rawItem) {
 function normalizeBacktestHistoryResponse(data) {
   const rawItems = Array.isArray(data) ? data : data?.items ?? [];
   return Array.isArray(rawItems) ? rawItems.map(normalizeBacktestHistoryItem) : [];
+}
+
+function isBacktestDataIssueMessage(message) {
+  const normalized = normalizeRiskReason(message);
+  return (
+    normalized.includes("candle") ||
+    normalized.includes("market_data") ||
+    normalized.includes("historical_data") ||
+    normalized.includes("insufficient_data") ||
+    normalized.includes("not_enough_data")
+  );
+}
+
+function friendlyBacktestErrorMessage(error, fallback) {
+  const message = requestErrorMessage(error, fallback);
+  return isBacktestDataIssueMessage(message) ? t("backtest_not_enough_candle_data") : message;
+}
+
+function backtestResultNotice(result) {
+  if (!result) return "";
+  const candlesProcessed = Number(result.candlesProcessed);
+  if (Number.isFinite(candlesProcessed) && candlesProcessed === 0) {
+    return t("backtest_no_candle_data");
+  }
+  if ((Number.isFinite(candlesProcessed) && candlesProcessed > 0) && result.trades.length === 0) {
+    return t("backtest_no_trade_hint");
+  }
+  return "";
 }
 
 function comparableNumber(value) {
@@ -1924,15 +1987,38 @@ function renderBacktestPanel() {
 
   if (!backtestResult) {
     backtestResultEl.className = "backtest-result empty";
-    backtestResultEl.textContent = t("no_backtest_result");
+    const title = document.createElement("strong");
+    const hint = document.createElement("span");
+    title.textContent = t("no_backtest_result");
+    hint.textContent = t("no_backtest_result_hint");
+    backtestResultEl.append(title, hint);
     return;
   }
+
+  const notes = document.createElement("div");
+  notes.className = "backtest-result-notes";
+  [
+    t("backtest_simulated_note"),
+    t("backtest_data_note", { source: formatValue(backtestResult.source) }),
+    t("backtest_strategy_data_note"),
+  ].forEach((text) => {
+    const note = document.createElement("span");
+    note.textContent = text;
+    notes.append(note);
+  });
+
+  const resultNoticeText = backtestResultNotice(backtestResult);
+  const resultNotice = document.createElement("p");
+  resultNotice.className = "backtest-result-notice";
+  resultNotice.hidden = !resultNoticeText;
+  resultNotice.textContent = resultNoticeText;
 
   const rows = [
     { label: t("symbol"), value: formatValue(backtestResult.symbol) },
     { label: t("timeframe_label"), value: formatValue(backtestResult.timeframe) },
     { label: t("strategy_type_label"), value: humanizeMessage(backtestResult.strategyType) },
     { label: t("source_label"), value: formatValue(backtestResult.source) },
+    { label: t("candles_processed_label"), value: formatDecimal(backtestResult.candlesProcessed) },
     { label: t("initial_balance_label"), value: formatDecimal(backtestResult.initialBalance) },
     {
       label: t("final_balance_label"),
@@ -1953,13 +2039,15 @@ function renderBacktestPanel() {
       label: t("total_return_label"),
       value: formatDecimal(backtestResult.totalReturn),
       className: pnlClass(backtestResult.totalReturn),
+      help: t("total_return_help"),
     },
     {
       label: t("return_percent_label"),
       value: formatPercent(backtestResult.totalReturnPercent),
       className: pnlClass(backtestResult.totalReturnPercent),
+      help: t("total_return_help"),
     },
-    { label: t("win_rate_label"), value: formatPercent(backtestResult.winRate) },
+    { label: t("win_rate_label"), value: formatPercent(backtestResult.winRate), help: t("win_rate_help") },
     {
       label: t("average_trade_pnl_label"),
       value: formatDecimal(backtestResult.averageTradePnl),
@@ -1975,10 +2063,10 @@ function renderBacktestPanel() {
       value: formatDecimal(backtestResult.worstTradePnl),
       className: pnlClass(backtestResult.worstTradePnl),
     },
-    { label: t("profit_factor_label"), value: formatRatio(backtestResult.profitFactor) },
+    { label: t("profit_factor_label"), value: formatRatio(backtestResult.profitFactor), help: t("profit_factor_help") },
     { label: t("number_of_trades_label"), value: formatDecimal(backtestResult.numberOfTrades) },
-    { label: t("closed_trades_label"), value: formatDecimal(backtestResult.closedTrades) },
-    { label: t("open_position_label"), value: formatBoolean(backtestResult.openPosition) },
+    { label: t("closed_trades_label"), value: formatDecimal(backtestResult.closedTrades), help: t("closed_trades_help") },
+    { label: t("open_position_label"), value: formatBoolean(backtestResult.openPosition), help: t("open_position_help") },
   ];
   if (backtestResult.openPosition) {
     rows.push(
@@ -1994,9 +2082,15 @@ function renderBacktestPanel() {
     const label = document.createElement("dt");
     const value = document.createElement("dd");
     label.textContent = item.label;
+    if (item.help) label.title = item.help;
     value.textContent = item.value;
     if (item.className) value.classList.add(item.className);
     row.append(label, value);
+    if (item.help) {
+      const help = document.createElement("small");
+      help.textContent = item.help;
+      row.append(help);
+    }
     grid.append(row);
   });
 
@@ -2053,7 +2147,7 @@ function renderBacktestPanel() {
   }
 
   backtestResultEl.className = "backtest-result";
-  backtestResultEl.append(grid, tradesHeading, tradesList);
+  backtestResultEl.append(notes, resultNotice, grid, tradesHeading, tradesList);
 }
 
 function renderBacktestHistory() {
@@ -2071,13 +2165,19 @@ function renderBacktestHistory() {
 
   if (backtestHistoryError) {
     backtestHistoryEl.className = "backtest-history empty error";
-    backtestHistoryEl.textContent = backtestHistoryError || t("failed_to_load_backtest_history");
+    backtestHistoryEl.textContent = isBacktestDataIssueMessage(backtestHistoryError)
+      ? t("backtest_not_enough_candle_data")
+      : backtestHistoryError || t("failed_to_load_backtest_history");
     return;
   }
 
   if (backtestHistory.length === 0) {
     backtestHistoryEl.className = "backtest-history empty";
-    backtestHistoryEl.textContent = t("no_backtests_yet");
+    const title = document.createElement("strong");
+    const hint = document.createElement("span");
+    title.textContent = t("no_backtests_yet");
+    hint.textContent = t("no_backtests_yet_hint");
+    backtestHistoryEl.append(title, hint);
     return;
   }
 
@@ -2110,15 +2210,17 @@ function renderBacktestHistory() {
           label: t("total_return_label"),
           value: formatDecimal(bestRun.totalReturn),
           className: pnlClass(bestRun.totalReturn),
+          help: t("total_return_help"),
         },
-        { label: t("win_rate_label"), value: formatPercent(bestRun.winRate) },
-        { label: t("profit_factor_label"), value: formatRatio(bestRun.profitFactor) },
-        { label: t("closed_trades_label"), value: formatDecimal(bestRun.closedTrades) },
+        { label: t("win_rate_label"), value: formatPercent(bestRun.winRate), help: t("win_rate_help") },
+        { label: t("profit_factor_label"), value: formatRatio(bestRun.profitFactor), help: t("profit_factor_help") },
+        { label: t("closed_trades_label"), value: formatDecimal(bestRun.closedTrades), help: t("closed_trades_help") },
       ].forEach((metric) => {
         const group = document.createElement("div");
         const label = document.createElement("dt");
         const value = document.createElement("dd");
         label.textContent = metric.label;
+        if (metric.help) label.title = metric.help;
         value.textContent = metric.value;
         if (metric.className) value.classList.add(metric.className);
         group.append(label, value);
@@ -2182,14 +2284,16 @@ function renderBacktestHistory() {
         label: t("total_return_label"),
         value: formatDecimal(item.totalReturn),
         className: pnlClass(item.totalReturn),
+        help: t("total_return_help"),
       },
       {
         label: t("return_percent_label"),
         value: formatPercent(item.totalReturnPercent),
         className: pnlClass(item.totalReturnPercent),
+        help: t("total_return_help"),
       },
-      { label: t("win_rate_label"), value: formatPercent(item.winRate) },
-      { label: t("profit_factor_label"), value: formatRatio(item.profitFactor) },
+      { label: t("win_rate_label"), value: formatPercent(item.winRate), help: t("win_rate_help") },
+      { label: t("profit_factor_label"), value: formatRatio(item.profitFactor), help: t("profit_factor_help") },
       { label: t("number_of_trades_label"), value: formatDecimal(item.numberOfTrades) },
       {
         label: t("winning_losing_trades_label"),
@@ -2204,6 +2308,7 @@ function renderBacktestHistory() {
       const label = document.createElement("dt");
       const value = document.createElement("dd");
       label.textContent = metric.label;
+      if (metric.help) label.title = metric.help;
       value.textContent = metric.value;
       if (metric.className) value.classList.add(metric.className);
       group.append(label, value);
@@ -2601,7 +2706,7 @@ async function loadBacktestHistory() {
   } catch (error) {
     if (requestId !== backtestHistoryRequestId) return;
     backtestHistory = [];
-    backtestHistoryError = requestErrorMessage(error, t("failed_to_load_backtest_history"));
+    backtestHistoryError = friendlyBacktestErrorMessage(error, t("failed_to_load_backtest_history"));
   } finally {
     if (requestId !== backtestHistoryRequestId) return;
     isLoadingBacktestHistory = false;
@@ -3439,7 +3544,7 @@ async function submitBacktest(event) {
     backtestMessage =
       error?.status === 404
         ? t("backtest_strategy_not_found")
-        : requestErrorMessage(error, t("could_not_run_backtest"));
+        : friendlyBacktestErrorMessage(error, t("could_not_run_backtest"));
     backtestMessageType = "error";
   } finally {
     isRunningBacktest = false;

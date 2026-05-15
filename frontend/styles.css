@@ -1041,6 +1041,14 @@ dd {
   padding: 16px;
 }
 
+.backtest-overview {
+  margin: -2px 0 10px;
+  color: var(--muted);
+  font-size: 0.84rem;
+  font-weight: 800;
+  line-height: 1.4;
+}
+
 .backtest-actions {
   grid-column: 1 / -1;
   display: flex;
@@ -1070,6 +1078,36 @@ dd {
   margin-top: 12px;
 }
 
+.backtest-result-notes {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 0 0 10px;
+}
+
+.backtest-result-notes span {
+  display: inline-flex;
+  align-items: center;
+  min-height: 24px;
+  border-radius: 999px;
+  background: var(--blue-soft);
+  color: var(--blue);
+  padding: 0 9px;
+  font-size: 0.72rem;
+  font-weight: 850;
+}
+
+.backtest-result-notice {
+  margin: 0 0 10px;
+  border-radius: 8px;
+  background: var(--amber-soft);
+  color: var(--amber);
+  padding: 8px 10px;
+  font-size: 0.82rem;
+  font-weight: 850;
+  line-height: 1.35;
+}
+
 .backtest-history-panel {
   margin-top: 16px;
 }
@@ -1089,6 +1127,24 @@ dd {
 
 .backtest-history {
   margin-top: 0;
+}
+
+.backtest-result.empty,
+.backtest-history.empty {
+  display: grid;
+  gap: 4px;
+}
+
+.backtest-result.empty strong,
+.backtest-history.empty strong {
+  color: var(--ink);
+}
+
+.backtest-result.empty span,
+.backtest-history.empty span {
+  color: var(--muted);
+  font-size: 0.82rem;
+  line-height: 1.35;
 }
 
 .backtest-best-run,
@@ -1201,6 +1257,13 @@ dd {
 
 .backtest-history-metrics dd {
   font-size: 0.9rem;
+}
+
+.backtest-result-grid small {
+  color: var(--muted);
+  font-size: 0.72rem;
+  font-weight: 750;
+  line-height: 1.35;
 }
 
 .pnl-positive {
