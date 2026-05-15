@@ -156,13 +156,18 @@ const translations = {
     strategy_parameters_edit_unavailable: "Editing is not available for this strategy type yet.",
     risk_settings: "Risk Settings",
     risk_settings_aria: "Risk settings",
-    risk_settings_help: "Leave a field empty to disable that risk rule.",
+    risk_settings_help:
+      "These limits protect paper/live bot execution decisions. Leave a field empty to disable that rule.",
+    risk_rule_status_aria: "Risk rule status",
+    risk_rule_active: "Active: {value}",
+    risk_rule_disabled: "Disabled",
     max_trade_quantity_label: "Max trade quantity",
     max_position_quantity_label: "Max position quantity",
     stop_loss_percent_label: "Stop loss %",
     max_trade_quantity_help: "Blocks one trade above this quantity.",
-    max_position_quantity_help: "Blocks buys that would exceed this position size.",
-    stop_loss_percent_help: "Forces a sell when the open position drops by this percentage.",
+    max_position_quantity_help: "Blocks growing the total position above this quantity.",
+    stop_loss_percent_help:
+      "Protects the position when price moves against the entry by this percentage.",
     risk_settings_updated: "Risk settings updated.",
     risk_settings_save_failed: "Could not update Risk settings.",
     risk_settings_unavailable: "Risk settings unavailable.",
@@ -483,13 +488,18 @@ const translations = {
     strategy_parameters_edit_unavailable: "Այս strategy type-ի համար խմբագրումը դեռ հասանելի չէ։",
     risk_settings: "Risk կարգավորումներ",
     risk_settings_aria: "Risk կարգավորումներ",
-    risk_settings_help: "Դաշտը դատարկ թող՝ այդ risk կանոնն անջատելու համար։",
+    risk_settings_help:
+      "Այս սահմանափակումները պաշտպանում են paper/live bot-ի գործարքային որոշումները։ Դաշտը դատարկ թող՝ տվյալ կանոնն անջատելու համար։",
+    risk_rule_status_aria: "Risk կանոնների status",
+    risk_rule_active: "Ակտիվ՝ {value}",
+    risk_rule_disabled: "Անջատված",
     max_trade_quantity_label: "Առավելագույն trade quantity",
     max_position_quantity_label: "Առավելագույն position quantity",
     stop_loss_percent_label: "Stop loss %",
     max_trade_quantity_help: "Արգելում է մեկ trade, եթե quantity-ն այս արժեքից մեծ է։",
-    max_position_quantity_help: "Արգելում է buy-ը, եթե position-ի չափը կգերազանցի այս արժեքը։",
-    stop_loss_percent_help: "Ստիպում է sell, երբ բաց position-ը նվազում է այս տոկոսով։",
+    max_position_quantity_help: "Արգելում է total position-ը այս արժեքից բարձր մեծացնելը։",
+    stop_loss_percent_help:
+      "Պաշտպանում է position-ը, երբ գինը entry-ի դեմ շարժվում է այս տոկոսով։",
     risk_settings_updated: "Risk կարգավորումները թարմացվեցին։",
     risk_settings_save_failed: "Չհաջողվեց թարմացնել Risk կարգավորումները։",
     risk_settings_unavailable: "Risk կարգավորումները հասանելի չեն։",
@@ -836,6 +846,7 @@ const strategyParametersMessageEl = document.querySelector("#strategy-parameters
 const riskSettingsPanel = document.querySelector(".risk-settings-panel");
 const riskSettingsHeading = document.querySelector("#risk-settings-heading");
 const riskSettingsHelp = document.querySelector("#risk-settings-help");
+const riskSettingsSummary = document.querySelector("#risk-settings-summary");
 const riskSettingsForm = document.querySelector("#risk-settings-form");
 const riskMaxTradeQuantityLabel = document.querySelector("#risk-max-trade-quantity-label");
 const riskMaxTradeQuantity = document.querySelector("#risk-max-trade-quantity");
@@ -1002,6 +1013,7 @@ function applyStaticTranslations() {
     ?.setAttribute("aria-label", t("strategy_parameters"));
   riskSettingsHeading.textContent = t("risk_settings");
   riskSettingsPanel?.setAttribute("aria-label", t("risk_settings_aria"));
+  riskSettingsSummary?.setAttribute("aria-label", t("risk_rule_status_aria"));
   riskSettingsForm.setAttribute("aria-label", t("risk_settings_aria"));
   riskSettingsHelp.textContent = t("risk_settings_help");
   riskMaxTradeQuantityLabel.textContent = t("max_trade_quantity_label");
@@ -1602,6 +1614,31 @@ function riskSettingsPayload() {
   };
 }
 
+function riskRuleStatusLabel(value, formatter = formatDecimal) {
+  if (value === null || value === undefined || value === "") return t("risk_rule_disabled");
+  return t("risk_rule_active", { value: formatter(value) });
+}
+
+function riskSettingsSummaryRows() {
+  return [
+    {
+      label: t("max_trade_quantity_label"),
+      value: selectedExecutionProfile?.maxTradeQuantity,
+      formatter: formatDecimal,
+    },
+    {
+      label: t("max_position_quantity_label"),
+      value: selectedExecutionProfile?.maxPositionQuantity,
+      formatter: formatDecimal,
+    },
+    {
+      label: t("stop_loss_percent_label"),
+      value: selectedExecutionProfile?.stopLossPercent,
+      formatter: formatPercent,
+    },
+  ];
+}
+
 function populateExecutionSettingsForm() {
   executionExchangeName.value = selectedBotConfig?.exchangeName || "binance";
   executionIsPaper.checked = selectedBotConfig?.isPaper !== false;
@@ -1752,6 +1789,7 @@ function renderStrategyParametersForm() {
 function renderRiskSettingsForm() {
   const hasProfile = Boolean(selectedBotId && selectedExecutionProfile);
   riskSettingsPanel.hidden = !hasProfile;
+  riskSettingsSummary.innerHTML = "";
   const shouldDisable =
     !hasProfile ||
     isLoadingSummary ||
@@ -1770,6 +1808,23 @@ function renderRiskSettingsForm() {
   } else if (!hasProfile && !isSavingRiskSettings) {
     [riskMaxTradeQuantity, riskMaxPositionQuantity, riskStopLossPercent].forEach((input) => {
       input.value = "";
+    });
+  }
+
+  if (hasProfile) {
+    riskSettingsSummaryRows().forEach((item) => {
+      const isActive = item.value !== null && item.value !== undefined && item.value !== "";
+      const row = document.createElement("span");
+      const label = document.createElement("strong");
+      const status = document.createElement("span");
+      row.className = "risk-rule-status";
+      label.textContent = item.label;
+      status.className = isActive
+        ? "risk-rule-badge risk-rule-badge-active"
+        : "risk-rule-badge risk-rule-badge-disabled";
+      status.textContent = riskRuleStatusLabel(item.value, item.formatter);
+      row.append(label, status);
+      riskSettingsSummary.append(row);
     });
   }
 

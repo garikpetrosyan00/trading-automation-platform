@@ -957,6 +957,51 @@ dd {
   color: var(--muted);
   font-size: 0.84rem;
   font-weight: 800;
+  line-height: 1.4;
+}
+
+.risk-settings-summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 0 0 10px;
+}
+
+.risk-rule-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  min-height: 30px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fbfcfa;
+  padding: 4px 8px;
+}
+
+.risk-rule-status strong {
+  color: var(--muted);
+  font-size: 0.74rem;
+  font-weight: 850;
+}
+
+.risk-rule-badge {
+  display: inline-flex;
+  align-items: center;
+  min-height: 22px;
+  border-radius: 999px;
+  padding: 0 8px;
+  font-size: 0.72rem;
+  font-weight: 850;
+}
+
+.risk-rule-badge-active {
+  background: var(--green-soft);
+  color: var(--green);
+}
+
+.risk-rule-badge-disabled {
+  background: var(--surface-muted);
+  color: var(--muted);
 }
 
 .risk-settings-form {
