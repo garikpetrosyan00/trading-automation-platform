@@ -374,8 +374,9 @@ const translations = {
     activity_failed: "Failed",
     activity_running: "Running",
     activity_event: "Event",
-    order_filled: "Կատարված order",
-    run_event: "Run իրադարձություն",
+    order_filled: "Order filled",
+    run_event: "Run event",
+    bot_event: "Bot event",
     activity_buy_filled: "Buy order filled",
     activity_sell_filled: "Sell order filled",
     activity_order_filled: "Order filled",
@@ -722,11 +723,12 @@ const translations = {
     activity_failed: "Սխալ",
     activity_running: "Ընթացքում",
     activity_event: "Իրադարձություն",
-    order_filled: "Order filled",
-    run_event: "Run event",
+    order_filled: "Պատվերը կատարված է",
+    run_event: "Run իրադարձություն",
+    bot_event: "Bot իրադարձություն",
     activity_buy_filled: "Buy order-ը կատարվեց",
     activity_sell_filled: "Sell order-ը կատարվեց",
-    activity_order_filled: "Order-ը կատարվեց",
+    activity_order_filled: "Պատվերը կատարված է",
     activity_order_rejected: "Order-ը մերժվեց",
     activity_buy_signal: "Buy signal գտնվեց",
     activity_sell_signal: "Sell signal գտնվեց",
@@ -2514,8 +2516,10 @@ function activityStatus(item) {
 }
 
 function formatActivityType(item) {
-  if (item?.type === "order_filled") return t("order_filled");
-  if (item?.type === "run_event") return t("run_event");
+  const type = normalizeRiskReason(item?.type);
+  if (type === "order_filled") return t("order_filled");
+  if (type === "run_event") return t("run_event");
+  if (type === "bot_event") return t("bot_event");
   return humanizeMessage(item?.type, t("activity_event"));
 }
 
