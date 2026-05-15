@@ -1163,6 +1163,87 @@ dd {
   font-weight: 800;
 }
 
+.backtest-optimization-quality {
+  display: grid;
+  gap: 8px;
+  margin: 0 0 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fbfcfa;
+  padding: 12px;
+}
+
+.backtest-optimization-quality-heading strong {
+  font-size: 0.9rem;
+}
+
+.backtest-optimization-quality-stats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.backtest-optimization-quality-stats span {
+  display: inline-flex;
+  align-items: center;
+  min-height: 24px;
+  border-radius: 999px;
+  background: var(--surface-muted);
+  color: var(--muted);
+  padding: 0 9px;
+  font-size: 0.72rem;
+  font-weight: 850;
+}
+
+.backtest-optimization-warnings {
+  display: grid;
+  gap: 5px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.backtest-optimization-warnings li {
+  border-radius: 8px;
+  background: var(--amber-soft);
+  color: var(--amber);
+  padding: 7px 9px;
+  font-size: 0.78rem;
+  font-weight: 850;
+  line-height: 1.35;
+}
+
+.backtest-optimization-quality p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.78rem;
+  font-weight: 800;
+  line-height: 1.4;
+}
+
+.backtest-optimization-filter {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  width: fit-content;
+  min-height: 30px;
+  margin: 0 0 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--ink);
+  padding: 0 9px;
+  font-size: 0.8rem;
+  font-weight: 850;
+}
+
+.backtest-optimization-filter input {
+  width: 15px;
+  min-height: 15px;
+  margin: 0;
+  accent-color: var(--ink);
+}
+
 .backtest-optimization-list {
   display: grid;
   gap: 10px;
