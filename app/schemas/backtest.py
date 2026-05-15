@@ -1,6 +1,6 @@
 from datetime import datetime
 from decimal import Decimal
-from typing import Annotated
+from typing import Annotated, Any
 
 from pydantic import BaseModel, ConfigDict, Field, StringConstraints
 
@@ -12,6 +12,10 @@ class BacktestRunRequest(BaseModel):
     strategy_id: int
     initial_balance: PositiveDecimal
     source: NonEmptyStr | None = None
+
+
+class BacktestOptimizationRequest(BacktestRunRequest):
+    parameter_sets: list[dict[str, Any]] = Field(min_length=1, max_length=50)
 
 
 class BacktestTradeResponse(BaseModel):
@@ -90,3 +94,29 @@ class BacktestRunHistoryResponse(BaseModel):
     created_at: datetime
 
     model_config = ConfigDict(from_attributes=True)
+
+
+class BacktestOptimizationResultResponse(BaseModel):
+    rank: int
+    parameters: dict[str, Any]
+    final_balance: Decimal
+    total_return: Decimal
+    total_return_percent: Decimal | None = None
+    win_rate: Decimal | None = None
+    profit_factor: Decimal | None = None
+    number_of_trades: int
+    closed_trades: int
+    open_position: bool
+    position_quantity: Decimal
+    entry_price: Decimal | None = None
+
+
+class BacktestOptimizationResponse(BaseModel):
+    strategy_id: int
+    symbol: str
+    timeframe: str
+    strategy_type: str
+    source: str | None = None
+    initial_balance: Decimal
+    total_runs: int
+    results: list[BacktestOptimizationResultResponse]

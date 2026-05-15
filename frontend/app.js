@@ -29,8 +29,10 @@ let isSavingStrategyParameters = false;
 let isSavingRiskSettings = false;
 let isRunningBacktest = false;
 let isImportingBacktestCandles = false;
+let isRunningBacktestOptimization = false;
 let isLoadingBacktestHistory = false;
 let backtestStrategyTouched = false;
+let backtestOptimizationTouched = false;
 let symbolTouched = false;
 let botListError = "";
 let summaryError = "";
@@ -50,7 +52,10 @@ let backtestMessage = "";
 let backtestMessageType = "";
 let backtestImportMessage = "";
 let backtestImportMessageType = "";
+let backtestOptimizationMessage = "";
+let backtestOptimizationMessageType = "";
 let backtestResult = null;
+let backtestOptimizationResult = null;
 let backtestHistory = [];
 let backtestHistoryError = "";
 let backtestHistoryRequestId = 0;
@@ -192,6 +197,29 @@ const translations = {
     candle_import_invalid_timeframe:
       "Binance could not import candles for this timeframe. Try a supported Binance interval such as 1m, 5m, or 1h.",
     candle_import_network_failed: "Binance candle import failed. Check the symbol/timeframe or try again.",
+    parameter_optimization: "Parameter Optimization",
+    parameter_optimization_aria: "Parameter Optimization",
+    parameter_optimization_help:
+      "Test up to 50 parameter combinations against the same candles. Review results before applying parameters.",
+    run_optimization: "Run optimization",
+    running_optimization: "Optimizing…",
+    optimization_completed: "Optimization completed: {count} combinations ranked.",
+    optimization_failed: "Could not run optimization.",
+    optimization_no_result: "Run optimization to compare parameter combinations.",
+    optimization_max_sets: "Use 50 or fewer parameter combinations.",
+    optimization_positive_numbers: "Optimization values must be positive numbers.",
+    optimization_integer_windows: "Moving average windows must be positive integers.",
+    optimization_short_less_than_long: "Each short window must be smaller than each long window.",
+    optimization_unsupported_strategy: "Optimization is not available for this strategy type yet.",
+    optimization_price_help: "Comma-separated buy/sell thresholds generate every combination with the quantity.",
+    optimization_ma_help: "Comma-separated short/long windows generate every combination with the quantity.",
+    optimization_review_note: "Review results before applying parameters.",
+    buy_below_values_label: "Buy below values",
+    sell_above_values_label: "Sell above values",
+    short_window_values_label: "Short window values",
+    long_window_values_label: "Long window values",
+    rank_label: "Rank",
+    parameters_label: "Parameters",
     run_backtest: "Run Backtest",
     running_backtest: "Running…",
     initial_balance_label: "Initial balance",
@@ -554,6 +582,29 @@ const translations = {
     candle_import_invalid_timeframe:
       "Binance-ը չկարողացավ ներմուծել candle-ներ այս timeframe-ի համար։ Փորձիր Binance interval՝ 1m, 5m կամ 1h։",
     candle_import_network_failed: "Binance candle import-ը ձախողվեց։ Ստուգիր symbol/timeframe-ը կամ կրկին փորձիր։",
+    parameter_optimization: "Parameter Optimization",
+    parameter_optimization_aria: "Parameter Optimization",
+    parameter_optimization_help:
+      "Ստուգում է մինչև 50 parameter combination նույն candle-ների վրա։ Արդյունքները վերանայիր մինչև parameters կիրառելը։",
+    run_optimization: "Գործարկել optimization",
+    running_optimization: "Optimization է կատարվում…",
+    optimization_completed: "Optimization-ը ավարտվեց․ դասակարգվեց {count} combination։",
+    optimization_failed: "Չհաջողվեց գործարկել optimization-ը։",
+    optimization_no_result: "Գործարկիր optimization՝ parameter combination-ները համեմատելու համար։",
+    optimization_max_sets: "Օգտագործիր առավելագույնը 50 parameter combination։",
+    optimization_positive_numbers: "Optimization արժեքները պետք է լինեն դրական թվեր։",
+    optimization_integer_windows: "Moving average window-ները պետք է լինեն դրական ամբողջ թվեր։",
+    optimization_short_less_than_long: "Յուրաքանչյուր short window պետք է փոքր լինի յուրաքանչյուր long window-ից։",
+    optimization_unsupported_strategy: "Այս strategy type-ի համար optimization-ը դեռ հասանելի չէ։",
+    optimization_price_help: "Ստորակետերով buy/sell շեմերը quantity-ի հետ ստեղծում են բոլոր combination-ները։",
+    optimization_ma_help: "Ստորակետերով short/long window-ները quantity-ի հետ ստեղծում են բոլոր combination-ները։",
+    optimization_review_note: "Վերանայիր արդյունքները՝ parameters կիրառելուց առաջ։",
+    buy_below_values_label: "Buy below արժեքներ",
+    sell_above_values_label: "Sell above արժեքներ",
+    short_window_values_label: "Short window արժեքներ",
+    long_window_values_label: "Long window արժեքներ",
+    rank_label: "Դիրք",
+    parameters_label: "Parameters",
     run_backtest: "Գործարկել Backtest",
     running_backtest: "Գործարկվում է…",
     initial_balance_label: "Սկզբնական balance",
@@ -940,6 +991,18 @@ const backtestImportBinance = document.querySelector("#backtest-import-binance")
 const backtestImportMessageEl = document.querySelector("#backtest-import-message");
 const backtestSubmit = document.querySelector("#backtest-submit");
 const backtestMessageEl = document.querySelector("#backtest-message");
+const backtestOptimizationHeading = document.querySelector("#backtest-optimization-heading");
+const backtestOptimizationHelp = document.querySelector("#backtest-optimization-help");
+const backtestOptimizationForm = document.querySelector("#backtest-optimization-form");
+const optimizationFirstValuesLabel = document.querySelector("#optimization-first-values-label");
+const optimizationFirstValues = document.querySelector("#optimization-first-values");
+const optimizationSecondValuesLabel = document.querySelector("#optimization-second-values-label");
+const optimizationSecondValues = document.querySelector("#optimization-second-values");
+const optimizationQuantityLabel = document.querySelector("#optimization-quantity-label");
+const optimizationQuantity = document.querySelector("#optimization-quantity");
+const backtestOptimizationSubmit = document.querySelector("#backtest-optimization-submit");
+const backtestOptimizationMessageEl = document.querySelector("#backtest-optimization-message");
+const backtestOptimizationResultEl = document.querySelector("#backtest-optimization-result");
 const backtestResultEl = document.querySelector("#backtest-result");
 const backtestHistoryPanel = document.querySelector(".backtest-history-panel");
 const backtestHistoryHeading = document.querySelector("#backtest-history-heading");
@@ -1105,6 +1168,11 @@ function applyStaticTranslations() {
     ? t("importing_binance_candles")
     : t("import_binance_candles");
   backtestSubmit.textContent = isRunningBacktest ? t("running_backtest") : t("run_backtest");
+  backtestOptimizationHeading.textContent = t("parameter_optimization");
+  backtestOptimizationForm.setAttribute("aria-label", t("parameter_optimization_aria"));
+  backtestOptimizationSubmit.textContent = isRunningBacktestOptimization
+    ? t("running_optimization")
+    : t("run_optimization");
   backtestHistoryPanel?.setAttribute("aria-label", t("recent_backtests_aria"));
   backtestHistoryHeading.textContent = t("recent_backtests");
   refreshBacktestHistory.textContent = isLoadingBacktestHistory
@@ -1301,6 +1369,36 @@ function normalizeBacktestHistoryItem(rawItem) {
 function normalizeBacktestHistoryResponse(data) {
   const rawItems = Array.isArray(data) ? data : data?.items ?? [];
   return Array.isArray(rawItems) ? rawItems.map(normalizeBacktestHistoryItem) : [];
+}
+
+function normalizeOptimizationResultItem(rawItem) {
+  return {
+    rank: rawItem.rank ?? null,
+    parameters: rawItem.parameters && typeof rawItem.parameters === "object" ? rawItem.parameters : {},
+    finalBalance: rawItem.final_balance ?? null,
+    totalReturn: rawItem.total_return ?? null,
+    totalReturnPercent: rawItem.total_return_percent ?? null,
+    winRate: rawItem.win_rate ?? null,
+    profitFactor: rawItem.profit_factor ?? null,
+    numberOfTrades: rawItem.number_of_trades ?? 0,
+    closedTrades: rawItem.closed_trades ?? 0,
+    openPosition: rawItem.open_position ?? false,
+    positionQuantity: rawItem.position_quantity ?? null,
+    entryPrice: rawItem.entry_price ?? null,
+  };
+}
+
+function normalizeOptimizationResponse(data) {
+  return {
+    strategyId: data.strategy_id ?? null,
+    symbol: data.symbol ?? "",
+    timeframe: data.timeframe ?? "",
+    strategyType: normalizeStrategyType(data.strategy_type ?? ""),
+    source: data.source ?? null,
+    initialBalance: data.initial_balance ?? null,
+    totalRuns: data.total_runs ?? 0,
+    results: Array.isArray(data.results) ? data.results.map(normalizeOptimizationResultItem) : [],
+  };
 }
 
 function isBacktestDataIssueMessage(message) {
@@ -1997,6 +2095,76 @@ function renderExecutionSettingsForm() {
     : "form-message";
 }
 
+function optimizationParametersLabel(parameters) {
+  return Object.entries(parameters)
+    .map(([key, value]) => `${humanizeMessage(key, key)}: ${formatValue(value)}`)
+    .join(" · ");
+}
+
+function renderBacktestOptimizationResult() {
+  backtestOptimizationResultEl.innerHTML = "";
+  if (!backtestOptimizationResult?.results?.length) {
+    backtestOptimizationResultEl.className = "backtest-optimization-result empty";
+    backtestOptimizationResultEl.textContent = t("optimization_no_result");
+    return;
+  }
+
+  const note = document.createElement("p");
+  note.className = "backtest-optimization-note";
+  note.textContent = t("optimization_review_note");
+
+  const list = document.createElement("ol");
+  list.className = "backtest-optimization-list";
+  backtestOptimizationResult.results.forEach((item, index) => {
+    const row = document.createElement("li");
+    row.className = index === 0 ? "backtest-optimization-item best" : "backtest-optimization-item";
+
+    const header = document.createElement("div");
+    header.className = "backtest-optimization-item-header";
+    const rank = document.createElement("strong");
+    rank.textContent = `${t("rank_label")} ${formatDecimal(item.rank, String(index + 1))}`;
+    const parameters = document.createElement("span");
+    parameters.textContent = optimizationParametersLabel(item.parameters);
+    header.append(rank, parameters);
+
+    const metrics = document.createElement("dl");
+    metrics.className = "backtest-history-metrics";
+    [
+      {
+        label: t("return_percent_label"),
+        value: formatPercent(item.totalReturnPercent),
+        className: pnlClass(item.totalReturnPercent),
+      },
+      {
+        label: t("total_return_label"),
+        value: formatDecimal(item.totalReturn),
+        className: pnlClass(item.totalReturn),
+      },
+      { label: t("final_balance_label"), value: formatDecimal(item.finalBalance) },
+      { label: t("win_rate_label"), value: formatPercent(item.winRate) },
+      { label: t("profit_factor_label"), value: formatRatio(item.profitFactor) },
+      { label: t("number_of_trades_label"), value: formatDecimal(item.numberOfTrades) },
+      { label: t("closed_trades_label"), value: formatDecimal(item.closedTrades) },
+      { label: t("open_position_label"), value: formatBoolean(item.openPosition) },
+    ].forEach((metric) => {
+      const group = document.createElement("div");
+      const label = document.createElement("dt");
+      const value = document.createElement("dd");
+      label.textContent = metric.label;
+      value.textContent = metric.value;
+      if (metric.className) value.classList.add(metric.className);
+      group.append(label, value);
+      metrics.append(group);
+    });
+
+    row.append(header, metrics);
+    list.append(row);
+  });
+
+  backtestOptimizationResultEl.className = "backtest-optimization-result";
+  backtestOptimizationResultEl.append(note, list);
+}
+
 function renderBacktestPanel() {
   const preferredStrategyId = selectedBacktestStrategyId();
   renderStrategySelect(backtestStrategyId, preferredStrategyId);
@@ -2008,6 +2176,7 @@ function renderBacktestPanel() {
   const shouldDisable =
     isRunningBacktest ||
     isImportingBacktestCandles ||
+    isRunningBacktestOptimization ||
     isLoadingStrategies ||
     strategies.length === 0 ||
     Boolean(strategyLoadError);
@@ -2041,6 +2210,38 @@ function renderBacktestPanel() {
   backtestImportMessageEl.className = backtestImportMessageType
     ? `form-message ${backtestImportMessageType}`
     : "form-message";
+  populateOptimizationDefaults();
+  const strategyType = optimizationStrategyType();
+  const optimizationSupported = ["price_threshold", "moving_average_cross"].includes(strategyType);
+  optimizationFirstValuesLabel.textContent =
+    strategyType === "moving_average_cross" ? t("short_window_values_label") : t("buy_below_values_label");
+  optimizationSecondValuesLabel.textContent =
+    strategyType === "moving_average_cross" ? t("long_window_values_label") : t("sell_above_values_label");
+  optimizationQuantityLabel.textContent = t("quantity");
+  backtestOptimizationHelp.textContent =
+    t("parameter_optimization_help") +
+    " " +
+    (strategyType === "moving_average_cross" ? t("optimization_ma_help") : t("optimization_price_help"));
+  const shouldDisableOptimization = shouldDisable || !optimizationSupported;
+  [optimizationFirstValues, optimizationSecondValues, optimizationQuantity].forEach((input) => {
+    input.disabled = shouldDisableOptimization;
+  });
+  backtestOptimizationSubmit.textContent = isRunningBacktestOptimization
+    ? t("running_optimization")
+    : t("run_optimization");
+  backtestOptimizationSubmit.disabled = shouldDisableOptimization;
+  const visibleOptimizationMessage =
+    backtestOptimizationMessage || (!optimizationSupported ? t("optimization_unsupported_strategy") : "");
+  backtestOptimizationMessageEl.textContent = visibleOptimizationMessage;
+  backtestOptimizationMessageEl.className = backtestOptimizationMessageType
+    ? `form-message ${backtestOptimizationMessageType}`
+    : "form-message";
+  if (backtestOptimizationResult) {
+    renderBacktestOptimizationResult();
+  } else {
+    backtestOptimizationResultEl.className = "backtest-optimization-result empty";
+    backtestOptimizationResultEl.textContent = t("optimization_no_result");
+  }
 
   backtestResultEl.innerHTML = "";
   if (isRunningBacktest) {
@@ -2749,6 +2950,86 @@ function parseBacktestCandleLimit() {
   return Number.isInteger(parsed) && parsed >= 1 && parsed <= 500 ? parsed : null;
 }
 
+function optimizationStrategyType() {
+  return normalizeStrategyType(selectedBacktestStrategy()?.strategyType || selectedSummary?.strategyType);
+}
+
+function commaValues(value) {
+  return value
+    .split(",")
+    .map((item) => item.trim())
+    .filter(Boolean);
+}
+
+function parsePositiveOptimizationValues(value) {
+  const values = commaValues(value);
+  if (values.length === 0) return null;
+  return values.every((item) => parsePositiveParameter(item) !== null) ? values : null;
+}
+
+function parsePositiveOptimizationIntegers(value) {
+  const values = commaValues(value);
+  if (values.length === 0) return null;
+  return values.every((item) => parsePositiveIntegerParameter(item) !== null) ? values : null;
+}
+
+function nearbyOptimizationValues(value, fallback) {
+  const parsed = Number(value);
+  const base = Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+  return [base * 0.98, base, base * 1.02]
+    .map((item) => item.toFixed(8).replace(/\.?0+$/, ""))
+    .join(", ");
+}
+
+function populateOptimizationDefaults() {
+  if (backtestOptimizationTouched) return;
+  const strategy = selectedBacktestStrategy();
+  const parameters = strategy?.parameters ?? {};
+  const strategyType = optimizationStrategyType();
+
+  if (strategyType === "moving_average_cross") {
+    optimizationFirstValues.value = "5, 10";
+    optimizationSecondValues.value = "20, 30";
+    optimizationQuantity.value = formatValue(parameters.quantity, "1");
+    return;
+  }
+
+  optimizationFirstValues.value = nearbyOptimizationValues(parameters.buy_below, 100);
+  optimizationSecondValues.value = nearbyOptimizationValues(parameters.sell_above, 110);
+  optimizationQuantity.value = formatValue(parameters.quantity, "1");
+}
+
+function optimizationParameterSets() {
+  const strategyType = optimizationStrategyType();
+  const quantity = optimizationQuantity.value.trim();
+  if (parsePositiveParameter(quantity) === null) return { error: t("optimization_positive_numbers") };
+
+  if (strategyType === "price_threshold") {
+    const buyBelowValues = parsePositiveOptimizationValues(optimizationFirstValues.value);
+    const sellAboveValues = parsePositiveOptimizationValues(optimizationSecondValues.value);
+    if (!buyBelowValues || !sellAboveValues) return { error: t("optimization_positive_numbers") };
+    const parameterSets = buyBelowValues.flatMap((buyBelow) =>
+      sellAboveValues.map((sellAbove) => ({ buy_below: buyBelow, sell_above: sellAbove, quantity })),
+    );
+    return parameterSets.length > 50 ? { error: t("optimization_max_sets") } : { parameterSets };
+  }
+
+  if (strategyType === "moving_average_cross") {
+    const shortWindowValues = parsePositiveOptimizationIntegers(optimizationFirstValues.value);
+    const longWindowValues = parsePositiveOptimizationIntegers(optimizationSecondValues.value);
+    if (!shortWindowValues || !longWindowValues) return { error: t("optimization_integer_windows") };
+    const parameterSets = shortWindowValues.flatMap((shortWindow) =>
+      longWindowValues.map((longWindow) => ({ short_window: shortWindow, long_window: longWindow, quantity })),
+    );
+    if (parameterSets.some((parameters) => Number(parameters.short_window) >= Number(parameters.long_window))) {
+      return { error: t("optimization_short_less_than_long") };
+    }
+    return parameterSets.length > 50 ? { error: t("optimization_max_sets") } : { parameterSets };
+  }
+
+  return { error: t("optimization_unsupported_strategy") };
+}
+
 function validateBacktestForm() {
   if (strategyLoadError) {
     return t("could_not_load_strategies", { detail: strategyLoadError });
@@ -2932,7 +3213,10 @@ function clearSelectedBotMessages() {
   backtestMessageType = "";
   backtestImportMessage = "";
   backtestImportMessageType = "";
+  backtestOptimizationMessage = "";
+  backtestOptimizationMessageType = "";
   backtestResult = null;
+  backtestOptimizationResult = null;
   backtestHistory = [];
   backtestHistoryError = "";
   backtestHistoryRequestId += 1;
@@ -2956,7 +3240,8 @@ function hasInFlightAction() {
     isSavingStrategyParameters ||
     isSavingRiskSettings ||
     isRunningBacktest ||
-    isImportingBacktestCandles
+    isImportingBacktestCandles ||
+    isRunningBacktestOptimization
   );
 }
 
@@ -3683,6 +3968,62 @@ async function importBacktestBinanceCandles(event) {
     backtestImportMessageType = "error";
   } finally {
     isImportingBacktestCandles = false;
+    render();
+  }
+}
+
+async function submitBacktestOptimization(event) {
+  event.preventDefault();
+  if (isRunningBacktestOptimization || isRunningBacktest || isImportingBacktestCandles) return;
+
+  const validationError = validateBacktestForm();
+  if (validationError) {
+    backtestOptimizationMessage = validationError;
+    backtestOptimizationMessageType = "error";
+    render();
+    return;
+  }
+
+  const generated = optimizationParameterSets();
+  if (generated.error) {
+    backtestOptimizationMessage = generated.error;
+    backtestOptimizationMessageType = "error";
+    render();
+    return;
+  }
+
+  const payload = {
+    strategy_id: Number(selectedBacktestStrategyId()),
+    initial_balance: backtestInitialBalance.value.trim(),
+    parameter_sets: generated.parameterSets,
+  };
+  const source = backtestSource.value.trim();
+  if (source) {
+    payload.source = source;
+  }
+
+  isRunningBacktestOptimization = true;
+  backtestOptimizationMessage = "";
+  backtestOptimizationMessageType = "";
+  backtestOptimizationResult = null;
+  render();
+
+  try {
+    const result = await fetchJson("/api/v1/backtests/optimize", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+    backtestOptimizationResult = normalizeOptimizationResponse(result);
+    backtestOptimizationMessage = t("optimization_completed", {
+      count: formatDecimal(backtestOptimizationResult.totalRuns),
+    });
+    backtestOptimizationMessageType = "success";
+  } catch (error) {
+    backtestOptimizationMessage = requestErrorMessage(error, t("optimization_failed"));
+    backtestOptimizationMessageType = "error";
+  } finally {
+    isRunningBacktestOptimization = false;
     render();
   }
 }
@@ -4426,6 +4767,7 @@ riskSettingsForm.addEventListener("submit", submitRiskSettings);
 backtestForm.addEventListener("submit", submitBacktest);
 backtestSubmit.addEventListener("click", submitBacktest);
 backtestImportBinance.addEventListener("click", importBacktestBinanceCandles);
+backtestOptimizationForm.addEventListener("submit", submitBacktestOptimization);
 refreshBacktestHistory.addEventListener("click", loadBacktestHistory);
 priceForm.addEventListener("submit", updateMarketPrice);
 binancePriceFetch.addEventListener("click", fetchBinancePriceForSelectedBot);
@@ -4439,7 +4781,16 @@ backtestStrategyId.addEventListener("change", () => {
   backtestMessageType = "";
   backtestImportMessage = "";
   backtestImportMessageType = "";
+  backtestOptimizationMessage = "";
+  backtestOptimizationMessageType = "";
+  backtestOptimizationResult = null;
+  backtestOptimizationTouched = false;
   renderBacktestPanel();
+});
+[optimizationFirstValues, optimizationSecondValues, optimizationQuantity].forEach((input) => {
+  input.addEventListener("input", () => {
+    backtestOptimizationTouched = true;
+  });
 });
 
 document.documentElement.lang = currentLanguage === "am" ? "hy" : "en";

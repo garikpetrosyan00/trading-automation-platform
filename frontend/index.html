@@ -358,6 +358,31 @@
                 <span id="backtest-import-message" class="form-message" role="status"></span>
               </div>
             </form>
+            <section class="backtest-optimization" aria-label="Parameter Optimization">
+              <div class="panel-heading compact-heading backtest-optimization-heading">
+                <h3 id="backtest-optimization-heading">Parameter Optimization</h3>
+              </div>
+              <p id="backtest-optimization-help" class="backtest-optimization-help"></p>
+              <form id="backtest-optimization-form" class="backtest-optimization-form" aria-label="Parameter Optimization">
+                <label>
+                  <span id="optimization-first-values-label">Buy below values</span>
+                  <input id="optimization-first-values" autocomplete="off" />
+                </label>
+                <label>
+                  <span id="optimization-second-values-label">Sell above values</span>
+                  <input id="optimization-second-values" autocomplete="off" />
+                </label>
+                <label>
+                  <span id="optimization-quantity-label">Quantity</span>
+                  <input id="optimization-quantity" inputmode="decimal" autocomplete="off" />
+                </label>
+                <div class="backtest-optimization-actions">
+                  <button id="backtest-optimization-submit" type="submit">Run optimization</button>
+                  <span id="backtest-optimization-message" class="form-message" role="status"></span>
+                </div>
+              </form>
+              <div id="backtest-optimization-result" class="backtest-optimization-result empty"></div>
+            </section>
             <div id="backtest-result" class="backtest-result empty"></div>
             <section class="backtest-history-panel" aria-label="Recent Backtests">
               <div class="panel-heading compact-heading backtest-history-heading">

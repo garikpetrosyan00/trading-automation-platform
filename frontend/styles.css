@@ -1100,6 +1100,107 @@ dd {
   margin-top: 12px;
 }
 
+.backtest-optimization {
+  margin-top: 16px;
+}
+
+.backtest-optimization-heading {
+  border-bottom: 0;
+  margin-bottom: 8px;
+  min-height: 34px;
+  padding: 0;
+}
+
+.backtest-optimization-heading h3 {
+  margin: 0;
+  font-size: 0.88rem;
+}
+
+.backtest-optimization-help {
+  margin: 0 0 10px;
+  color: var(--muted);
+  font-size: 0.82rem;
+  font-weight: 800;
+  line-height: 1.4;
+}
+
+.backtest-optimization-form {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fbfcfa;
+  padding: 14px;
+}
+
+.backtest-optimization-actions {
+  grid-column: 1 / -1;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.backtest-optimization-result {
+  margin-top: 10px;
+}
+
+.backtest-optimization-result.empty {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fbfcfa;
+  color: var(--muted);
+  padding: 12px;
+  font-size: 0.84rem;
+  font-weight: 800;
+}
+
+.backtest-optimization-note {
+  margin: 0 0 10px;
+  color: var(--muted);
+  font-size: 0.78rem;
+  font-weight: 800;
+}
+
+.backtest-optimization-list {
+  display: grid;
+  gap: 10px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.backtest-optimization-item {
+  display: grid;
+  gap: 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface);
+  padding: 12px;
+}
+
+.backtest-optimization-item.best {
+  border-color: rgba(31, 122, 77, 0.35);
+  background: #f6fbf8;
+}
+
+.backtest-optimization-item-header {
+  display: grid;
+  gap: 4px;
+}
+
+.backtest-optimization-item-header strong {
+  color: var(--green);
+}
+
+.backtest-optimization-item-header span {
+  color: var(--muted);
+  font-size: 0.82rem;
+  font-weight: 800;
+  line-height: 1.35;
+}
+
 .backtest-result-notes {
   display: flex;
   flex-wrap: wrap;
@@ -1507,6 +1608,7 @@ dd {
   .execution-settings-form,
   .strategy-parameters-form,
   .risk-settings-form,
+  .backtest-optimization-form,
   .backtest-form,
   .backtest-import {
     grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -1549,6 +1651,7 @@ dd {
   .execution-settings-form,
   .strategy-parameters-form,
   .risk-settings-form,
+  .backtest-optimization-form,
   .backtest-result-grid,
   .backtest-history-metrics,
   .backtest-form,

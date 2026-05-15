@@ -1,4 +1,6 @@
 from decimal import Decimal
+from types import SimpleNamespace
+from typing import Any
 
 from app.engine.backtesting import BacktestingEngine, BacktestResult
 from app.models.backtest_run import BacktestRun
@@ -23,7 +25,7 @@ class BacktestService:
         initial_balance: Decimal,
         source: str | None = None,
     ) -> tuple[BacktestResult, BacktestRun]:
-        result = BacktestingEngine(self.market_candle_repository).run(
+        result = self.run(
             strategy=strategy,
             initial_balance=initial_balance,
             source=source,
@@ -56,6 +58,29 @@ class BacktestService:
             profit_factor=result.profit_factor,
         )
         return result, self.backtest_run_repository.create(backtest_run)
+
+    def run(
+        self,
+        *,
+        strategy: Strategy,
+        initial_balance: Decimal,
+        source: str | None = None,
+        parameter_overrides: dict[str, Any] | None = None,
+    ) -> BacktestResult:
+        parameters = dict(strategy.parameters or {})
+        if parameter_overrides:
+            parameters.update(parameter_overrides)
+        strategy_for_run = SimpleNamespace(
+            symbol=strategy.symbol,
+            timeframe=strategy.timeframe,
+            strategy_type=strategy.strategy_type,
+            parameters=parameters,
+        )
+        return BacktestingEngine(self.market_candle_repository).run(
+            strategy=strategy_for_run,
+            initial_balance=initial_balance,
+            source=source,
+        )
 
     def list_recent(self, *, strategy_id: int | None = None, limit: int = 50) -> list[BacktestRun]:
         return self.backtest_run_repository.list_recent(strategy_id=strategy_id, limit=limit)

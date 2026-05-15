@@ -351,3 +351,158 @@ def test_run_price_threshold_backtest_behavior_is_preserved_through_api(
     assert body["trades"][1]["position_quantity"] == "0"
     assert body["trades"][1]["realized_pnl"] == "10.00000000"
     assert body["trades"][1]["decision_reason"] == "price is above strategy sell_above and position exists"
+
+
+def test_optimize_price_threshold_backtest_ranks_parameter_sets_and_does_not_mutate_strategy(
+    db_session,
+    stub_market_data_service,
+    noop_bot_runner,
+    configure_app_state,
+) -> None:
+    configure_app_state(market_data_service=stub_market_data_service, bot_runner=noop_bot_runner)
+    strategy = create_price_threshold_strategy(db_session)
+    original_parameters = dict(strategy.parameters)
+    add_candles(db_session, closes=["10", "20"])
+
+    with TestClient(app) as client:
+        response = client.post(
+            "/api/v1/backtests/optimize",
+            json={
+                "strategy_id": strategy.id,
+                "initial_balance": "100",
+                "source": "manual",
+                "parameter_sets": [
+                    {"buy_below": "11", "sell_above": "19", "quantity": "1"},
+                    {"buy_below": "9", "sell_above": "19", "quantity": "1"},
+                    {"entry_below": "11", "exit_above": "19", "quantity": "2"},
+                ],
+            },
+        )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["strategy_id"] == strategy.id
+    assert body["symbol"] == "BTCUSDT"
+    assert body["timeframe"] == "1m"
+    assert body["strategy_type"] == "price_threshold"
+    assert body["source"] == "manual"
+    assert body["initial_balance"] == "100"
+    assert body["total_runs"] == 3
+    assert [result["rank"] for result in body["results"]] == [1, 2, 3]
+    assert body["results"][0]["parameters"] == {"buy_below": "11", "sell_above": "19", "quantity": "2"}
+    assert body["results"][0]["total_return_percent"] == "20.00000000"
+    assert body["results"][1]["parameters"] == {"buy_below": "11", "sell_above": "19", "quantity": "1"}
+    assert body["results"][1]["total_return_percent"] == "10.00000000"
+    assert body["results"][2]["number_of_trades"] == 0
+    assert body["results"][2]["closed_trades"] == 0
+
+    db_session.refresh(strategy)
+    assert strategy.parameters == original_parameters
+
+
+def test_optimize_moving_average_cross_backtest_ranks_parameter_sets(
+    db_session,
+    stub_market_data_service,
+    noop_bot_runner,
+    configure_app_state,
+) -> None:
+    configure_app_state(market_data_service=stub_market_data_service, bot_runner=noop_bot_runner)
+    strategy = create_moving_average_strategy(db_session)
+    add_candles(db_session, closes=["10", "10", "10", "20", "25"])
+
+    with TestClient(app) as client:
+        response = client.post(
+            "/api/v1/backtests/optimize",
+            json={
+                "strategy_id": strategy.id,
+                "initial_balance": "100",
+                "source": "manual",
+                "parameter_sets": [
+                    {"short_window": "2", "long_window": "3", "quantity": "1"},
+                    {"short_window": "2", "long_window": "4", "quantity": "1"},
+                ],
+            },
+        )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["strategy_type"] == "moving_average_cross"
+    assert body["total_runs"] == 2
+    assert body["results"][0]["rank"] == 1
+    assert body["results"][0]["parameters"] == {"short_window": "2", "long_window": "3", "quantity": "1"}
+    assert body["results"][0]["total_return_percent"] == "5.00000000"
+    assert body["results"][1]["number_of_trades"] == 0
+
+
+def test_optimize_backtest_rejects_empty_parameter_sets(
+    db_session,
+    stub_market_data_service,
+    noop_bot_runner,
+    configure_app_state,
+) -> None:
+    configure_app_state(market_data_service=stub_market_data_service, bot_runner=noop_bot_runner)
+    strategy = create_price_threshold_strategy(db_session)
+
+    with TestClient(app) as client:
+        response = client.post(
+            "/api/v1/backtests/optimize",
+            json={
+                "strategy_id": strategy.id,
+                "initial_balance": "100",
+                "parameter_sets": [],
+            },
+        )
+
+    assert response.status_code == 422
+    assert response.json()["detail"] == "Request validation failed"
+
+
+def test_optimize_backtest_rejects_too_many_parameter_sets(
+    db_session,
+    stub_market_data_service,
+    noop_bot_runner,
+    configure_app_state,
+) -> None:
+    configure_app_state(market_data_service=stub_market_data_service, bot_runner=noop_bot_runner)
+    strategy = create_price_threshold_strategy(db_session)
+
+    with TestClient(app) as client:
+        response = client.post(
+            "/api/v1/backtests/optimize",
+            json={
+                "strategy_id": strategy.id,
+                "initial_balance": "100",
+                "parameter_sets": [
+                    {"buy_below": "11", "sell_above": "19", "quantity": "1"}
+                    for _ in range(51)
+                ],
+            },
+        )
+
+    assert response.status_code == 422
+    assert response.json()["detail"] == "Request validation failed"
+
+
+def test_optimize_backtest_rejects_invalid_moving_average_windows(
+    db_session,
+    stub_market_data_service,
+    noop_bot_runner,
+    configure_app_state,
+) -> None:
+    configure_app_state(market_data_service=stub_market_data_service, bot_runner=noop_bot_runner)
+    strategy = create_moving_average_strategy(db_session)
+
+    with TestClient(app) as client:
+        response = client.post(
+            "/api/v1/backtests/optimize",
+            json={
+                "strategy_id": strategy.id,
+                "initial_balance": "100",
+                "parameter_sets": [
+                    {"short_window": "5", "long_window": "5", "quantity": "1"},
+                ],
+            },
+        )
+
+    assert response.status_code == 422
+    assert response.json()["error_code"] == "invalid_optimization_parameters"
