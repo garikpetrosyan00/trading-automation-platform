@@ -292,9 +292,30 @@ const translations = {
     risk_max_position_quantity_exceeded: "Position limit would be exceeded.",
     risk_stop_loss_triggered: "Stop-loss rule was triggered.",
     risk_missing_price: "Risk check could not run because the price is missing.",
+    decision_reason_label: "Decision / reason",
+    risk_reason_label: "Risk reason",
+    decision_bought: "Bought",
+    decision_sold: "Sold",
+    decision_buy: "Buy",
+    decision_sell: "Sell",
+    decision_hold: "Hold",
+    decision_skipped: "Skipped",
+    decision_reason_buy_threshold_reached: "Buy signal. Current price is below the buy target.",
+    decision_reason_sell_threshold_reached: "Sell signal. Current price is above the sell target.",
+    decision_reason_no_buy_signal: "No buy signal. Current price is above the buy target.",
+    decision_reason_no_sell_signal: "Holding position. Current price is below the sell target.",
+    decision_reason_ma_buy_signal: "Buy signal. Moving averages crossed upward.",
+    decision_reason_ma_sell_signal: "Sell signal. Moving averages crossed downward.",
+    decision_reason_ma_no_buy_signal: "No buy signal. Moving averages have not crossed upward.",
+    decision_reason_ma_no_sell_signal: "Holding position. Moving averages have not crossed downward.",
+    decision_reason_insufficient_candles: "Not enough candle data to make a decision.",
+    decision_reason_no_latest_price: "No latest price is available.",
+    decision_reason_strategy_not_supported: "This strategy type is not supported yet.",
+    decision_reason_invalid_strategy_parameter: "Strategy parameters need attention.",
+    decision_reason_order_quantity_missing: "Order quantity is not configured.",
     current_price_label: "Current price",
-    buy_threshold_label: "Buy threshold",
-    sell_threshold_label: "Sell threshold",
+    buy_threshold_label: "Buy below",
+    sell_threshold_label: "Sell above",
     position_qty_label: "Position qty",
     decision_label: "Decision",
     request_failed_404: "The requested Bot could not be found.",
@@ -592,15 +613,36 @@ const translations = {
     manual_run_completed: "Manual run-ը ավարտվեց։ {activity}։",
     manual_run_skipped: "Manual run-ը բաց թողնվեց։ {activity}։",
     manual_run_checked: "Manual run-ը ստուգեց Bot-ը։ {activity}։",
-    decision_explanation: "Decision Explanation",
+    decision_explanation: "Որոշման բացատրություն",
     risk_limit_blocked_message: "Գործարքը արգելափակվեց ռիսկի կարգավորումներով։",
     risk_max_trade_quantity_exceeded: "Գործարքի քանակը գերազանցում է թույլատրելի սահմանը։",
     risk_max_position_quantity_exceeded: "Դիրքի սահմանաչափը կգերազանցվի։",
     risk_stop_loss_triggered: "Stop-loss կանոնը գործարկվեց։",
     risk_missing_price: "Ռիսկի ստուգումը հնարավոր չէ կատարել, քանի որ գինը բացակայում է։",
+    decision_reason_label: "Որոշում / պատճառ",
+    risk_reason_label: "Ռիսկի պատճառ",
+    decision_bought: "Գնվեց",
+    decision_sold: "Վաճառվեց",
+    decision_buy: "Buy",
+    decision_sell: "Sell",
+    decision_hold: "Պահել",
+    decision_skipped: "Բաց թողնվեց",
+    decision_reason_buy_threshold_reached: "Buy signal կա․ ընթացիկ գինը buy թիրախից ցածր է։",
+    decision_reason_sell_threshold_reached: "Sell signal կա․ ընթացիկ գինը sell թիրախից բարձր է։",
+    decision_reason_no_buy_signal: "Buy signal չկա․ ընթացիկ գինը buy թիրախից բարձր է։",
+    decision_reason_no_sell_signal: "Position-ը պահվում է․ ընթացիկ գինը sell թիրախից ցածր է։",
+    decision_reason_ma_buy_signal: "Buy signal կա․ moving average-ները վերև են հատվել։",
+    decision_reason_ma_sell_signal: "Sell signal կա․ moving average-ները ներքև են հատվել։",
+    decision_reason_ma_no_buy_signal: "Buy signal չկա․ moving average-ները վերև չեն հատվել։",
+    decision_reason_ma_no_sell_signal: "Position-ը պահվում է․ moving average-ները ներքև չեն հատվել։",
+    decision_reason_insufficient_candles: "Որոշում կայացնելու համար candle տվյալները բավարար չեն։",
+    decision_reason_no_latest_price: "Վերջին գինը հասանելի չէ։",
+    decision_reason_strategy_not_supported: "Այս strategy type-ը դեռ չի աջակցվում։",
+    decision_reason_invalid_strategy_parameter: "Strategy-ի պարամետրերը պետք է ստուգել։",
+    decision_reason_order_quantity_missing: "Order-ի քանակը կարգավորված չէ։",
     current_price_label: "Ընթացիկ գին",
-    buy_threshold_label: "Buy շեմ",
-    sell_threshold_label: "Sell շեմ",
+    buy_threshold_label: "Buy-ից ցածր",
+    sell_threshold_label: "Sell-ից բարձր",
     position_qty_label: "Position քանակ",
     decision_label: "Որոշում",
     request_failed_404: "Պահանջված Bot-ը չգտնվեց։",
@@ -856,6 +898,25 @@ const RISK_MESSAGE_LABELS = {
   missing_price: "risk_missing_price",
 };
 
+const DECISION_REASON_LABELS = {
+  entry_threshold_reached: "decision_reason_buy_threshold_reached",
+  price_is_below_strategy_buy_below: "decision_reason_buy_threshold_reached",
+  exit_threshold_reached: "decision_reason_sell_threshold_reached",
+  price_is_above_strategy_sell_above_and_position_exists: "decision_reason_sell_threshold_reached",
+  entry_threshold_not_met: "decision_reason_no_buy_signal",
+  price_did_not_go_below_buy_below_so_no_buy_signal: "decision_reason_no_buy_signal",
+  exit_threshold_not_met: "decision_reason_no_sell_signal",
+  price_did_not_go_above_sell_above_so_no_sell_signal: "decision_reason_no_sell_signal",
+  short_moving_average_crossed_above_long_moving_average: "decision_reason_ma_buy_signal",
+  short_moving_average_crossed_below_long_moving_average: "decision_reason_ma_sell_signal",
+  moving_averages_did_not_cross_bullish_so_no_buy_signal: "decision_reason_ma_no_buy_signal",
+  moving_averages_did_not_cross_bearish_so_no_sell_signal: "decision_reason_ma_no_sell_signal",
+  insufficient_candles: "decision_reason_insufficient_candles",
+  no_latest_price: "decision_reason_no_latest_price",
+  invalid_strategy_parameter: "decision_reason_invalid_strategy_parameter",
+  order_quantity_not_configured: "decision_reason_order_quantity_missing",
+};
+
 function setLanguage(language) {
   currentLanguage = SUPPORTED_LANGUAGES.has(language) ? language : DEFAULT_LANGUAGE;
   window.localStorage.setItem(LANGUAGE_STORAGE_KEY, currentLanguage);
@@ -1070,12 +1131,14 @@ function normalizeDecisionExplanation(rawExplanation) {
   const reason = firstAvailable(rawExplanation.reason, rawExplanation.detail, rawExplanation.message, "");
   const reasonLabel = getRiskMessage(reason) || humanizeMessage(reason, reason);
   return {
-    currentPrice: rawExplanation.current_price ?? null,
-    buyBelow: rawExplanation.buy_below ?? null,
-    sellAbove: rawExplanation.sell_above ?? null,
-    positionQty: rawExplanation.position_qty ?? null,
+    currentPrice: rawExplanation.current_price ?? rawExplanation.currentPrice ?? null,
+    buyBelow: rawExplanation.buy_below ?? rawExplanation.buyBelow ?? null,
+    sellAbove: rawExplanation.sell_above ?? rawExplanation.sellAbove ?? null,
+    positionQty: rawExplanation.position_qty ?? rawExplanation.positionQty ?? null,
     decision: rawExplanation.decision ?? "",
     reason,
+    detail: rawExplanation.detail ?? "",
+    message: rawExplanation.message ?? "",
     reasonLabel,
   };
 }
@@ -2569,6 +2632,44 @@ function decisionClass(decision) {
   return "decision-skipped";
 }
 
+function formatDecisionLabel(decision) {
+  const normalized = normalizeRiskReason(decision);
+  const labels = {
+    bought: "decision_bought",
+    sold: "decision_sold",
+    buy: "decision_buy",
+    sell: "decision_sell",
+    hold: "decision_hold",
+    no_action: "decision_hold",
+    skipped: "decision_skipped",
+  };
+  const translationKey = labels[normalized];
+  return translationKey ? t(translationKey) : humanizeMessage(decision, t("activity_event"));
+}
+
+function getDecisionReasonMessage(reason) {
+  const normalized = normalizeRiskReason(reason);
+  if (normalized.startsWith("unsupported_strategy_type")) {
+    return t("decision_reason_strategy_not_supported");
+  }
+
+  const translationKey = DECISION_REASON_LABELS[normalized];
+  return translationKey ? t(translationKey) : "";
+}
+
+function formatDecisionReason(explanation) {
+  return (
+    firstRiskMessage(explanation?.reason, explanation?.detail, explanation?.message) ||
+    getDecisionReasonMessage(explanation?.reason) ||
+    getDecisionReasonMessage(explanation?.detail) ||
+    getDecisionReasonMessage(explanation?.message) ||
+    formatActivityMessageText(
+      explanation?.reason,
+      explanation?.reasonLabel || formatDecisionLabel(explanation?.decision),
+    )
+  );
+}
+
 function clearSelectedBotMessages() {
   actionMessage = "";
   actionMessageType = "";
@@ -2805,6 +2906,7 @@ async function runSelectedBotNow() {
   isRunningNow = true;
   actionMessage = "";
   actionMessageType = "";
+  latestDecisionExplanation = null;
   render();
 
   try {
@@ -3854,11 +3956,20 @@ function renderSummary() {
 function renderDecisionExplanation() {
   decisionPanel.innerHTML = "";
   decisionPanel.hidden = !latestDecisionExplanation;
+  decisionPanel.setAttribute("aria-label", t("decision_explanation"));
 
   if (!latestDecisionExplanation) return;
 
   const decision = latestDecisionExplanation.decision || t("activity_event");
+  const decisionLabel = formatDecisionLabel(decision);
+  const reasonLabel = formatDecisionReason(latestDecisionExplanation);
+  const riskReason = firstRiskMessage(
+    latestDecisionExplanation.detail,
+    latestDecisionExplanation.message,
+    latestDecisionExplanation.reason,
+  );
   const rows = [
+    { label: t("decision_reason_label"), value: reasonLabel },
     { label: t("current_price_label"), value: formatDecimal(latestDecisionExplanation.currentPrice) },
     { label: t("buy_threshold_label"), value: formatDecimal(latestDecisionExplanation.buyBelow) },
     { label: t("sell_threshold_label"), value: formatDecimal(latestDecisionExplanation.sellAbove) },
@@ -3871,6 +3982,9 @@ function renderDecisionExplanation() {
     const row = document.createElement("div");
     const label = document.createElement("dt");
     const value = document.createElement("dd");
+    if (item.label === t("decision_reason_label")) {
+      row.className = "decision-reason-cell";
+    }
     label.textContent = item.label;
     value.textContent = item.value;
     row.append(label, value);
@@ -3883,17 +3997,23 @@ function renderDecisionExplanation() {
   const badge = document.createElement("span");
   title.textContent = t("decision_explanation");
   badge.className = `decision-badge ${decisionClass(decision)}`;
-  badge.textContent = humanizeMessage(decision, t("activity_event"));
+  badge.textContent = decisionLabel;
   heading.append(title, badge);
 
-  const reason = document.createElement("p");
-  reason.className = "decision-reason";
-  reason.textContent =
-    getRiskMessage(latestDecisionExplanation.reason) ||
-    latestDecisionExplanation.reasonLabel ||
-    humanizeMessage(latestDecisionExplanation.reason, humanizeMessage(decision));
+  const chips = document.createElement("div");
+  chips.className = "decision-chips";
+  const decisionChip = document.createElement("span");
+  decisionChip.className = `decision-chip ${decisionClass(decision)}`;
+  decisionChip.textContent = `${t("decision_label")}: ${decisionLabel}`;
+  chips.append(decisionChip);
+  if (riskReason) {
+    const riskChip = document.createElement("span");
+    riskChip.className = "decision-chip decision-risk";
+    riskChip.textContent = `${t("risk_reason_label")}: ${riskReason}`;
+    chips.append(riskChip);
+  }
 
-  decisionPanel.append(heading, grid, reason);
+  decisionPanel.append(heading, chips, grid);
 }
 
 function renderRefreshControl() {

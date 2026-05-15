@@ -710,9 +710,30 @@ button.danger-button:disabled {
   color: var(--amber);
 }
 
+.decision-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.decision-chip {
+  display: inline-flex;
+  align-items: center;
+  min-height: 26px;
+  border-radius: 999px;
+  padding: 0 10px;
+  font-size: 0.75rem;
+  font-weight: 850;
+}
+
+.decision-risk {
+  background: var(--amber-soft);
+  color: var(--amber);
+}
+
 .decision-grid {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
   gap: 10px;
   margin: 0;
 }
@@ -720,6 +741,20 @@ button.danger-button:disabled {
 .decision-grid div {
   display: grid;
   gap: 5px;
+  min-width: 0;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface);
+  padding: 10px;
+}
+
+.decision-grid .decision-reason-cell {
+  grid-column: span 2;
+}
+
+.decision-grid dd {
+  line-height: 1.35;
+  overflow-wrap: anywhere;
 }
 
 .decision-reason {
@@ -1387,6 +1422,10 @@ dd {
   .backtest-history-metrics,
   .backtest-form {
     grid-template-columns: 1fr;
+  }
+
+  .decision-grid .decision-reason-cell {
+    grid-column: 1;
   }
 }
 
