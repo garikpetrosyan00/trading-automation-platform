@@ -28,6 +28,7 @@ let isEditingStrategyParameters = false;
 let isSavingStrategyParameters = false;
 let isSavingRiskSettings = false;
 let isRunningBacktest = false;
+let isImportingBacktestCandles = false;
 let isLoadingBacktestHistory = false;
 let backtestStrategyTouched = false;
 let symbolTouched = false;
@@ -47,6 +48,8 @@ let riskSettingsMessage = "";
 let riskSettingsMessageType = "";
 let backtestMessage = "";
 let backtestMessageType = "";
+let backtestImportMessage = "";
+let backtestImportMessageType = "";
 let backtestResult = null;
 let backtestHistory = [];
 let backtestHistoryError = "";
@@ -176,6 +179,19 @@ const translations = {
     backtest_aria: "Run backtest",
     backtest_overview:
       "Backtests replay historical candles from the selected source. They are simulated, place no real orders, and depend on the selected Strategy plus available candle data.",
+    import_binance_candles: "Import Binance candles",
+    importing_binance_candles: "Importing…",
+    candle_limit_label: "Candles",
+    candle_limit_help: "Import 1-500 recent candles for the selected Strategy.",
+    candle_import_completed: "Imported or updated {count} Binance candles for {symbol} {timeframe}.",
+    candle_import_failed: "Could not import Binance candles.",
+    candle_import_validation_failed: "Enter a candle limit from 1 to 500.",
+    candle_import_strategy_missing: "Select a Strategy with symbol and timeframe first.",
+    candle_import_invalid_symbol:
+      "Binance could not import candles for this symbol. Check the Strategy symbol, for example BTCUSDT.",
+    candle_import_invalid_timeframe:
+      "Binance could not import candles for this timeframe. Try a supported Binance interval such as 1m, 5m, or 1h.",
+    candle_import_network_failed: "Binance candle import failed. Check the symbol/timeframe or try again.",
     run_backtest: "Run Backtest",
     running_backtest: "Running…",
     initial_balance_label: "Initial balance",
@@ -525,6 +541,19 @@ const translations = {
     backtest_aria: "Գործարկել backtest",
     backtest_overview:
       "Backtest-ը վերարտադրում է ընտրված աղբյուրի historical candle-ները։ Այն simulation է, իրական order-ներ չի տեղադրում և կախված է ընտրված Strategy-ից ու հասանելի candle տվյալներից։",
+    import_binance_candles: "Import Binance candles",
+    importing_binance_candles: "Ներմուծվում է…",
+    candle_limit_label: "Candle-ներ",
+    candle_limit_help: "Ներմուծում է ընտրված Strategy-ի վերջին 1-500 candle-ները։",
+    candle_import_completed: "{symbol} {timeframe}-ի համար ներմուծվեց կամ թարմացվեց {count} Binance candle։",
+    candle_import_failed: "Չհաջողվեց ներմուծել Binance candle-ները։",
+    candle_import_validation_failed: "Մուտքագրիր candle limit՝ 1-ից 500։",
+    candle_import_strategy_missing: "Նախ ընտրիր symbol և timeframe ունեցող Strategy։",
+    candle_import_invalid_symbol:
+      "Binance-ը չկարողացավ ներմուծել candle-ներ այս symbol-ի համար։ Ստուգիր Strategy-ի symbol-ը, օրինակ՝ BTCUSDT։",
+    candle_import_invalid_timeframe:
+      "Binance-ը չկարողացավ ներմուծել candle-ներ այս timeframe-ի համար։ Փորձիր Binance interval՝ 1m, 5m կամ 1h։",
+    candle_import_network_failed: "Binance candle import-ը ձախողվեց։ Ստուգիր symbol/timeframe-ը կամ կրկին փորձիր։",
     run_backtest: "Գործարկել Backtest",
     running_backtest: "Գործարկվում է…",
     initial_balance_label: "Սկզբնական balance",
@@ -904,6 +933,11 @@ const backtestInitialBalanceLabel = document.querySelector("#backtest-initial-ba
 const backtestInitialBalance = document.querySelector("#backtest-initial-balance");
 const backtestSourceLabel = document.querySelector("#backtest-source-label");
 const backtestSource = document.querySelector("#backtest-source");
+const backtestCandleLimitLabel = document.querySelector("#backtest-candle-limit-label");
+const backtestCandleLimit = document.querySelector("#backtest-candle-limit");
+const backtestCandleLimitHelp = document.querySelector("#backtest-candle-limit-help");
+const backtestImportBinance = document.querySelector("#backtest-import-binance");
+const backtestImportMessageEl = document.querySelector("#backtest-import-message");
 const backtestSubmit = document.querySelector("#backtest-submit");
 const backtestMessageEl = document.querySelector("#backtest-message");
 const backtestResultEl = document.querySelector("#backtest-result");
@@ -1065,6 +1099,11 @@ function applyStaticTranslations() {
   backtestStrategyLabel.textContent = t("strategy");
   backtestInitialBalanceLabel.textContent = t("initial_balance_label");
   backtestSourceLabel.textContent = t("source_label");
+  backtestCandleLimitLabel.textContent = t("candle_limit_label");
+  backtestCandleLimitHelp.textContent = t("candle_limit_help");
+  backtestImportBinance.textContent = isImportingBacktestCandles
+    ? t("importing_binance_candles")
+    : t("import_binance_candles");
   backtestSubmit.textContent = isRunningBacktest ? t("running_backtest") : t("run_backtest");
   backtestHistoryPanel?.setAttribute("aria-label", t("recent_backtests_aria"));
   backtestHistoryHeading.textContent = t("recent_backtests");
@@ -1278,6 +1317,19 @@ function isBacktestDataIssueMessage(message) {
 function friendlyBacktestErrorMessage(error, fallback) {
   const message = requestErrorMessage(error, fallback);
   return isBacktestDataIssueMessage(message) ? t("backtest_not_enough_candle_data") : message;
+}
+
+function friendlyCandleImportErrorMessage(error) {
+  if (error?.status === 422) return t("candle_import_validation_failed");
+
+  const message = String(error?.message || "");
+  const normalized = normalizeRiskReason(message);
+  if (normalized.includes("symbol")) return t("candle_import_invalid_symbol");
+  if (normalized.includes("timeframe") || normalized.includes("interval")) return t("candle_import_invalid_timeframe");
+  if (normalized.includes("binance") || normalized.includes("network") || error?.status === 502) {
+    return t("candle_import_network_failed");
+  }
+  return requestErrorMessage(error, t("candle_import_failed"));
 }
 
 function backtestResultNotice(result) {
@@ -1955,12 +2007,18 @@ function renderBacktestPanel() {
 
   const shouldDisable =
     isRunningBacktest ||
+    isImportingBacktestCandles ||
     isLoadingStrategies ||
     strategies.length === 0 ||
     Boolean(strategyLoadError);
   backtestStrategyId.disabled = shouldDisable;
-  backtestInitialBalance.disabled = isRunningBacktest;
-  backtestSource.disabled = isRunningBacktest;
+  backtestInitialBalance.disabled = isRunningBacktest || isImportingBacktestCandles;
+  backtestSource.disabled = isRunningBacktest || isImportingBacktestCandles;
+  backtestCandleLimit.disabled = isRunningBacktest || isImportingBacktestCandles;
+  backtestImportBinance.textContent = isImportingBacktestCandles
+    ? t("importing_binance_candles")
+    : t("import_binance_candles");
+  backtestImportBinance.disabled = shouldDisable;
   backtestSubmit.textContent = isRunningBacktest ? t("running_backtest") : t("run_backtest");
   backtestSubmit.disabled = shouldDisable;
   backtestStrategyHelp.textContent = isLoadingStrategies
@@ -1978,6 +2036,10 @@ function renderBacktestPanel() {
     (strategies.length === 0 && !isLoadingStrategies ? t("no_strategies_available") : "");
   backtestMessageEl.className = backtestMessageType
     ? `form-message ${backtestMessageType}`
+    : "form-message";
+  backtestImportMessageEl.textContent = backtestImportMessage;
+  backtestImportMessageEl.className = backtestImportMessageType
+    ? `form-message ${backtestImportMessageType}`
     : "form-message";
 
   backtestResultEl.innerHTML = "";
@@ -2668,6 +2730,25 @@ function selectedBacktestStrategyId() {
   return backtestStrategyId.value || strategies[0]?.id || "";
 }
 
+function selectedBacktestStrategy() {
+  const strategyId = selectedBacktestStrategyId();
+  return strategies.find((strategy) => botIdsEqual(strategy.id, strategyId)) ?? null;
+}
+
+function selectedBacktestCandleTarget() {
+  const strategy = selectedBacktestStrategy();
+  const symbol = formatValue(strategy?.symbol || selectedSummary?.symbol, "").trim().toUpperCase();
+  const timeframe = formatValue(strategy?.timeframe || selectedSummary?.strategyTimeframe, "").trim();
+  return { strategy, symbol, timeframe };
+}
+
+function parseBacktestCandleLimit() {
+  const trimmed = backtestCandleLimit.value.trim();
+  if (!/^[1-9]\d*$/.test(trimmed)) return null;
+  const parsed = Number(trimmed);
+  return Number.isInteger(parsed) && parsed >= 1 && parsed <= 500 ? parsed : null;
+}
+
 function validateBacktestForm() {
   if (strategyLoadError) {
     return t("could_not_load_strategies", { detail: strategyLoadError });
@@ -2849,6 +2930,8 @@ function clearSelectedBotMessages() {
   riskSettingsMessageType = "";
   backtestMessage = "";
   backtestMessageType = "";
+  backtestImportMessage = "";
+  backtestImportMessageType = "";
   backtestResult = null;
   backtestHistory = [];
   backtestHistoryError = "";
@@ -2872,7 +2955,8 @@ function hasInFlightAction() {
     isCreatingExecutionProfile ||
     isSavingStrategyParameters ||
     isSavingRiskSettings ||
-    isRunningBacktest
+    isRunningBacktest ||
+    isImportingBacktestCandles
   );
 }
 
@@ -3552,6 +3636,53 @@ async function submitBacktest(event) {
     backtestMessageType = "error";
   } finally {
     isRunningBacktest = false;
+    render();
+  }
+}
+
+async function importBacktestBinanceCandles(event) {
+  event.preventDefault();
+  if (isImportingBacktestCandles || isRunningBacktest) return;
+
+  const { symbol, timeframe } = selectedBacktestCandleTarget();
+  const limit = parseBacktestCandleLimit();
+  if (!symbol || !timeframe) {
+    backtestImportMessage = t("candle_import_strategy_missing");
+    backtestImportMessageType = "error";
+    render();
+    return;
+  }
+  if (limit === null) {
+    backtestImportMessage = t("candle_import_validation_failed");
+    backtestImportMessageType = "error";
+    render();
+    return;
+  }
+
+  isImportingBacktestCandles = true;
+  backtestImportMessage = "";
+  backtestImportMessageType = "";
+  render();
+
+  try {
+    const result = await fetchJson("/api/v1/market/binance/candles", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ symbol, timeframe, limit }),
+    });
+    backtestSource.value = "binance";
+    backtestImportMessage = t("candle_import_completed", {
+      count: formatDecimal(result?.stored_count ?? result?.candles?.length ?? 0),
+      symbol: formatValue(result?.symbol, symbol),
+      timeframe: formatValue(result?.timeframe, timeframe),
+    });
+    backtestImportMessageType = "success";
+    await loadBacktestHistory();
+  } catch (error) {
+    backtestImportMessage = friendlyCandleImportErrorMessage(error);
+    backtestImportMessageType = "error";
+  } finally {
+    isImportingBacktestCandles = false;
     render();
   }
 }
@@ -4294,6 +4425,7 @@ strategyParametersForm.addEventListener("submit", submitStrategyParameters);
 riskSettingsForm.addEventListener("submit", submitRiskSettings);
 backtestForm.addEventListener("submit", submitBacktest);
 backtestSubmit.addEventListener("click", submitBacktest);
+backtestImportBinance.addEventListener("click", importBacktestBinanceCandles);
 refreshBacktestHistory.addEventListener("click", loadBacktestHistory);
 priceForm.addEventListener("submit", updateMarketPrice);
 binancePriceFetch.addEventListener("click", fetchBinancePriceForSelectedBot);
@@ -4305,6 +4437,8 @@ backtestStrategyId.addEventListener("change", () => {
   backtestResult = null;
   backtestMessage = "";
   backtestMessageType = "";
+  backtestImportMessage = "";
+  backtestImportMessageType = "";
   renderBacktestPanel();
 });
 

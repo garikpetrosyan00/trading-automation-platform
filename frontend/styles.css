@@ -1058,6 +1058,28 @@ dd {
   padding-top: 2px;
 }
 
+.backtest-import {
+  grid-column: 1 / -1;
+  display: grid;
+  grid-template-columns: minmax(150px, 0.45fr) auto minmax(180px, 1fr);
+  gap: 10px;
+  align-items: end;
+  border-top: 1px solid var(--line);
+  padding-top: 10px;
+}
+
+.backtest-import small {
+  display: block;
+  margin-top: 4px;
+  color: var(--muted);
+  font-size: 0.78rem;
+  line-height: 1.35;
+}
+
+.backtest-import .form-message {
+  align-self: end;
+}
+
 .backtest-actions button {
   min-width: 132px;
 }
@@ -1485,7 +1507,8 @@ dd {
   .execution-settings-form,
   .strategy-parameters-form,
   .risk-settings-form,
-  .backtest-form {
+  .backtest-form,
+  .backtest-import {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
@@ -1528,7 +1551,8 @@ dd {
   .risk-settings-form,
   .backtest-result-grid,
   .backtest-history-metrics,
-  .backtest-form {
+  .backtest-form,
+  .backtest-import {
     grid-template-columns: 1fr;
   }
 
