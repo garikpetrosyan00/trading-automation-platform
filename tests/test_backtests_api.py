@@ -573,6 +573,13 @@ def test_optimize_backtest_accepts_valid_partial_candidate_merged_with_base_para
     body = response.json()
     assert body["total_runs"] == 1
     assert body["results"][0]["parameters"] == {"quantity": "2"}
+    assert body["results"][0]["base_parameters"] == original_parameters
+    assert body["results"][0]["parameter_overrides"] == {"quantity": "2"}
+    assert body["results"][0]["effective_parameters"] == {
+        "buy_below": "11",
+        "sell_above": "19",
+        "quantity": "2",
+    }
     assert body["results"][0]["total_return_percent"] == "20.00000000"
 
     db_session.refresh(strategy)

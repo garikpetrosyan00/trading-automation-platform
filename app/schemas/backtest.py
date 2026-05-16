@@ -101,6 +101,9 @@ class BacktestRunHistoryResponse(BaseModel):
 class BacktestOptimizationResultResponse(BaseModel):
     rank: int
     parameters: dict[str, Any]
+    base_parameters: dict[str, Any]
+    parameter_overrides: dict[str, Any]
+    effective_parameters: dict[str, Any]
     final_balance: Decimal
     total_return: Decimal
     total_return_percent: Decimal | None = None

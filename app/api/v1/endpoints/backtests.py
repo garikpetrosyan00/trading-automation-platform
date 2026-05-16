@@ -183,15 +183,15 @@ def optimization_quality(
 
 
 def ranked_optimization_results(
-    results: list[tuple[int, dict[str, str], Any, dict[str, Any]]],
-) -> list[tuple[int, dict[str, str], Any, dict[str, Any]]]:
+    results: list[tuple[int, dict[str, Any], dict[str, str], dict[str, Any], Any, dict[str, Any]]],
+) -> list[tuple[int, dict[str, Any], dict[str, str], dict[str, Any], Any, dict[str, Any]]]:
     return sorted(
         results,
         key=lambda item: (
-            item[3]["passes_quality_filters"],
-            metric_sort_value(item[2].total_return_percent),
-            metric_sort_value(item[2].total_return),
-            Decimal(item[2].closed_trades),
+            item[5]["passes_quality_filters"],
+            metric_sort_value(item[4].total_return_percent),
+            metric_sort_value(item[4].total_return),
+            Decimal(item[4].closed_trades),
             Decimal(-item[0]),
         ),
         reverse=True,
@@ -241,34 +241,46 @@ async def run_backtest(payload: BacktestRunRequest, db: DbSession) -> BacktestRe
 async def optimize_backtest(payload: BacktestOptimizationRequest, db: DbSession) -> BacktestOptimizationResponse:
     strategy = get_strategy_service(db).get_by_id(payload.strategy_id)
     strategy_type = strategy.strategy_type or PRICE_THRESHOLD_STRATEGY_TYPE
-    base_parameters = strategy.parameters or {}
-    normalized_parameter_sets = [
-        normalize_optimization_parameters(
-            strategy_type,
-            parameters,
-            base_parameters=base_parameters,
-            index=index,
+    base_parameters = dict(strategy.parameters or {})
+    optimization_candidates = [
+        (
+            index,
+            dict(submitted_parameters),
+            normalized_parameters,
+            {**base_parameters, **normalized_parameters},
         )
-        for index, parameters in enumerate(payload.parameter_sets)
+        for index, submitted_parameters in enumerate(payload.parameter_sets)
+        for normalized_parameters in [
+            normalize_optimization_parameters(
+                strategy_type,
+                submitted_parameters,
+                base_parameters=base_parameters,
+                index=index,
+            )
+        ]
     ]
     backtest_service = get_backtest_service(db)
     raw_results = [
         (
             index,
-            parameters,
+            submitted_parameters,
+            parameter_overrides,
+            effective_parameters,
             backtest_service.run(
                 strategy=strategy,
                 initial_balance=payload.initial_balance,
                 source=payload.source,
-                parameter_overrides=parameters,
+                parameter_overrides=parameter_overrides,
             ),
         )
-        for index, parameters in enumerate(normalized_parameter_sets)
+        for index, submitted_parameters, parameter_overrides, effective_parameters in optimization_candidates
     ]
     raw_results_with_quality = [
         (
             index,
-            parameters,
+            submitted_parameters,
+            parameter_overrides,
+            effective_parameters,
             result,
             optimization_quality(
                 result,
@@ -276,15 +288,18 @@ async def optimize_backtest(payload: BacktestOptimizationRequest, db: DbSession)
                 require_closed_position=payload.require_closed_position,
             ),
         )
-        for index, parameters, result in raw_results
+        for index, submitted_parameters, parameter_overrides, effective_parameters, result in raw_results
     ]
 
     ranked = ranked_optimization_results(raw_results_with_quality)
-    first_result = raw_results[0][2]
+    first_result = raw_results[0][4]
     results = [
         BacktestOptimizationResultResponse(
             rank=rank,
-            parameters=parameters,
+            parameters=parameter_overrides,
+            base_parameters=base_parameters,
+            parameter_overrides=submitted_parameters,
+            effective_parameters=effective_parameters,
             final_balance=result.final_balance,
             total_return=result.total_return,
             total_return_percent=result.total_return_percent,
@@ -300,7 +315,14 @@ async def optimize_backtest(payload: BacktestOptimizationRequest, db: DbSession)
             passes_quality_filters=quality["passes_quality_filters"],
             quality_warnings=quality["quality_warnings"],
         )
-        for rank, (_, parameters, result, quality) in enumerate(ranked, start=1)
+        for rank, (
+            _,
+            submitted_parameters,
+            parameter_overrides,
+            effective_parameters,
+            result,
+            quality,
+        ) in enumerate(ranked, start=1)
     ]
 
     return BacktestOptimizationResponse(
