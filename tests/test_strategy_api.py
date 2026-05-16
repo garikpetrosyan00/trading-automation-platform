@@ -201,7 +201,8 @@ def test_create_moving_average_cross_strategy_with_invalid_window_order_fails_cl
         )
 
     assert response.status_code == 422
-    assert response.json()["detail"] == "Request validation failed"
+    assert response.json()["error_code"] == "invalid_strategy_parameters"
+    assert response.json()["detail"] == "moving_average_cross short_window must be less than long_window"
 
 
 def test_create_moving_average_cross_strategy_with_non_integer_window_fails_cleanly(
@@ -231,7 +232,39 @@ def test_create_moving_average_cross_strategy_with_non_integer_window_fails_clea
         )
 
     assert response.status_code == 422
-    assert response.json()["detail"] == "Request validation failed"
+    assert response.json()["error_code"] == "invalid_strategy_parameters"
+    assert response.json()["detail"] == "moving_average_cross parameter short_window must be a positive integer"
+
+
+def test_create_moving_average_cross_strategy_with_non_positive_window_fails_cleanly(
+    stub_market_data_service,
+    bot_runner_factory,
+    configure_app_state,
+) -> None:
+    configure_app_state(
+        market_data_service=stub_market_data_service,
+        bot_runner=bot_runner_factory(),
+    )
+
+    with TestClient(app) as client:
+        response = client.post(
+            "/api/v1/strategies",
+            json={
+                "name": "Invalid MA Strategy",
+                "symbol": "BTCUSDT",
+                "timeframe": "1m",
+                "strategy_type": "moving_average_cross",
+                "parameters": {
+                    "short_window": 9,
+                    "long_window": 0,
+                    "quantity": "0.01",
+                },
+            },
+        )
+
+    assert response.status_code == 422
+    assert response.json()["error_code"] == "invalid_strategy_parameters"
+    assert response.json()["detail"] == "moving_average_cross parameter long_window must be a positive integer"
 
 
 def test_create_moving_average_cross_strategy_with_non_positive_quantity_fails_cleanly(
@@ -261,7 +294,8 @@ def test_create_moving_average_cross_strategy_with_non_positive_quantity_fails_c
         )
 
     assert response.status_code == 422
-    assert response.json()["detail"] == "Request validation failed"
+    assert response.json()["error_code"] == "invalid_strategy_parameters"
+    assert response.json()["detail"] == "moving_average_cross parameter quantity must be a positive number"
 
 
 def test_create_price_threshold_strategy_with_invalid_parameters_fails_cleanly(
@@ -281,6 +315,16 @@ def test_create_price_threshold_strategy_with_invalid_parameters_fails_cleanly(
             "quantity": "0.01",
         },
         {
+            "buy_below": "-1",
+            "sell_above": "65000",
+            "quantity": "0.01",
+        },
+        {
+            "buy_below": "60000",
+            "sell_above": "0",
+            "quantity": "0.01",
+        },
+        {
             "buy_below": "65000",
             "sell_above": "60000",
             "quantity": "0.01",
@@ -292,7 +336,8 @@ def test_create_price_threshold_strategy_with_invalid_parameters_fails_cleanly(
         },
         {
             "buy_below": "60000",
-            "quantity": "0.01",
+            "sell_above": "65000",
+            "quantity": "-0.01",
         },
     ]
 
@@ -310,7 +355,7 @@ def test_create_price_threshold_strategy_with_invalid_parameters_fails_cleanly(
             )
 
             assert response.status_code == 422
-            assert response.json()["detail"] == "Request validation failed"
+            assert response.json()["error_code"] == "invalid_strategy_parameters"
 
 
 def test_update_strategy_parameters_returns_and_persists_them(
@@ -363,3 +408,123 @@ def test_update_strategy_parameters_returns_and_persists_them(
     assert update_response.json()["parameters"] == expected_parameters
     assert get_response.status_code == 200
     assert get_response.json()["parameters"] == expected_parameters
+
+
+def test_update_price_threshold_strategy_rejects_invalid_parameters(
+    stub_market_data_service,
+    bot_runner_factory,
+    configure_app_state,
+) -> None:
+    configure_app_state(
+        market_data_service=stub_market_data_service,
+        bot_runner=bot_runner_factory(),
+    )
+
+    with TestClient(app) as client:
+        create_response = client.post(
+            "/api/v1/strategies",
+            json={
+                "name": "Price Threshold Strategy",
+                "symbol": "BTCUSDT",
+                "timeframe": "1m",
+                "parameters": {
+                    "buy_below": "60000",
+                    "sell_above": "65000",
+                    "quantity": "0.01",
+                },
+            },
+        )
+        strategy_id = create_response.json()["id"]
+        update_response = client.patch(
+            f"/api/v1/strategies/{strategy_id}",
+            json={
+                "parameters": {
+                    "buy_below": "60000",
+                    "sell_above": "60000",
+                    "quantity": "0.02",
+                },
+            },
+        )
+
+    assert create_response.status_code == 201
+    assert update_response.status_code == 422
+    assert update_response.json()["error_code"] == "invalid_strategy_parameters"
+    assert update_response.json()["detail"] == "price_threshold sell_above must be greater than buy_below"
+
+
+def test_update_moving_average_cross_strategy_rejects_invalid_parameters(
+    stub_market_data_service,
+    bot_runner_factory,
+    configure_app_state,
+) -> None:
+    configure_app_state(
+        market_data_service=stub_market_data_service,
+        bot_runner=bot_runner_factory(),
+    )
+
+    with TestClient(app) as client:
+        create_response = client.post(
+            "/api/v1/strategies",
+            json={
+                "name": "Moving Average Cross Strategy",
+                "symbol": "BTCUSDT",
+                "timeframe": "1m",
+                "strategy_type": "moving_average_cross",
+                "parameters": {
+                    "short_window": 9,
+                    "long_window": 21,
+                    "quantity": "0.01",
+                },
+            },
+        )
+        strategy_id = create_response.json()["id"]
+        update_response = client.patch(
+            f"/api/v1/strategies/{strategy_id}",
+            json={
+                "parameters": {
+                    "short_window": 21,
+                    "long_window": 21,
+                    "quantity": "0.02",
+                },
+            },
+        )
+
+    assert create_response.status_code == 201
+    assert update_response.status_code == 422
+    assert update_response.json()["error_code"] == "invalid_strategy_parameters"
+    assert update_response.json()["detail"] == "moving_average_cross short_window must be less than long_window"
+
+
+def test_update_strategy_allows_valid_partial_parameters(
+    stub_market_data_service,
+    bot_runner_factory,
+    configure_app_state,
+) -> None:
+    configure_app_state(
+        market_data_service=stub_market_data_service,
+        bot_runner=bot_runner_factory(),
+    )
+
+    with TestClient(app) as client:
+        create_response = client.post(
+            "/api/v1/strategies",
+            json={
+                "name": "Price Threshold Strategy",
+                "symbol": "BTCUSDT",
+                "timeframe": "1m",
+                "parameters": {
+                    "buy_below": "60000",
+                    "sell_above": "65000",
+                    "quantity": "0.01",
+                },
+            },
+        )
+        strategy_id = create_response.json()["id"]
+        update_response = client.patch(
+            f"/api/v1/strategies/{strategy_id}",
+            json={"parameters": {"quantity": "0.02"}},
+        )
+
+    assert create_response.status_code == 201
+    assert update_response.status_code == 200
+    assert update_response.json()["parameters"] == {"quantity": "0.02"}

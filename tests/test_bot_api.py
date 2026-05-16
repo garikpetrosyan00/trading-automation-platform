@@ -135,6 +135,45 @@ def test_create_bot_rejects_openapi_placeholder_display_fields(
     assert response.json()["detail"] == "Request validation failed"
 
 
+def test_create_bot_with_invalid_strategy_parameters_returns_validation_error(
+    db_session_factory,
+    stub_market_data_service,
+    bot_runner_factory,
+    configure_app_state,
+) -> None:
+    with db_session_factory() as session:
+        strategy = Strategy(
+            name="Invalid Strategy",
+            symbol="BTCUSDT",
+            timeframe="1m",
+            strategy_type="price_threshold",
+            parameters={"buy_below": "10", "sell_above": "9", "quantity": "1"},
+            is_active=True,
+        )
+        session.add(strategy)
+        session.commit()
+        strategy_id = strategy.id
+
+    configure_app_state(
+        market_data_service=stub_market_data_service,
+        bot_runner=bot_runner_factory(),
+    )
+
+    with TestClient(app) as client:
+        response = client.post(
+            "/api/v1/bots",
+            json={
+                "name": "Invalid Strategy Bot",
+                "strategy_id": strategy_id,
+                "exchange_name": "binance",
+            },
+        )
+
+    assert response.status_code == 422
+    assert response.json()["error_code"] == "invalid_strategy_parameters"
+    assert response.json()["detail"] == "price_threshold sell_above must be greater than buy_below"
+
+
 def test_update_bot_basic_fields_returns_updated_bot(
     db_session_factory,
     stub_market_data_service,
