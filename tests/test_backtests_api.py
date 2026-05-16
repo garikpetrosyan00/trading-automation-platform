@@ -395,9 +395,71 @@ def test_optimize_price_threshold_backtest_ranks_parameter_sets_and_does_not_mut
     assert body["results"][1]["total_return_percent"] == "10.00000000"
     assert body["results"][2]["number_of_trades"] == 0
     assert body["results"][2]["closed_trades"] == 0
+    assert body["results"][0]["has_closed_trades"] is True
+    assert body["results"][0]["has_open_position"] is False
+    assert body["results"][0]["passes_quality_filters"] is True
+    assert body["results"][0]["quality_warnings"] == []
+    assert body["results"][2]["has_closed_trades"] is False
+    assert body["results"][2]["has_open_position"] is False
+    assert body["results"][2]["passes_quality_filters"] is True
+    assert body["results"][2]["quality_warnings"] == ["no_closed_trades"]
 
     db_session.refresh(strategy)
     assert strategy.parameters == original_parameters
+
+
+def test_optimize_backtest_marks_quality_filters_without_removing_results(
+    db_session,
+    stub_market_data_service,
+    noop_bot_runner,
+    configure_app_state,
+) -> None:
+    configure_app_state(market_data_service=stub_market_data_service, bot_runner=noop_bot_runner)
+    strategy = create_price_threshold_strategy(db_session)
+    add_candles(db_session, closes=["10", "20"])
+
+    with TestClient(app) as client:
+        response = client.post(
+            "/api/v1/backtests/optimize",
+            json={
+                "strategy_id": strategy.id,
+                "initial_balance": "100",
+                "source": "manual",
+                "min_closed_trades": 1,
+                "require_closed_position": True,
+                "parameter_sets": [
+                    {"buy_below": "11", "sell_above": "100", "quantity": "1"},
+                    {"buy_below": "11", "sell_above": "19", "quantity": "0.5"},
+                    {"buy_below": "9", "sell_above": "19", "quantity": "1"},
+                ],
+            },
+        )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["total_runs"] == 3
+    assert [result["parameters"] for result in body["results"]] == [
+        {"buy_below": "11", "sell_above": "19", "quantity": "0.5"},
+        {"buy_below": "11", "sell_above": "100", "quantity": "1"},
+        {"buy_below": "9", "sell_above": "19", "quantity": "1"},
+    ]
+    assert body["results"][0]["passes_quality_filters"] is True
+    assert body["results"][0]["quality_warnings"] == []
+    assert body["results"][1]["total_return_percent"] == "10.00000000"
+    assert body["results"][1]["has_closed_trades"] is False
+    assert body["results"][1]["has_open_position"] is True
+    assert body["results"][1]["passes_quality_filters"] is False
+    assert body["results"][1]["quality_warnings"] == [
+        "no_closed_trades",
+        "below_min_closed_trades",
+        "ends_with_open_position",
+        "requires_closed_position",
+    ]
+    assert body["results"][2]["passes_quality_filters"] is False
+    assert body["results"][2]["quality_warnings"] == [
+        "no_closed_trades",
+        "below_min_closed_trades",
+    ]
 
 
 def test_optimize_moving_average_cross_backtest_ranks_parameter_sets(

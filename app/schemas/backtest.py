@@ -16,6 +16,8 @@ class BacktestRunRequest(BaseModel):
 
 class BacktestOptimizationRequest(BacktestRunRequest):
     parameter_sets: list[dict[str, Any]] = Field(min_length=1, max_length=50)
+    min_closed_trades: int = Field(default=0, ge=0)
+    require_closed_position: bool = False
 
 
 class BacktestTradeResponse(BaseModel):
@@ -109,6 +111,10 @@ class BacktestOptimizationResultResponse(BaseModel):
     open_position: bool
     position_quantity: Decimal
     entry_price: Decimal | None = None
+    has_closed_trades: bool
+    has_open_position: bool
+    passes_quality_filters: bool
+    quality_warnings: list[str]
 
 
 class BacktestOptimizationResponse(BaseModel):

@@ -104,10 +104,38 @@ def metric_sort_value(value: Decimal | None) -> Decimal:
     return value if value is not None else Decimal("-Infinity")
 
 
-def ranked_optimization_results(results: list[tuple[int, dict[str, str], Any]]) -> list[tuple[int, dict[str, str], Any]]:
+def optimization_quality(
+    result: Any,
+    *,
+    min_closed_trades: int = 0,
+    require_closed_position: bool = False,
+) -> dict[str, Any]:
+    warnings: list[str] = []
+    if result.closed_trades == 0:
+        warnings.append("no_closed_trades")
+    if result.closed_trades < min_closed_trades:
+        warnings.append("below_min_closed_trades")
+    if result.open_position:
+        warnings.append("ends_with_open_position")
+    if require_closed_position and result.open_position:
+        warnings.append("requires_closed_position")
+
+    return {
+        "has_closed_trades": result.closed_trades > 0,
+        "has_open_position": result.open_position,
+        "passes_quality_filters": result.closed_trades >= min_closed_trades
+        and (not require_closed_position or not result.open_position),
+        "quality_warnings": warnings,
+    }
+
+
+def ranked_optimization_results(
+    results: list[tuple[int, dict[str, str], Any, dict[str, Any]]],
+) -> list[tuple[int, dict[str, str], Any, dict[str, Any]]]:
     return sorted(
         results,
         key=lambda item: (
+            item[3]["passes_quality_filters"],
             metric_sort_value(item[2].total_return_percent),
             metric_sort_value(item[2].total_return),
             Decimal(item[2].closed_trades),
@@ -178,8 +206,21 @@ async def optimize_backtest(payload: BacktestOptimizationRequest, db: DbSession)
         )
         for index, parameters in enumerate(normalized_parameter_sets)
     ]
+    raw_results_with_quality = [
+        (
+            index,
+            parameters,
+            result,
+            optimization_quality(
+                result,
+                min_closed_trades=payload.min_closed_trades,
+                require_closed_position=payload.require_closed_position,
+            ),
+        )
+        for index, parameters, result in raw_results
+    ]
 
-    ranked = ranked_optimization_results(raw_results)
+    ranked = ranked_optimization_results(raw_results_with_quality)
     first_result = raw_results[0][2]
     results = [
         BacktestOptimizationResultResponse(
@@ -195,8 +236,12 @@ async def optimize_backtest(payload: BacktestOptimizationRequest, db: DbSession)
             open_position=result.open_position,
             position_quantity=result.position_quantity,
             entry_price=result.entry_price,
+            has_closed_trades=quality["has_closed_trades"],
+            has_open_position=quality["has_open_position"],
+            passes_quality_filters=quality["passes_quality_filters"],
+            quality_warnings=quality["quality_warnings"],
         )
-        for rank, (_, parameters, result) in enumerate(ranked, start=1)
+        for rank, (_, parameters, result, quality) in enumerate(ranked, start=1)
     ]
 
     return BacktestOptimizationResponse(
