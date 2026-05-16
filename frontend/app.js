@@ -30,6 +30,7 @@ let isSavingRiskSettings = false;
 let isRunningBacktest = false;
 let isImportingBacktestCandles = false;
 let isRunningBacktestOptimization = false;
+let isApplyingOptimizationParameters = false;
 let isLoadingBacktestHistory = false;
 let backtestStrategyTouched = false;
 let backtestOptimizationTouched = false;
@@ -230,6 +231,13 @@ const translations = {
     optimization_meaningful_filter: "Show only results with closed trades",
     optimization_no_meaningful_results:
       "No parameter set produced closed trades. Try importing more candles or widening the buy/sell ranges.",
+    apply_to_strategy: "Apply to Strategy",
+    applying_to_strategy: "Applying…",
+    optimization_apply_confirm:
+      'Apply these parameters to "{strategy}"?\n\n{parameters}',
+    optimization_apply_success: 'Applied optimization parameters to "{strategy}".',
+    optimization_apply_failed: "Could not apply optimization parameters to the Strategy.",
+    optimization_apply_unavailable: "Strategy details are not available for this optimization result.",
     buy_below_values_label: "Buy below values",
     sell_above_values_label: "Sell above values",
     short_window_values_label: "Short window values",
@@ -630,6 +638,13 @@ const translations = {
     optimization_meaningful_filter: "Ցույց տալ միայն փակված trade-երով արդյունքները",
     optimization_no_meaningful_results:
       "Ոչ մի parameter set փակված trade չունի։ Փորձիր ներմուծել ավելի շատ candle կամ լայնացնել buy/sell միջակայքերը։",
+    apply_to_strategy: "Կիրառել Strategy-ին",
+    applying_to_strategy: "Կիրառվում է…",
+    optimization_apply_confirm:
+      '"{strategy}" Strategy-ին կիրառե՞լ այս parameters-ները։\n\n{parameters}',
+    optimization_apply_success: 'Optimization-ի parameters-ները կիրառվեցին "{strategy}" Strategy-ին։',
+    optimization_apply_failed: "Չհաջողվեց կիրառել optimization-ի parameters-ները Strategy-ին։",
+    optimization_apply_unavailable: "Այս optimization result-ի Strategy-ի մանրամասները հասանելի չեն։",
     buy_below_values_label: "Buy below արժեքներ",
     sell_above_values_label: "Sell above արժեքներ",
     short_window_values_label: "Short window արժեքներ",
@@ -2128,7 +2143,7 @@ function renderExecutionSettingsForm() {
 
 function optimizationParametersLabel(parameters) {
   return Object.entries(parameters)
-    .map(([key, value]) => `${humanizeMessage(key, key)}: ${formatValue(value)}`)
+    .map(([key, value]) => `${strategyParameterLabel(key)}: ${formatValue(value)}`)
     .join(" · ");
 }
 
@@ -2220,6 +2235,40 @@ function renderOptimizationFilter(results) {
   return wrapper;
 }
 
+function optimizationApplyKeys(strategyType) {
+  if (strategyType === "moving_average_cross") return ["short_window", "long_window", "quantity"];
+  if (strategyType === "price_threshold") return ["buy_below", "sell_above", "quantity"];
+  return [];
+}
+
+function optimizationResultStrategy() {
+  const strategyId = backtestOptimizationResult?.strategyId ?? selectedBacktestStrategyId();
+  return strategies.find((strategy) => botIdsEqual(strategy.id, strategyId)) ?? null;
+}
+
+function optimizationApplyParameters(resultItem) {
+  const strategyType = backtestOptimizationResult?.strategyType || optimizationStrategyType();
+  const allowedKeys = optimizationApplyKeys(strategyType);
+  const resultParameters =
+    resultItem?.parameters && typeof resultItem.parameters === "object" ? resultItem.parameters : {};
+  return Object.fromEntries(
+    allowedKeys
+      .filter((key) => Object.prototype.hasOwnProperty.call(resultParameters, key))
+      .map((key) => [key, resultParameters[key]]),
+  );
+}
+
+function updateStrategyInList(strategy) {
+  if (!strategy?.id) return;
+  const normalized = normalizeStrategy(strategy);
+  const index = strategies.findIndex((item) => botIdsEqual(item.id, normalized.id));
+  if (index >= 0) {
+    strategies = strategies.map((item) => (botIdsEqual(item.id, normalized.id) ? normalized : item));
+  } else {
+    strategies = [...strategies, normalized];
+  }
+}
+
 function renderBacktestOptimizationResult() {
   backtestOptimizationResultEl.innerHTML = "";
   if (!backtestOptimizationResult?.results?.length) {
@@ -2292,7 +2341,19 @@ function renderBacktestOptimizationResult() {
       metrics.append(group);
     });
 
-    row.append(header, metrics);
+    const actions = document.createElement("div");
+    actions.className = "backtest-optimization-item-actions";
+    const applyButton = document.createElement("button");
+    applyButton.type = "button";
+    applyButton.className = "secondary-button";
+    applyButton.textContent = isApplyingOptimizationParameters
+      ? t("applying_to_strategy")
+      : t("apply_to_strategy");
+    applyButton.disabled = isApplyingOptimizationParameters || isRunningBacktestOptimization;
+    applyButton.addEventListener("click", () => applyOptimizationParametersToStrategy(item));
+    actions.append(applyButton);
+
+    row.append(header, metrics, actions);
     list.append(row);
   });
 
@@ -2312,6 +2373,7 @@ function renderBacktestPanel() {
     isRunningBacktest ||
     isImportingBacktestCandles ||
     isRunningBacktestOptimization ||
+    isApplyingOptimizationParameters ||
     isLoadingStrategies ||
     strategies.length === 0 ||
     Boolean(strategyLoadError);
@@ -3377,7 +3439,8 @@ function hasInFlightAction() {
     isSavingRiskSettings ||
     isRunningBacktest ||
     isImportingBacktestCandles ||
-    isRunningBacktestOptimization
+    isRunningBacktestOptimization ||
+    isApplyingOptimizationParameters
   );
 }
 
@@ -4161,6 +4224,79 @@ async function submitBacktestOptimization(event) {
     backtestOptimizationMessageType = "error";
   } finally {
     isRunningBacktestOptimization = false;
+    render();
+  }
+}
+
+async function applyOptimizationParametersToStrategy(resultItem) {
+  if (isApplyingOptimizationParameters) return;
+
+  const strategyId = backtestOptimizationResult?.strategyId ?? selectedBacktestStrategyId();
+  const strategy = optimizationResultStrategy();
+  const strategyName = strategy?.name || selectedSummary?.strategyName || t("unnamed_strategy");
+  const appliedParameters = optimizationApplyParameters(resultItem);
+  const selectedBotStrategyId = strategyIdForSelectedBot();
+  const selectedBotUsesStrategy = botIdsEqual(selectedBotStrategyId, strategyId);
+  if (!strategyId || (!strategy && !selectedBotUsesStrategy) || Object.keys(appliedParameters).length === 0) {
+    backtestOptimizationMessage = t("optimization_apply_unavailable");
+    backtestOptimizationMessageType = "error";
+    render();
+    return;
+  }
+
+  const parameterSummary = optimizationParametersLabel(appliedParameters);
+  if (
+    !window.confirm(
+      t("optimization_apply_confirm", {
+        strategy: strategyName,
+        parameters: parameterSummary,
+      }),
+    )
+  ) {
+    return;
+  }
+
+  const currentParameters = selectedBotUsesStrategy
+    ? selectedSummary?.strategyParameters
+    : strategy?.parameters;
+  const parameters = {
+    ...(currentParameters && typeof currentParameters === "object" ? currentParameters : {}),
+    ...appliedParameters,
+  };
+
+  isApplyingOptimizationParameters = true;
+  backtestOptimizationMessage = "";
+  backtestOptimizationMessageType = "";
+  strategyParametersMessage = "";
+  strategyParametersMessageType = "";
+  hasUserSelectedBot = Boolean(selectedBotId);
+  render();
+
+  try {
+    const updatedStrategy = await fetchJson(`/api/v1/strategies/${strategyId}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ parameters }),
+    });
+    updateStrategyInList(updatedStrategy);
+    await loadStrategies();
+    if (selectedBotId) {
+      await loadSelectedSummary(selectedBotId);
+    } else {
+      await loadBacktestHistory();
+    }
+    if (selectedBotUsesStrategy) {
+      isEditingStrategyParameters = false;
+      strategyParametersMessage = t("strategy_parameters_updated");
+      strategyParametersMessageType = "success";
+    }
+    backtestOptimizationMessage = t("optimization_apply_success", { strategy: strategyName });
+    backtestOptimizationMessageType = "success";
+  } catch (error) {
+    backtestOptimizationMessage = requestErrorMessage(error, t("optimization_apply_failed"));
+    backtestOptimizationMessageType = "error";
+  } finally {
+    isApplyingOptimizationParameters = false;
     render();
   }
 }

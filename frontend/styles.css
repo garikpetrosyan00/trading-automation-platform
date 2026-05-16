@@ -1282,6 +1282,11 @@ dd {
   line-height: 1.35;
 }
 
+.backtest-optimization-item-actions {
+  display: flex;
+  justify-content: flex-end;
+}
+
 .backtest-result-notes {
   display: flex;
   flex-wrap: wrap;
