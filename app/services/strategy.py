@@ -1,7 +1,24 @@
-from app.core.errors import NotFoundError
+from typing import Any
+
+from app.core.errors import AppError, NotFoundError
 from app.models.strategy import Strategy
 from app.repositories.strategy import StrategyRepository
-from app.schemas.strategy import StrategyCreate, StrategyUpdate
+from app.schemas.strategy import (
+    StrategyCreate,
+    StrategyUpdate,
+    validate_moving_average_cross_parameters,
+    validate_price_threshold_parameters,
+)
+
+
+def validate_strategy_parameters(strategy_type: str, parameters: dict[str, Any] | None) -> None:
+    try:
+        if strategy_type == "price_threshold":
+            validate_price_threshold_parameters(parameters)
+        elif strategy_type == "moving_average_cross":
+            validate_moving_average_cross_parameters(parameters)
+    except ValueError as exc:
+        raise AppError(str(exc), status_code=422, error_code="invalid_strategy_parameters") from exc
 
 
 class StrategyService:
@@ -9,6 +26,7 @@ class StrategyService:
         self.repository = repository
 
     def create(self, payload: StrategyCreate) -> Strategy:
+        validate_strategy_parameters(payload.strategy_type, payload.parameters)
         strategy = Strategy(**payload.model_dump())
         return self.repository.create(strategy)
 
@@ -24,6 +42,11 @@ class StrategyService:
     def update(self, strategy_id: int, payload: StrategyUpdate) -> Strategy:
         strategy = self.get_by_id(strategy_id)
         updates = payload.model_dump(exclude_unset=True)
+        strategy_type = updates.get("strategy_type", strategy.strategy_type or "price_threshold")
+        if "parameters" in updates:
+            validate_strategy_parameters(strategy_type, updates["parameters"])
+        elif "strategy_type" in updates:
+            validate_strategy_parameters(strategy_type, strategy.parameters)
 
         for field, value in updates.items():
             setattr(strategy, field, value)

@@ -3,6 +3,7 @@ from app.models.bot import Bot
 from app.repositories.bot import BotRepository
 from app.repositories.strategy import StrategyRepository
 from app.schemas.bot import BotCreate, BotUpdate
+from app.services.strategy import validate_strategy_parameters
 
 
 class BotService:
@@ -41,8 +42,10 @@ class BotService:
         self.repository.delete(bot)
 
     def _ensure_strategy_exists(self, strategy_id: int) -> None:
-        if self.strategy_repository.get_by_id(strategy_id) is None:
+        strategy = self.strategy_repository.get_by_id(strategy_id)
+        if strategy is None:
             raise NotFoundError(
                 f"Strategy with id {strategy_id} was not found",
                 error_code="strategy_not_found",
             )
+        validate_strategy_parameters(strategy.strategy_type or "price_threshold", strategy.parameters)
