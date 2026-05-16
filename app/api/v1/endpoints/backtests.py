@@ -17,6 +17,10 @@ from app.schemas.backtest import (
     BacktestRunRequest,
     BacktestTradeResponse,
 )
+from app.schemas.strategy import (
+    validate_moving_average_cross_parameters,
+    validate_price_threshold_parameters,
+)
 from app.services.backtest import BacktestService
 from app.services.strategy import StrategyService
 
@@ -36,10 +40,14 @@ def get_backtest_service(db: DbSession) -> BacktestService:
 
 def positive_decimal_parameter(parameters: dict[str, Any], key: str) -> Decimal:
     if key not in parameters:
-        raise AppError(f"Parameter '{key}' is required", status_code=422, error_code="invalid_optimization_parameters")
+        raise AppError(
+            f"Parameter '{key}' is required",
+            status_code=422,
+            error_code="invalid_optimization_parameters",
+        )
     try:
         value = Decimal(str(parameters[key]))
-    except (InvalidOperation, ValueError) as exc:
+    except (InvalidOperation, TypeError, ValueError) as exc:
         raise AppError(
             f"Parameter '{key}' must be a positive number",
             status_code=422,
@@ -65,33 +73,78 @@ def positive_integer_parameter(parameters: dict[str, Any], key: str) -> int:
     return int(value)
 
 
-def normalize_optimization_parameters(strategy_type: str, parameters: dict[str, Any]) -> dict[str, str]:
-    if strategy_type == PRICE_THRESHOLD_STRATEGY_TYPE:
-        normalized = dict(parameters)
-        if "buy_below" not in normalized and "entry_below" in normalized:
-            normalized["buy_below"] = normalized["entry_below"]
-        if "sell_above" not in normalized and "exit_above" in normalized:
-            normalized["sell_above"] = normalized["exit_above"]
-        return {
-            "buy_below": str(positive_decimal_parameter(normalized, "buy_below")),
-            "sell_above": str(positive_decimal_parameter(normalized, "sell_above")),
-            "quantity": str(positive_decimal_parameter(normalized, "quantity")),
-        }
+def validate_optimization_parameters(
+    *,
+    strategy_type: str,
+    parameters: dict[str, Any],
+    index: int,
+) -> None:
+    try:
+        if strategy_type == PRICE_THRESHOLD_STRATEGY_TYPE:
+            validate_price_threshold_parameters(parameters)
+        elif strategy_type == MOVING_AVERAGE_CROSS_STRATEGY_TYPE:
+            validate_moving_average_cross_parameters(parameters)
+    except ValueError as exc:
+        raise AppError(
+            f"parameter_sets[{index}]: {exc}",
+            status_code=422,
+            error_code="invalid_optimization_parameters",
+        ) from exc
 
-    if strategy_type == MOVING_AVERAGE_CROSS_STRATEGY_TYPE:
-        short_window = positive_integer_parameter(parameters, "short_window")
-        long_window = positive_integer_parameter(parameters, "long_window")
-        if short_window >= long_window:
+
+def normalize_optimization_parameters(
+    strategy_type: str,
+    parameters: dict[str, Any],
+    *,
+    base_parameters: dict[str, Any] | None = None,
+    index: int,
+) -> dict[str, str]:
+    if strategy_type == PRICE_THRESHOLD_STRATEGY_TYPE:
+        try:
+            normalized = dict(parameters)
+            if "buy_below" not in normalized and "entry_below" in normalized:
+                normalized["buy_below"] = normalized["entry_below"]
+            if "sell_above" not in normalized and "exit_above" in normalized:
+                normalized["sell_above"] = normalized["exit_above"]
+            normalized = {
+                key: str(positive_decimal_parameter(normalized, key))
+                for key in ("buy_below", "sell_above", "quantity")
+                if key in normalized
+            }
+        except AppError as exc:
             raise AppError(
-                "Parameter 'short_window' must be smaller than 'long_window'",
+                f"parameter_sets[{index}]: {exc.message}",
                 status_code=422,
                 error_code="invalid_optimization_parameters",
-            )
-        return {
-            "short_window": str(short_window),
-            "long_window": str(long_window),
-            "quantity": str(positive_decimal_parameter(parameters, "quantity")),
-        }
+            ) from exc
+        validate_optimization_parameters(
+            strategy_type=strategy_type,
+            parameters={**(base_parameters or {}), **normalized},
+            index=index,
+        )
+        return normalized
+
+    if strategy_type == MOVING_AVERAGE_CROSS_STRATEGY_TYPE:
+        try:
+            normalized = {}
+            if "short_window" in parameters:
+                normalized["short_window"] = str(positive_integer_parameter(parameters, "short_window"))
+            if "long_window" in parameters:
+                normalized["long_window"] = str(positive_integer_parameter(parameters, "long_window"))
+            if "quantity" in parameters:
+                normalized["quantity"] = str(positive_decimal_parameter(parameters, "quantity"))
+        except AppError as exc:
+            raise AppError(
+                f"parameter_sets[{index}]: {exc.message}",
+                status_code=422,
+                error_code="invalid_optimization_parameters",
+            ) from exc
+        validate_optimization_parameters(
+            strategy_type=strategy_type,
+            parameters={**(base_parameters or {}), **normalized},
+            index=index,
+        )
+        return normalized
 
     raise AppError(
         f"Strategy type '{strategy_type}' is not supported for optimization",
@@ -188,9 +241,15 @@ async def run_backtest(payload: BacktestRunRequest, db: DbSession) -> BacktestRe
 async def optimize_backtest(payload: BacktestOptimizationRequest, db: DbSession) -> BacktestOptimizationResponse:
     strategy = get_strategy_service(db).get_by_id(payload.strategy_id)
     strategy_type = strategy.strategy_type or PRICE_THRESHOLD_STRATEGY_TYPE
+    base_parameters = strategy.parameters or {}
     normalized_parameter_sets = [
-        normalize_optimization_parameters(strategy_type, parameters)
-        for parameters in payload.parameter_sets
+        normalize_optimization_parameters(
+            strategy_type,
+            parameters,
+            base_parameters=base_parameters,
+            index=index,
+        )
+        for index, parameters in enumerate(payload.parameter_sets)
     ]
     backtest_service = get_backtest_service(db)
     raw_results = [

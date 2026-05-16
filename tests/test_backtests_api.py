@@ -462,6 +462,123 @@ def test_optimize_backtest_marks_quality_filters_without_removing_results(
     ]
 
 
+def test_optimize_price_threshold_rejects_invalid_candidate_quantity(
+    db_session,
+    stub_market_data_service,
+    noop_bot_runner,
+    configure_app_state,
+) -> None:
+    configure_app_state(market_data_service=stub_market_data_service, bot_runner=noop_bot_runner)
+    strategy = create_price_threshold_strategy(db_session)
+
+    with TestClient(app) as client:
+        response = client.post(
+            "/api/v1/backtests/optimize",
+            json={
+                "strategy_id": strategy.id,
+                "initial_balance": "100",
+                "parameter_sets": [
+                    {"buy_below": "11", "sell_above": "19", "quantity": "0"},
+                ],
+            },
+        )
+
+    assert response.status_code == 422
+    assert response.json()["error_code"] == "invalid_optimization_parameters"
+    assert response.json()["detail"] == "parameter_sets[0]: Parameter 'quantity' must be a positive number"
+
+
+def test_optimize_price_threshold_rejects_candidate_sell_above_not_greater_than_buy_below(
+    db_session,
+    stub_market_data_service,
+    noop_bot_runner,
+    configure_app_state,
+) -> None:
+    configure_app_state(market_data_service=stub_market_data_service, bot_runner=noop_bot_runner)
+    strategy = create_price_threshold_strategy(db_session)
+
+    with TestClient(app) as client:
+        response = client.post(
+            "/api/v1/backtests/optimize",
+            json={
+                "strategy_id": strategy.id,
+                "initial_balance": "100",
+                "parameter_sets": [
+                    {"quantity": "1"},
+                    {"sell_above": "10"},
+                ],
+            },
+        )
+
+    assert response.status_code == 422
+    assert response.json()["error_code"] == "invalid_optimization_parameters"
+    assert response.json()["detail"] == (
+        "parameter_sets[1]: price_threshold sell_above must be greater than buy_below"
+    )
+
+
+def test_optimize_moving_average_cross_rejects_candidate_windows_after_merge(
+    db_session,
+    stub_market_data_service,
+    noop_bot_runner,
+    configure_app_state,
+) -> None:
+    configure_app_state(market_data_service=stub_market_data_service, bot_runner=noop_bot_runner)
+    strategy = create_moving_average_strategy(db_session)
+
+    with TestClient(app) as client:
+        response = client.post(
+            "/api/v1/backtests/optimize",
+            json={
+                "strategy_id": strategy.id,
+                "initial_balance": "100",
+                "parameter_sets": [
+                    {"short_window": "3"},
+                ],
+            },
+        )
+
+    assert response.status_code == 422
+    assert response.json()["error_code"] == "invalid_optimization_parameters"
+    assert response.json()["detail"] == (
+        "parameter_sets[0]: moving_average_cross short_window must be less than long_window"
+    )
+
+
+def test_optimize_backtest_accepts_valid_partial_candidate_merged_with_base_parameters(
+    db_session,
+    stub_market_data_service,
+    noop_bot_runner,
+    configure_app_state,
+) -> None:
+    configure_app_state(market_data_service=stub_market_data_service, bot_runner=noop_bot_runner)
+    strategy = create_price_threshold_strategy(db_session)
+    original_parameters = dict(strategy.parameters)
+    add_candles(db_session, closes=["10", "20"])
+
+    with TestClient(app) as client:
+        response = client.post(
+            "/api/v1/backtests/optimize",
+            json={
+                "strategy_id": strategy.id,
+                "initial_balance": "100",
+                "source": "manual",
+                "parameter_sets": [
+                    {"quantity": "2"},
+                ],
+            },
+        )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["total_runs"] == 1
+    assert body["results"][0]["parameters"] == {"quantity": "2"}
+    assert body["results"][0]["total_return_percent"] == "20.00000000"
+
+    db_session.refresh(strategy)
+    assert strategy.parameters == original_parameters
+
+
 def test_optimize_moving_average_cross_backtest_ranks_parameter_sets(
     db_session,
     stub_market_data_service,
