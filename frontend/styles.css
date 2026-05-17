@@ -223,7 +223,7 @@ label {
   font-weight: 700;
 }
 
-input {
+input:not([type="checkbox"]) {
   width: 100%;
   min-height: 40px;
   border: 1px solid var(--line);
@@ -1244,6 +1244,30 @@ dd {
   accent-color: var(--ink);
 }
 
+.optimization-checkbox-row {
+  align-items: center;
+  align-self: end;
+  display: flex;
+  gap: 8px;
+  justify-content: flex-start;
+  line-height: 1.35;
+  min-height: 40px;
+  width: fit-content;
+}
+
+.optimization-checkbox-row input[type="checkbox"] {
+  flex: 0 0 auto;
+  width: 16px;
+  height: 16px;
+  min-height: 16px;
+  margin: 0;
+  accent-color: var(--ink);
+}
+
+.optimization-checkbox-row span {
+  margin-left: 0;
+}
+
 .backtest-optimization-list {
   display: grid;
   gap: 10px;
@@ -1279,6 +1303,77 @@ dd {
   color: var(--muted);
   font-size: 0.82rem;
   font-weight: 800;
+  line-height: 1.35;
+}
+
+.backtest-optimization-status {
+  justify-self: start;
+  border-radius: 999px;
+  padding: 5px 9px;
+  font-size: 0.72rem;
+  font-weight: 900;
+}
+
+.backtest-optimization-status.passed {
+  background: #e7f6ed;
+  color: var(--green);
+}
+
+.backtest-optimization-status.failed {
+  background: var(--amber-soft);
+  color: var(--amber);
+}
+
+.backtest-optimization-audit {
+  display: grid;
+  gap: 6px;
+  margin: 0;
+}
+
+.backtest-optimization-audit div {
+  display: grid;
+  gap: 3px;
+}
+
+.backtest-optimization-audit dt {
+  color: var(--muted);
+  font-size: 0.72rem;
+  font-weight: 850;
+}
+
+.backtest-optimization-audit dd {
+  margin: 0;
+  color: var(--ink);
+  font-size: 0.78rem;
+  font-weight: 800;
+  line-height: 1.35;
+}
+
+.backtest-optimization-result-warnings {
+  display: grid;
+  gap: 6px;
+}
+
+.backtest-optimization-result-warnings strong {
+  color: var(--amber);
+  font-size: 0.76rem;
+}
+
+.backtest-optimization-result-warnings ul {
+  display: grid;
+  gap: 5px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.backtest-optimization-result-warnings li {
+  border-radius: 8px;
+  background: var(--amber-soft);
+  color: var(--amber);
+  padding: 7px 9px;
+  font-size: 0.78rem;
+  font-weight: 850;
   line-height: 1.35;
 }
 
