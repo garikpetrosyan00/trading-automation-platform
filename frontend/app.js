@@ -147,6 +147,10 @@ const translations = {
     sell_above_label: "Sell above",
     short_window_label: "Short window",
     long_window_label: "Long window",
+    rsi_threshold_label: "RSI Threshold",
+    period_label: "Period",
+    oversold_label: "Oversold",
+    overbought_label: "Overbought",
     no_strategy_selected: "No strategy selected",
     no_strategy_parameters_configured: "No strategy parameters configured",
     strategy_details_unavailable: "Strategy details unavailable",
@@ -157,13 +161,20 @@ const translations = {
     strategy_parameters_save_failed: "Could not update Strategy parameters.",
     enter_strategy_parameters: "Enter buy below, sell above, and quantity.",
     enter_moving_average_parameters: "Enter short window and long window.",
+    enter_rsi_parameters: "Enter period, oversold, overbought, and quantity.",
     strategy_parameters_must_be_numbers: "Strategy parameters must be positive numbers.",
     moving_average_windows_must_be_integers: "Short window and long window must be positive integers.",
     moving_average_short_less_than_long: "Short window must be smaller than long window.",
+    rsi_period_must_be_integer: "RSI period must be a positive integer.",
+    rsi_thresholds_must_be_numbers: "RSI thresholds must be numbers greater than 0 and less than 100.",
+    rsi_oversold_less_than_overbought: "Oversold must be less than overbought.",
+    rsi_quantity_must_be_positive: "RSI quantity must be positive.",
     moving_average_parameters_help:
       "Short window must be smaller than long window. Both windows must be positive integers.",
     price_threshold_parameters_help:
       "Buy below is the entry trigger, sell above is the exit trigger, and quantity is the simulated trade amount.",
+    rsi_threshold_parameters_help:
+      "RSI Threshold buys near the oversold level and sells near the overbought level.",
     strategy_parameters_edit_unavailable: "Editing is not available for this strategy type yet.",
     risk_settings: "Risk Settings",
     risk_settings_aria: "Risk settings",
@@ -213,9 +224,13 @@ const translations = {
     optimization_positive_numbers: "Optimization values must be positive numbers.",
     optimization_integer_windows: "Moving average windows must be positive integers.",
     optimization_short_less_than_long: "Each short window must be smaller than each long window.",
+    optimization_rsi_thresholds_invalid:
+      "RSI optimization values need positive integer periods, thresholds between 0 and 100, and oversold below overbought.",
     optimization_unsupported_strategy: "Optimization is not available for this strategy type yet.",
     optimization_price_help: "Comma-separated buy/sell thresholds generate every combination with the quantity.",
     optimization_ma_help: "Comma-separated short/long windows generate every combination with the quantity.",
+    optimization_rsi_help:
+      "Comma-separated RSI periods, oversold levels, overbought levels, and quantities generate every valid combination.",
     optimization_presets_title: "Optimization presets",
     optimization_presets_help:
       "Use presets as starting points, then review results before applying. Quality filters help identify more reliable combinations.",
@@ -225,6 +240,9 @@ const translations = {
     optimization_preset_fast_signals: "Fast signals",
     optimization_preset_balanced_windows: "Balanced windows",
     optimization_preset_slower_signals: "Slower signals",
+    optimization_preset_standard_rsi: "Standard RSI",
+    optimization_preset_sensitive_rsi: "Sensitive RSI",
+    optimization_preset_conservative_rsi: "Conservative RSI",
     optimization_min_closed_trades_label: "Minimum closed trades",
     optimization_require_closed_position_label: "Require closed position",
     optimization_quality_filters_invalid: "Minimum closed trades must be a whole number of 0 or more.",
@@ -269,6 +287,10 @@ const translations = {
     sell_above_values_label: "Sell above values",
     short_window_values_label: "Short window values",
     long_window_values_label: "Long window values",
+    period_values_label: "Period values",
+    oversold_values_label: "Oversold values",
+    overbought_values_label: "Overbought values",
+    quantity_values_label: "Quantity values",
     rank_label: "Rank",
     parameters_label: "Parameters",
     run_backtest: "Run Backtest",
@@ -580,6 +602,10 @@ const translations = {
     sell_above_label: "Վաճառել՝ բարձր քան",
     short_window_label: "Կարճ պատուհան",
     long_window_label: "Երկար պատուհան",
+    rsi_threshold_label: "RSI Threshold",
+    period_label: "Պարբերություն",
+    oversold_label: "Oversold շեմ",
+    overbought_label: "Overbought շեմ",
     no_strategy_selected: "Strategy ընտրված չէ",
     no_strategy_parameters_configured: "Strategy-ի parameters-ները կարգավորված չեն",
     strategy_details_unavailable: "Strategy-ի մանրամասները հասանելի չեն",
@@ -590,13 +616,20 @@ const translations = {
     strategy_parameters_save_failed: "Չհաջողվեց թարմացնել Strategy-ի parameters-ները։",
     enter_strategy_parameters: "Մուտքագրիր buy below, sell above և quantity արժեքները։",
     enter_moving_average_parameters: "Մուտքագրիր short window և long window արժեքները։",
+    enter_rsi_parameters: "Մուտքագրիր period, oversold, overbought և quantity արժեքները։",
     strategy_parameters_must_be_numbers: "Strategy-ի parameters-ները պետք է լինեն դրական թվեր։",
     moving_average_windows_must_be_integers: "Short window-ը և long window-ը պետք է լինեն դրական ամբողջ թվեր։",
     moving_average_short_less_than_long: "Short window-ը պետք է փոքր լինի long window-ից։",
+    rsi_period_must_be_integer: "RSI period-ը պետք է լինի դրական ամբողջ թիվ։",
+    rsi_thresholds_must_be_numbers: "RSI շեմերը պետք է լինեն 0-ից մեծ և 100-ից փոքր թվեր։",
+    rsi_oversold_less_than_overbought: "Oversold-ը պետք է փոքր լինի overbought-ից։",
+    rsi_quantity_must_be_positive: "RSI quantity-ն պետք է լինի դրական։",
     moving_average_parameters_help:
       "Short window-ը պետք է փոքր լինի long window-ից։ Երկու window-ներն էլ պետք է դրական ամբողջ թվեր լինեն։",
     price_threshold_parameters_help:
       "Buy below-ը մուտքի trigger-ն է, sell above-ը՝ ելքի trigger-ը, իսկ quantity-ն՝ simulated գործարքի քանակը։",
+    rsi_threshold_parameters_help:
+      "RSI Threshold-ը գնում է oversold շեմի մոտ և վաճառում է overbought շեմի մոտ։",
     strategy_parameters_edit_unavailable: "Այս strategy type-ի համար խմբագրումը դեռ հասանելի չէ։",
     risk_settings: "Risk կարգավորումներ",
     risk_settings_aria: "Risk կարգավորումներ",
@@ -646,9 +679,13 @@ const translations = {
     optimization_positive_numbers: "Optimization արժեքները պետք է լինեն դրական թվեր։",
     optimization_integer_windows: "Moving average window-ները պետք է լինեն դրական ամբողջ թվեր։",
     optimization_short_less_than_long: "Յուրաքանչյուր short window պետք է փոքր լինի յուրաքանչյուր long window-ից։",
+    optimization_rsi_thresholds_invalid:
+      "RSI optimization-ի արժեքներին պետք են դրական ամբողջ period-ներ, 0-ից 100 շեմեր և oversold-ը պետք է փոքր լինի overbought-ից։",
     optimization_unsupported_strategy: "Այս strategy type-ի համար optimization-ը դեռ հասանելի չէ։",
     optimization_price_help: "Ստորակետերով buy/sell շեմերը quantity-ի հետ ստեղծում են բոլոր combination-ները։",
     optimization_ma_help: "Ստորակետերով short/long window-ները quantity-ի հետ ստեղծում են բոլոր combination-ները։",
+    optimization_rsi_help:
+      "Ստորակետերով RSI period-ները, oversold շեմերը, overbought շեմերը և quantity-ները ստեղծում են բոլոր valid combination-ները։",
     optimization_presets_title: "Optimization preset-ներ",
     optimization_presets_help:
       "Preset-ները օգտագործիր որպես մեկնարկային կետ, հետո արդյունքները վերանայիր մինչև կիրառելը։ Որակի ֆիլտրերը օգնում են գտնել ավելի հուսալի combination-ներ։",
@@ -658,6 +695,9 @@ const translations = {
     optimization_preset_fast_signals: "Արագ signal-ներ",
     optimization_preset_balanced_windows: "Հավասարակշռված window-ներ",
     optimization_preset_slower_signals: "Ավելի դանդաղ signal-ներ",
+    optimization_preset_standard_rsi: "Ստանդարտ RSI",
+    optimization_preset_sensitive_rsi: "Զգայուն RSI",
+    optimization_preset_conservative_rsi: "Զուսպ RSI",
     optimization_min_closed_trades_label: "Փակված trade-երի նվազագույն քանակ",
     optimization_require_closed_position_label: "Պահանջել փակ position",
     optimization_quality_filters_invalid: "Փակված trade-երի նվազագույնը պետք է լինի 0 կամ մեծ ամբողջ թիվ։",
@@ -702,6 +742,10 @@ const translations = {
     sell_above_values_label: "Sell above արժեքներ",
     short_window_values_label: "Short window արժեքներ",
     long_window_values_label: "Long window արժեքներ",
+    period_values_label: "Period արժեքներ",
+    oversold_values_label: "Oversold արժեքներ",
+    overbought_values_label: "Overbought արժեքներ",
+    quantity_values_label: "Quantity արժեքներ",
     rank_label: "Դիրք",
     parameters_label: "Parameters",
     run_backtest: "Գործարկել Backtest",
@@ -1050,9 +1094,12 @@ const strategyParametersForm = document.querySelector("#strategy-parameters-form
 const strategyBuyBelowLabel = document.querySelector("#strategy-buy-below-label");
 const strategySellAboveLabel = document.querySelector("#strategy-sell-above-label");
 const strategyQuantityLabel = document.querySelector("#strategy-quantity-label");
+const strategyExtraParameterField = document.querySelector("#strategy-extra-parameter-field");
+const strategyExtraParameterLabel = document.querySelector("#strategy-extra-parameter-label");
 const strategyBuyBelow = document.querySelector("#strategy-buy-below");
 const strategySellAbove = document.querySelector("#strategy-sell-above");
 const strategyQuantity = document.querySelector("#strategy-quantity");
+const strategyExtraParameter = document.querySelector("#strategy-extra-parameter");
 const strategyParametersSubmit = document.querySelector("#strategy-parameters-submit");
 const strategyParametersCancel = document.querySelector("#strategy-parameters-cancel");
 const strategyParametersMessageEl = document.querySelector("#strategy-parameters-message");
@@ -1101,10 +1148,16 @@ const optimizationPriceWide = document.querySelector("#optimization-price-wide")
 const optimizationMaFast = document.querySelector("#optimization-ma-fast");
 const optimizationMaBalanced = document.querySelector("#optimization-ma-balanced");
 const optimizationMaSlow = document.querySelector("#optimization-ma-slow");
+const optimizationRsiStandard = document.querySelector("#optimization-rsi-standard");
+const optimizationRsiSensitive = document.querySelector("#optimization-rsi-sensitive");
+const optimizationRsiConservative = document.querySelector("#optimization-rsi-conservative");
 const optimizationFirstValuesLabel = document.querySelector("#optimization-first-values-label");
 const optimizationFirstValues = document.querySelector("#optimization-first-values");
 const optimizationSecondValuesLabel = document.querySelector("#optimization-second-values-label");
 const optimizationSecondValues = document.querySelector("#optimization-second-values");
+const optimizationThirdValuesField = document.querySelector("#optimization-third-values-field");
+const optimizationThirdValuesLabel = document.querySelector("#optimization-third-values-label");
+const optimizationThirdValues = document.querySelector("#optimization-third-values");
 const optimizationQuantityLabel = document.querySelector("#optimization-quantity-label");
 const optimizationQuantity = document.querySelector("#optimization-quantity");
 const optimizationMinClosedTradesLabel = document.querySelector("#optimization-min-closed-trades-label");
@@ -1292,6 +1345,9 @@ function applyStaticTranslations() {
   optimizationMaFast.textContent = t("optimization_preset_fast_signals");
   optimizationMaBalanced.textContent = t("optimization_preset_balanced_windows");
   optimizationMaSlow.textContent = t("optimization_preset_slower_signals");
+  optimizationRsiStandard.textContent = t("optimization_preset_standard_rsi");
+  optimizationRsiSensitive.textContent = t("optimization_preset_sensitive_rsi");
+  optimizationRsiConservative.textContent = t("optimization_preset_conservative_rsi");
   optimizationMinClosedTradesLabel.textContent = t("optimization_min_closed_trades_label");
   optimizationRequireClosedPositionLabel.textContent = t("optimization_require_closed_position_label");
   backtestHistoryPanel?.setAttribute("aria-label", t("recent_backtests_aria"));
@@ -1644,6 +1700,7 @@ function formatValue(value, fallback = "—") {
 
 function humanizeMessage(value, fallback = "Update") {
   const text = formatValue(value, fallback);
+  if (normalizeStrategyType(text) === "rsi_threshold") return t("rsi_threshold_label");
   return text
     .replaceAll("_", " ")
     .replace(/\b\w/g, (character) => character.toUpperCase());
@@ -1797,6 +1854,9 @@ function strategyParameterLabel(key) {
     sell_above: t("sell_above_label"),
     short_window: t("short_window_label"),
     long_window: t("long_window_label"),
+    period: t("period_label"),
+    oversold: t("oversold_label"),
+    overbought: t("overbought_label"),
     quantity: t("quantity"),
   };
   return knownLabels[key] ?? humanizeMessage(key, key);
@@ -1807,7 +1867,16 @@ function orderedStrategyParameters(parameters) {
     parameters && typeof parameters === "object" && !Array.isArray(parameters)
       ? parameters
       : {};
-  const knownOrder = ["buy_below", "sell_above", "short_window", "long_window", "quantity"];
+  const knownOrder = [
+    "buy_below",
+    "sell_above",
+    "short_window",
+    "long_window",
+    "period",
+    "oversold",
+    "overbought",
+    "quantity",
+  ];
   const knownKeys = knownOrder.filter((key) =>
     Object.prototype.hasOwnProperty.call(safeParameters, key),
   );
@@ -1832,6 +1901,14 @@ function selectedStrategyType() {
 
 function selectedStrategyParameterFields() {
   const strategyType = selectedStrategyType();
+  if (strategyType === "rsi_threshold") {
+    return [
+      { key: "period", label: t("period_label"), input: strategyBuyBelow, labelEl: strategyBuyBelowLabel },
+      { key: "oversold", label: t("oversold_label"), input: strategySellAbove, labelEl: strategySellAboveLabel },
+      { key: "overbought", label: t("overbought_label"), input: strategyQuantity, labelEl: strategyQuantityLabel },
+      { key: "quantity", label: t("quantity"), input: strategyExtraParameter, labelEl: strategyExtraParameterLabel },
+    ];
+  }
   if (strategyType === "moving_average_cross") {
     return [
       { key: "short_window", label: t("short_window_label"), input: strategyBuyBelow, labelEl: strategyBuyBelowLabel },
@@ -1865,7 +1942,7 @@ function strategyParameterInputValue(key) {
 
 function populateStrategyParametersForm() {
   const fields = selectedStrategyParameterFields();
-  [strategyBuyBelow, strategySellAbove, strategyQuantity].forEach((input) => {
+  [strategyBuyBelow, strategySellAbove, strategyQuantity, strategyExtraParameter].forEach((input) => {
     input.value = "";
     input.name = "";
   });
@@ -1890,6 +1967,13 @@ function parsePositiveIntegerParameter(value) {
   return Number.isInteger(parsed) && parsed > 0 ? parsed : null;
 }
 
+function parseRsiThresholdParameter(value) {
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+  const parsed = Number(trimmed);
+  return Number.isFinite(parsed) && parsed > 0 && parsed < 100 ? trimmed : null;
+}
+
 function validateStrategyParametersForm() {
   if (!strategyIdForSelectedBot()) return t("strategy_details_unavailable");
   if (!canEditSelectedStrategyParameters()) return t("strategy_parameters_edit_unavailable");
@@ -1910,6 +1994,26 @@ function validateStrategyParametersForm() {
     if (quantity && parsePositiveParameter(quantity) === null) {
       return t("strategy_parameters_must_be_numbers");
     }
+    return "";
+  }
+
+  if (selectedStrategyType() === "rsi_threshold") {
+    const period = parsePositiveIntegerParameter(strategyBuyBelow.value);
+    const oversold = parseRsiThresholdParameter(strategySellAbove.value);
+    const overbought = parseRsiThresholdParameter(strategyQuantity.value);
+    const quantity = strategyExtraParameter.value.trim();
+    if (
+      !strategyBuyBelow.value.trim() ||
+      !strategySellAbove.value.trim() ||
+      !strategyQuantity.value.trim() ||
+      !quantity
+    ) {
+      return t("enter_rsi_parameters");
+    }
+    if (period === null) return t("rsi_period_must_be_integer");
+    if (oversold === null || overbought === null) return t("rsi_thresholds_must_be_numbers");
+    if (Number(oversold) >= Number(overbought)) return t("rsi_oversold_less_than_overbought");
+    if (parsePositiveParameter(quantity) === null) return t("rsi_quantity_must_be_positive");
     return "";
   }
 
@@ -2096,9 +2200,11 @@ function renderStrategyParametersForm() {
   const parameterHelp =
     hasStrategyDetails && strategyType === "moving_average_cross"
       ? t("moving_average_parameters_help")
-      : hasStrategyDetails && strategyType === "price_threshold"
-        ? t("price_threshold_parameters_help")
-        : "";
+      : hasStrategyDetails && strategyType === "rsi_threshold"
+        ? t("rsi_threshold_parameters_help")
+        : hasStrategyDetails && strategyType === "price_threshold"
+          ? t("price_threshold_parameters_help")
+          : "";
   const shouldDisable =
     !hasStrategyDetails ||
     !canEditParameters ||
@@ -2124,12 +2230,15 @@ function renderStrategyParametersForm() {
   strategyParametersSubmit.disabled = shouldDisable;
   strategyParametersCancel.textContent = t("cancel");
   strategyParametersCancel.disabled = isSavingStrategyParameters;
-  [strategyBuyBelow, strategySellAbove, strategyQuantity].forEach((input) => {
+  [strategyBuyBelow, strategySellAbove, strategyQuantity, strategyExtraParameter].forEach((input) => {
     input.disabled = shouldDisable;
+    input.closest("label").hidden = true;
   });
-  strategyBuyBelow.inputMode = selectedStrategyType() === "moving_average_cross" ? "numeric" : "decimal";
-  strategySellAbove.inputMode = selectedStrategyType() === "moving_average_cross" ? "numeric" : "decimal";
-  strategyQuantity.inputMode = "decimal";
+  fields.forEach((field) => {
+    field.input.closest("label").hidden = false;
+    field.input.inputMode = ["period", "short_window", "long_window"].includes(field.key) ? "numeric" : "decimal";
+  });
+  strategyExtraParameterField.hidden = !fields.some((field) => field.input === strategyExtraParameter);
   strategyParametersMessageEl.textContent = visibleMessage;
   strategyParametersMessageEl.className = visibleMessageType
     ? `form-message ${visibleMessageType}`
@@ -2376,6 +2485,7 @@ function renderOptimizationFilters() {
 
 function optimizationApplyKeys(strategyType) {
   if (strategyType === "moving_average_cross") return ["short_window", "long_window", "quantity"];
+  if (strategyType === "rsi_threshold") return ["period", "oversold", "overbought", "quantity"];
   if (strategyType === "price_threshold") return ["buy_below", "sell_above", "quantity"];
   return [];
 }
@@ -2596,22 +2706,43 @@ function renderBacktestPanel() {
     : "form-message";
   populateOptimizationDefaults();
   const strategyType = optimizationStrategyType();
-  const optimizationSupported = ["price_threshold", "moving_average_cross"].includes(strategyType);
+  const optimizationSupported = ["price_threshold", "moving_average_cross", "rsi_threshold"].includes(strategyType);
   const pricePresetButtons = [optimizationPriceConservative, optimizationPriceBalanced, optimizationPriceWide];
   const movingAveragePresetButtons = [optimizationMaFast, optimizationMaBalanced, optimizationMaSlow];
+  const rsiPresetButtons = [optimizationRsiStandard, optimizationRsiSensitive, optimizationRsiConservative];
   optimizationFirstValuesLabel.textContent =
-    strategyType === "moving_average_cross" ? t("short_window_values_label") : t("buy_below_values_label");
+    strategyType === "moving_average_cross"
+      ? t("short_window_values_label")
+      : strategyType === "rsi_threshold"
+        ? t("period_values_label")
+        : t("buy_below_values_label");
   optimizationSecondValuesLabel.textContent =
-    strategyType === "moving_average_cross" ? t("long_window_values_label") : t("sell_above_values_label");
-  optimizationQuantityLabel.textContent = t("quantity");
+    strategyType === "moving_average_cross"
+      ? t("long_window_values_label")
+      : strategyType === "rsi_threshold"
+        ? t("oversold_values_label")
+        : t("sell_above_values_label");
+  optimizationThirdValuesLabel.textContent = t("overbought_values_label");
+  optimizationThirdValuesField.hidden = strategyType !== "rsi_threshold";
+  optimizationQuantityLabel.textContent = strategyType === "rsi_threshold" ? t("quantity_values_label") : t("quantity");
   optimizationMinClosedTradesLabel.textContent = t("optimization_min_closed_trades_label");
   optimizationRequireClosedPositionLabel.textContent = t("optimization_require_closed_position_label");
   backtestOptimizationHelp.textContent =
     t("parameter_optimization_help") +
     " " +
-    (strategyType === "moving_average_cross" ? t("optimization_ma_help") : t("optimization_price_help"));
+    (strategyType === "moving_average_cross"
+      ? t("optimization_ma_help")
+      : strategyType === "rsi_threshold"
+        ? t("optimization_rsi_help")
+        : t("optimization_price_help"));
   const shouldDisableOptimization = shouldDisable || !optimizationSupported;
-  [optimizationFirstValues, optimizationSecondValues, optimizationQuantity, optimizationMinClosedTrades].forEach((input) => {
+  [
+    optimizationFirstValues,
+    optimizationSecondValues,
+    optimizationThirdValues,
+    optimizationQuantity,
+    optimizationMinClosedTrades,
+  ].forEach((input) => {
     input.disabled = shouldDisableOptimization;
   });
   pricePresetButtons.forEach((button) => {
@@ -2620,6 +2751,10 @@ function renderBacktestPanel() {
   });
   movingAveragePresetButtons.forEach((button) => {
     button.hidden = strategyType !== "moving_average_cross";
+    button.disabled = shouldDisableOptimization;
+  });
+  rsiPresetButtons.forEach((button) => {
+    button.hidden = strategyType !== "rsi_threshold";
     button.disabled = shouldDisableOptimization;
   });
   optimizationRequireClosedPosition.disabled = shouldDisableOptimization;
@@ -3370,6 +3505,12 @@ function parsePositiveOptimizationIntegers(value) {
   return values.every((item) => parsePositiveIntegerParameter(item) !== null) ? values : null;
 }
 
+function parseRsiOptimizationValues(value) {
+  const values = commaValues(value);
+  if (values.length === 0) return null;
+  return values.every((item) => parseRsiThresholdParameter(item) !== null) ? values : null;
+}
+
 function parseNonNegativeInteger(value) {
   const trimmed = String(value ?? "").trim();
   if (!/^\d+$/.test(trimmed)) return null;
@@ -3394,9 +3535,10 @@ function optimizationPresetQuantity(parameters) {
   return quantity === null ? null : formatValue(parameters.quantity);
 }
 
-function setOptimizationPresetValues({ firstValues, secondValues, quantity }) {
+function setOptimizationPresetValues({ firstValues, secondValues, thirdValues = [], quantity }) {
   optimizationFirstValues.value = firstValues.join(", ");
   optimizationSecondValues.value = secondValues.join(", ");
+  optimizationThirdValues.value = thirdValues.join(", ");
   if (quantity) optimizationQuantity.value = quantity;
   backtestOptimizationTouched = true;
 }
@@ -3444,6 +3586,35 @@ function applyMovingAveragePreset(kind) {
   setOptimizationPresetValues({ ...(presets[kind] ?? presets.balanced), quantity });
 }
 
+function applyRsiPreset(kind) {
+  const parameters = selectedBacktestStrategy()?.parameters ?? {};
+  const quantity = optimizationPresetQuantity(parameters);
+  const presets = {
+    standard: {
+      firstValues: ["14", "21"],
+      secondValues: ["30", "35"],
+      thirdValues: ["65", "70"],
+    },
+    sensitive: {
+      firstValues: ["7", "10", "14"],
+      secondValues: ["35", "40"],
+      thirdValues: ["60", "65"],
+    },
+    conservative: {
+      firstValues: ["14", "21", "28"],
+      secondValues: ["20", "25", "30"],
+      thirdValues: ["70", "75", "80"],
+    },
+  };
+  const preset = presets[kind] ?? presets.standard;
+  setOptimizationPresetValues({
+    firstValues: preset.firstValues,
+    secondValues: preset.secondValues,
+    thirdValues: preset.thirdValues,
+    quantity,
+  });
+}
+
 function populateOptimizationDefaults() {
   if (backtestOptimizationTouched) return;
   const strategy = selectedBacktestStrategy();
@@ -3453,21 +3624,31 @@ function populateOptimizationDefaults() {
   if (strategyType === "moving_average_cross") {
     optimizationFirstValues.value = "5, 10";
     optimizationSecondValues.value = "20, 30";
+    optimizationThirdValues.value = "";
+    optimizationQuantity.value = formatValue(parameters.quantity, "1");
+    return;
+  }
+
+  if (strategyType === "rsi_threshold") {
+    optimizationFirstValues.value = formatValue(parameters.period, "14, 21");
+    optimizationSecondValues.value = formatValue(parameters.oversold, "30, 35");
+    optimizationThirdValues.value = formatValue(parameters.overbought, "65, 70");
     optimizationQuantity.value = formatValue(parameters.quantity, "1");
     return;
   }
 
   optimizationFirstValues.value = nearbyOptimizationValues(parameters.buy_below, 100);
   optimizationSecondValues.value = nearbyOptimizationValues(parameters.sell_above, 110);
+  optimizationThirdValues.value = "";
   optimizationQuantity.value = formatValue(parameters.quantity, "1");
 }
 
 function optimizationParameterSets() {
   const strategyType = optimizationStrategyType();
   const quantity = optimizationQuantity.value.trim();
-  if (parsePositiveParameter(quantity) === null) return { error: t("optimization_positive_numbers") };
 
   if (strategyType === "price_threshold") {
+    if (parsePositiveParameter(quantity) === null) return { error: t("optimization_positive_numbers") };
     const buyBelowValues = parsePositiveOptimizationValues(optimizationFirstValues.value);
     const sellAboveValues = parsePositiveOptimizationValues(optimizationSecondValues.value);
     if (!buyBelowValues || !sellAboveValues) return { error: t("optimization_positive_numbers") };
@@ -3478,6 +3659,7 @@ function optimizationParameterSets() {
   }
 
   if (strategyType === "moving_average_cross") {
+    if (parsePositiveParameter(quantity) === null) return { error: t("optimization_positive_numbers") };
     const shortWindowValues = parsePositiveOptimizationIntegers(optimizationFirstValues.value);
     const longWindowValues = parsePositiveOptimizationIntegers(optimizationSecondValues.value);
     if (!shortWindowValues || !longWindowValues) return { error: t("optimization_integer_windows") };
@@ -3486,6 +3668,32 @@ function optimizationParameterSets() {
     );
     if (parameterSets.some((parameters) => Number(parameters.short_window) >= Number(parameters.long_window))) {
       return { error: t("optimization_short_less_than_long") };
+    }
+    return parameterSets.length > 50 ? { error: t("optimization_max_sets") } : { parameterSets };
+  }
+
+  if (strategyType === "rsi_threshold") {
+    const periodValues = parsePositiveOptimizationIntegers(optimizationFirstValues.value);
+    const oversoldValues = parseRsiOptimizationValues(optimizationSecondValues.value);
+    const overboughtValues = parseRsiOptimizationValues(optimizationThirdValues.value);
+    const quantityValues = parsePositiveOptimizationValues(optimizationQuantity.value);
+    if (!periodValues || !oversoldValues || !overboughtValues || !quantityValues) {
+      return { error: t("optimization_rsi_thresholds_invalid") };
+    }
+    const parameterSets = periodValues.flatMap((period) =>
+      oversoldValues.flatMap((oversold) =>
+        overboughtValues.flatMap((overbought) =>
+          quantityValues.map((candidateQuantity) => ({
+            period,
+            oversold,
+            overbought,
+            quantity: candidateQuantity,
+          })),
+        ),
+      ),
+    );
+    if (parameterSets.some((parameters) => Number(parameters.oversold) >= Number(parameters.overbought))) {
+      return { error: t("optimization_rsi_thresholds_invalid") };
     }
     return parameterSets.length > 50 ? { error: t("optimization_max_sets") } : { parameterSets };
   }
@@ -5325,6 +5533,9 @@ optimizationPriceWide.addEventListener("click", () => applyPriceThresholdPreset(
 optimizationMaFast.addEventListener("click", () => applyMovingAveragePreset("fast"));
 optimizationMaBalanced.addEventListener("click", () => applyMovingAveragePreset("balanced"));
 optimizationMaSlow.addEventListener("click", () => applyMovingAveragePreset("slow"));
+optimizationRsiStandard.addEventListener("click", () => applyRsiPreset("standard"));
+optimizationRsiSensitive.addEventListener("click", () => applyRsiPreset("sensitive"));
+optimizationRsiConservative.addEventListener("click", () => applyRsiPreset("conservative"));
 refreshBacktestHistory.addEventListener("click", loadBacktestHistory);
 priceForm.addEventListener("submit", updateMarketPrice);
 binancePriceFetch.addEventListener("click", fetchBinancePriceForSelectedBot);
@@ -5348,11 +5559,13 @@ backtestStrategyId.addEventListener("change", () => {
   optimizationRequireClosedPosition.checked = false;
   renderBacktestPanel();
 });
-[optimizationFirstValues, optimizationSecondValues, optimizationQuantity, optimizationMinClosedTrades].forEach((input) => {
-  input.addEventListener("input", () => {
-    backtestOptimizationTouched = true;
-  });
-});
+[optimizationFirstValues, optimizationSecondValues, optimizationThirdValues, optimizationQuantity, optimizationMinClosedTrades].forEach(
+  (input) => {
+    input.addEventListener("input", () => {
+      backtestOptimizationTouched = true;
+    });
+  },
+);
 optimizationRequireClosedPosition.addEventListener("change", () => {
   backtestOptimizationTouched = true;
 });

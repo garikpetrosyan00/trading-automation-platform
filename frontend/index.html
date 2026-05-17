@@ -4,7 +4,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Dashboard</title>
-    <link rel="stylesheet" href="/static/styles.css?v=optimization-presets" />
+    <link rel="stylesheet" href="/static/styles.css?v=rsi-threshold-dashboard" />
   </head>
   <body>
     <main class="dashboard-shell">
@@ -271,6 +271,10 @@
                 <span id="strategy-quantity-label">Quantity</span>
                 <input id="strategy-quantity" name="quantity" inputmode="decimal" autocomplete="off" />
               </label>
+              <label id="strategy-extra-parameter-field" hidden>
+                <span id="strategy-extra-parameter-label">Overbought</span>
+                <input id="strategy-extra-parameter" name="overbought" inputmode="decimal" autocomplete="off" />
+              </label>
               <div class="strategy-parameters-actions">
                 <button id="strategy-parameters-submit" type="submit">Save</button>
                 <button id="strategy-parameters-cancel" type="button" class="secondary-button">Cancel</button>
@@ -388,6 +392,15 @@
                     <button id="optimization-ma-slow" type="button" class="secondary-button optimization-preset-button">
                       Slower signals
                     </button>
+                    <button id="optimization-rsi-standard" type="button" class="secondary-button optimization-preset-button">
+                      Standard RSI
+                    </button>
+                    <button id="optimization-rsi-sensitive" type="button" class="secondary-button optimization-preset-button">
+                      Sensitive RSI
+                    </button>
+                    <button id="optimization-rsi-conservative" type="button" class="secondary-button optimization-preset-button">
+                      Conservative RSI
+                    </button>
                   </div>
                 </div>
                 <label>
@@ -397,6 +410,10 @@
                 <label>
                   <span id="optimization-second-values-label">Sell above values</span>
                   <input id="optimization-second-values" autocomplete="off" />
+                </label>
+                <label id="optimization-third-values-field" hidden>
+                  <span id="optimization-third-values-label">Overbought values</span>
+                  <input id="optimization-third-values" autocomplete="off" />
                 </label>
                 <label>
                   <span id="optimization-quantity-label">Quantity</span>
@@ -445,6 +462,6 @@
       </section>
     </main>
 
-    <script src="/static/app.js?v=optimization-presets"></script>
+    <script src="/static/app.js?v=rsi-threshold-dashboard"></script>
   </body>
 </html>
