@@ -1,7 +1,7 @@
 from decimal import Decimal, InvalidOperation
 from typing import Annotated, Any
 
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, Body, Query
 
 from app.api.dependencies import DbSession
 from app.core.errors import AppError
@@ -9,6 +9,7 @@ from app.repositories.backtest_run import BacktestRunRepository
 from app.repositories.market_candle import MarketCandleRepository
 from app.repositories.strategy import StrategyRepository
 from app.schemas.backtest import (
+    BACKTEST_OPTIMIZATION_RESPONSE_EXAMPLE,
     BacktestOptimizationRequest,
     BacktestOptimizationResponse,
     BacktestOptimizationResultResponse,
@@ -16,6 +17,8 @@ from app.schemas.backtest import (
     BacktestRunHistoryResponse,
     BacktestRunRequest,
     BacktestTradeResponse,
+    MOVING_AVERAGE_CROSS_OPTIMIZATION_REQUEST_EXAMPLE,
+    PRICE_THRESHOLD_OPTIMIZATION_REQUEST_EXAMPLE,
 )
 from app.schemas.strategy import (
     validate_moving_average_cross_parameters,
@@ -237,8 +240,49 @@ async def run_backtest(payload: BacktestRunRequest, db: DbSession) -> BacktestRe
     )
 
 
-@router.post("/optimize", response_model=BacktestOptimizationResponse)
-async def optimize_backtest(payload: BacktestOptimizationRequest, db: DbSession) -> BacktestOptimizationResponse:
+@router.post(
+    "/optimize",
+    response_model=BacktestOptimizationResponse,
+    responses={
+        200: {
+            "description": "Ranked optimization results with performance metrics and quality audit metadata.",
+            "content": {
+                "application/json": {
+                    "examples": {
+                        "with_quality_warnings": {
+                            "summary": "Optimization response with audit metadata and warnings",
+                            "value": BACKTEST_OPTIMIZATION_RESPONSE_EXAMPLE,
+                        }
+                    }
+                }
+            },
+        }
+    },
+)
+async def optimize_backtest(
+    payload: Annotated[
+        BacktestOptimizationRequest,
+        Body(
+            openapi_examples={
+                "price_threshold": {
+                    "summary": "Price threshold candidate overrides",
+                    "description": (
+                        "Optimizes price thresholds and quantity while preserving the saved strategy parameters."
+                    ),
+                    "value": PRICE_THRESHOLD_OPTIMIZATION_REQUEST_EXAMPLE,
+                },
+                "moving_average_cross": {
+                    "summary": "Moving average cross candidate overrides",
+                    "description": (
+                        "Optimizes moving average windows and quantity with quality filters included."
+                    ),
+                    "value": MOVING_AVERAGE_CROSS_OPTIMIZATION_REQUEST_EXAMPLE,
+                },
+            }
+        ),
+    ],
+    db: DbSession,
+) -> BacktestOptimizationResponse:
     strategy = get_strategy_service(db).get_by_id(payload.strategy_id)
     strategy_type = strategy.strategy_type or PRICE_THRESHOLD_STRATEGY_TYPE
     base_parameters = dict(strategy.parameters or {})
