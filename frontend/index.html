@@ -4,7 +4,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Dashboard</title>
-    <link rel="stylesheet" href="/static/styles.css?v=rsi-threshold-dashboard" />
+    <link rel="stylesheet" href="/static/styles.css?v=strategy-create-dashboard" />
   </head>
   <body>
     <main class="dashboard-shell">
@@ -283,6 +283,54 @@
             <span id="strategy-parameters-message" class="form-message" role="status"></span>
           </section>
 
+          <section class="create-strategy-panel" aria-label="Create strategy">
+            <div class="panel-heading compact-heading">
+              <h2 id="create-strategy-heading">Strategies</h2>
+              <button id="toggle-create-strategy" type="button" class="secondary-button">
+                Create Strategy
+              </button>
+            </div>
+            <form id="create-strategy-form" class="create-strategy-form" aria-label="Create strategy">
+              <label>
+                <span id="create-strategy-name-label">Strategy name</span>
+                <input id="create-strategy-name" name="name" placeholder="RSI BTC 1m" autocomplete="off" />
+              </label>
+              <label>
+                <span id="create-strategy-symbol-label">Symbol</span>
+                <input id="create-strategy-symbol" name="symbol" value="BTCUSDT" placeholder="BTCUSDT" autocomplete="off" />
+              </label>
+              <label>
+                <span id="create-strategy-timeframe-label">Timeframe</span>
+                <input id="create-strategy-timeframe" name="timeframe" value="1m" placeholder="1m" autocomplete="off" />
+              </label>
+              <label>
+                <span id="create-strategy-type-label">Strategy type</span>
+                <select id="create-strategy-type" name="strategy_type"></select>
+              </label>
+              <label>
+                <span id="create-strategy-param-one-label">Buy below</span>
+                <input id="create-strategy-param-one" name="buy_below" inputmode="decimal" autocomplete="off" />
+              </label>
+              <label>
+                <span id="create-strategy-param-two-label">Sell above</span>
+                <input id="create-strategy-param-two" name="sell_above" inputmode="decimal" autocomplete="off" />
+              </label>
+              <label>
+                <span id="create-strategy-param-three-label">Quantity</span>
+                <input id="create-strategy-param-three" name="quantity" inputmode="decimal" autocomplete="off" />
+              </label>
+              <label id="create-strategy-param-four-field" hidden>
+                <span id="create-strategy-param-four-label">Quantity</span>
+                <input id="create-strategy-param-four" name="quantity" inputmode="decimal" autocomplete="off" />
+              </label>
+              <div class="create-strategy-actions">
+                <button id="create-strategy-submit" type="submit">Save strategy</button>
+                <button id="create-strategy-cancel" type="button" class="secondary-button">Cancel</button>
+                <span id="create-strategy-message" class="form-message" role="status"></span>
+              </div>
+            </form>
+          </section>
+
           <section class="risk-settings-panel" aria-label="Risk settings">
             <div class="panel-heading compact-heading">
               <h2 id="risk-settings-heading">Risk Settings</h2>
@@ -462,6 +510,6 @@
       </section>
     </main>
 
-    <script src="/static/app.js?v=rsi-threshold-dashboard"></script>
+    <script src="/static/app.js?v=strategy-create-dashboard"></script>
   </body>
 </html>

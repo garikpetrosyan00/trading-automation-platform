@@ -19,6 +19,8 @@ let isFetchingBinancePrice = false;
 let isRefreshing = false;
 let isCreatingBot = false;
 let isCreateBotOpen = false;
+let isCreatingStrategy = false;
+let isCreateStrategyOpen = false;
 let isEditBotOpen = false;
 let isLoadingEditBot = false;
 let isSavingEditBot = false;
@@ -43,6 +45,8 @@ let actionMessage = "";
 let actionMessageType = "";
 let createBotMessage = "";
 let createBotMessageType = "";
+let createStrategyMessage = "";
+let createStrategyMessageType = "";
 let editBotMessage = "";
 let editBotMessageType = "";
 let executionSettingsMessage = "";
@@ -85,6 +89,8 @@ const translations = {
     symbol: "Symbol",
     bots_heading: "Bots",
     create_bot: "Create Bot",
+    create_strategy: "Create Strategy",
+    strategies_heading: "Strategies",
     close: "Close",
     create_bot_defaults:
       "New bots are created as draft paper bots by default. They are saved, selected here, and not live yet.",
@@ -147,6 +153,8 @@ const translations = {
     sell_above_label: "Sell above",
     short_window_label: "Short window",
     long_window_label: "Long window",
+    price_threshold_label: "Price Threshold",
+    moving_average_cross_label: "Moving Average Cross",
     rsi_threshold_label: "RSI Threshold",
     period_label: "Period",
     oversold_label: "Oversold",
@@ -157,12 +165,26 @@ const translations = {
     edit_strategy_parameters: "Edit",
     edit_strategy_parameters_aria: "Edit strategy parameters",
     save: "Save",
+    save_strategy: "Save strategy",
+    strategy_name_form_label: "Strategy name",
+    create_strategy_aria: "Create strategy",
+    create_strategy_hint_name: "RSI BTC 1m",
+    create_strategy_success:
+      "Created {name}. It is now available for Bot assignment and backtesting.",
+    create_strategy_failed: "Could not create Strategy.",
+    creating_strategy: "Saving…",
+    select_strategy_type: "Select a strategy type.",
+    enter_strategy_name: "Enter a Strategy name.",
+    enter_strategy_symbol: "Enter a symbol.",
+    enter_strategy_timeframe: "Enter a timeframe.",
+    check_strategy_fields: "Check the Strategy form fields and try again.",
     strategy_parameters_updated: "Strategy parameters updated.",
     strategy_parameters_save_failed: "Could not update Strategy parameters.",
     enter_strategy_parameters: "Enter buy below, sell above, and quantity.",
     enter_moving_average_parameters: "Enter short window and long window.",
     enter_rsi_parameters: "Enter period, oversold, overbought, and quantity.",
     strategy_parameters_must_be_numbers: "Strategy parameters must be positive numbers.",
+    sell_above_must_exceed_buy_below: "Sell above must be greater than buy below.",
     moving_average_windows_must_be_integers: "Short window and long window must be positive integers.",
     moving_average_short_less_than_long: "Short window must be smaller than long window.",
     rsi_period_must_be_integer: "RSI period must be a positive integer.",
@@ -540,6 +562,8 @@ const translations = {
     symbol: "Symbol",
     bots_heading: "Bots",
     create_bot: "Ստեղծել Bot",
+    create_strategy: "Ստեղծել Strategy",
+    strategies_heading: "Strategy-ներ",
     close: "Փակել",
     create_bot_defaults:
       "Նոր Bot-երը ստեղծվում են draft Paper mode-ով։ Դրանք պահպանվում են, ընտրվում այստեղ և դեռ live չեն։",
@@ -602,6 +626,8 @@ const translations = {
     sell_above_label: "Վաճառել՝ բարձր քան",
     short_window_label: "Կարճ պատուհան",
     long_window_label: "Երկար պատուհան",
+    price_threshold_label: "Գնի շեմ",
+    moving_average_cross_label: "Moving Average հատում",
     rsi_threshold_label: "RSI Threshold",
     period_label: "Պարբերություն",
     oversold_label: "Oversold շեմ",
@@ -612,12 +638,26 @@ const translations = {
     edit_strategy_parameters: "Խմբագրել",
     edit_strategy_parameters_aria: "Խմբագրել Strategy-ի parameters-ները",
     save: "Պահպանել",
+    save_strategy: "Պահպանել Strategy-ն",
+    strategy_name_form_label: "Strategy-ի անուն",
+    create_strategy_aria: "Ստեղծել Strategy",
+    create_strategy_hint_name: "RSI BTC 1m",
+    create_strategy_success:
+      "Ստեղծվեց {name}։ Այն հասանելի է Bot-ին կցելու և backtest-ի համար։",
+    create_strategy_failed: "Չհաջողվեց ստեղծել Strategy։",
+    creating_strategy: "Պահպանվում է…",
+    select_strategy_type: "Ընտրիր strategy type։",
+    enter_strategy_name: "Մուտքագրիր Strategy-ի անունը։",
+    enter_strategy_symbol: "Մուտքագրիր symbol։",
+    enter_strategy_timeframe: "Մուտքագրիր timeframe։",
+    check_strategy_fields: "Ստուգիր Strategy-ի ձևի դաշտերը և նորից փորձիր։",
     strategy_parameters_updated: "Strategy-ի parameters-ները թարմացվեցին։",
     strategy_parameters_save_failed: "Չհաջողվեց թարմացնել Strategy-ի parameters-ները։",
     enter_strategy_parameters: "Մուտքագրիր buy below, sell above և quantity արժեքները։",
     enter_moving_average_parameters: "Մուտքագրիր short window և long window արժեքները։",
     enter_rsi_parameters: "Մուտքագրիր period, oversold, overbought և quantity արժեքները։",
     strategy_parameters_must_be_numbers: "Strategy-ի parameters-ները պետք է լինեն դրական թվեր։",
+    sell_above_must_exceed_buy_below: "Sell above-ը պետք է մեծ լինի buy below-ից։",
     moving_average_windows_must_be_integers: "Short window-ը և long window-ը պետք է լինեն դրական ամբողջ թվեր։",
     moving_average_short_less_than_long: "Short window-ը պետք է փոքր լինի long window-ից։",
     rsi_period_must_be_integer: "RSI period-ը պետք է լինի դրական ամբողջ թիվ։",
@@ -1015,6 +1055,30 @@ const createBotExchangeName = document.querySelector("#create-bot-exchange-name"
 const createBotNotes = document.querySelector("#create-bot-notes");
 const createBotSubmit = document.querySelector("#create-bot-submit");
 const createBotMessageEl = document.querySelector("#create-bot-message");
+const createStrategyPanel = document.querySelector(".create-strategy-panel");
+const createStrategyHeading = document.querySelector("#create-strategy-heading");
+const toggleCreateStrategy = document.querySelector("#toggle-create-strategy");
+const createStrategyForm = document.querySelector("#create-strategy-form");
+const createStrategyNameLabel = document.querySelector("#create-strategy-name-label");
+const createStrategySymbolLabel = document.querySelector("#create-strategy-symbol-label");
+const createStrategyTimeframeLabel = document.querySelector("#create-strategy-timeframe-label");
+const createStrategyTypeLabel = document.querySelector("#create-strategy-type-label");
+const createStrategyName = document.querySelector("#create-strategy-name");
+const createStrategySymbol = document.querySelector("#create-strategy-symbol");
+const createStrategyTimeframe = document.querySelector("#create-strategy-timeframe");
+const createStrategyType = document.querySelector("#create-strategy-type");
+const createStrategyParamOneLabel = document.querySelector("#create-strategy-param-one-label");
+const createStrategyParamTwoLabel = document.querySelector("#create-strategy-param-two-label");
+const createStrategyParamThreeLabel = document.querySelector("#create-strategy-param-three-label");
+const createStrategyParamFourField = document.querySelector("#create-strategy-param-four-field");
+const createStrategyParamFourLabel = document.querySelector("#create-strategy-param-four-label");
+const createStrategyParamOne = document.querySelector("#create-strategy-param-one");
+const createStrategyParamTwo = document.querySelector("#create-strategy-param-two");
+const createStrategyParamThree = document.querySelector("#create-strategy-param-three");
+const createStrategyParamFour = document.querySelector("#create-strategy-param-four");
+const createStrategySubmit = document.querySelector("#create-strategy-submit");
+const createStrategyCancel = document.querySelector("#create-strategy-cancel");
+const createStrategyMessageEl = document.querySelector("#create-strategy-message");
 const selectedSymbol = document.querySelector("#selected-symbol");
 const selectedName = document.querySelector("#selected-name");
 const selectedStatus = document.querySelector("#selected-status");
@@ -1260,6 +1324,14 @@ function applyStaticTranslations() {
   createBotNotesLabel.textContent = t("notes");
   createBotName.placeholder = t("create_bot_hint_name");
   createBotNotes.placeholder = t("optional_notes");
+  createStrategyPanel?.setAttribute("aria-label", t("create_strategy_aria"));
+  createStrategyForm.setAttribute("aria-label", t("create_strategy_aria"));
+  createStrategyHeading.textContent = t("strategies_heading");
+  createStrategyNameLabel.textContent = t("strategy_name_form_label");
+  createStrategySymbolLabel.textContent = t("symbol");
+  createStrategyTimeframeLabel.textContent = t("timeframe_label");
+  createStrategyTypeLabel.textContent = t("strategy_type_label");
+  createStrategyName.placeholder = t("create_strategy_hint_name");
   botSearch.placeholder = t("search_bots");
   priceForm.setAttribute("aria-label", t("market_price_update"));
   priceSymbolLabel.textContent = t("symbol");
@@ -1700,6 +1772,8 @@ function formatValue(value, fallback = "—") {
 
 function humanizeMessage(value, fallback = "Update") {
   const text = formatValue(value, fallback);
+  if (normalizeStrategyType(text) === "price_threshold") return t("price_threshold_label");
+  if (normalizeStrategyType(text) === "moving_average_cross") return t("moving_average_cross_label");
   if (normalizeStrategyType(text) === "rsi_threshold") return t("rsi_threshold_label");
   return text
     .replaceAll("_", " ")
@@ -1926,6 +2000,56 @@ function selectedStrategyParameterFields() {
   return [];
 }
 
+const CREATE_STRATEGY_TYPES = ["price_threshold", "moving_average_cross", "rsi_threshold"];
+
+function createStrategyParameterFields() {
+  const strategyType = normalizeStrategyType(createStrategyType.value || "price_threshold");
+  if (strategyType === "rsi_threshold") {
+    return [
+      { key: "period", label: t("period_label"), input: createStrategyParamOne, labelEl: createStrategyParamOneLabel },
+      { key: "oversold", label: t("oversold_label"), input: createStrategyParamTwo, labelEl: createStrategyParamTwoLabel },
+      { key: "overbought", label: t("overbought_label"), input: createStrategyParamThree, labelEl: createStrategyParamThreeLabel },
+      { key: "quantity", label: t("quantity"), input: createStrategyParamFour, labelEl: createStrategyParamFourLabel },
+    ];
+  }
+  if (strategyType === "moving_average_cross") {
+    return [
+      { key: "short_window", label: t("short_window_label"), input: createStrategyParamOne, labelEl: createStrategyParamOneLabel },
+      { key: "long_window", label: t("long_window_label"), input: createStrategyParamTwo, labelEl: createStrategyParamTwoLabel },
+      { key: "quantity", label: t("quantity"), input: createStrategyParamThree, labelEl: createStrategyParamThreeLabel },
+    ];
+  }
+  return [
+    { key: "buy_below", label: t("buy_below_label"), input: createStrategyParamOne, labelEl: createStrategyParamOneLabel },
+    { key: "sell_above", label: t("sell_above_label"), input: createStrategyParamTwo, labelEl: createStrategyParamTwoLabel },
+    { key: "quantity", label: t("quantity"), input: createStrategyParamThree, labelEl: createStrategyParamThreeLabel },
+  ];
+}
+
+function createStrategyDefaults(strategyType) {
+  if (strategyType === "rsi_threshold") {
+    return { period: "14", oversold: "30", overbought: "70", quantity: "0.001" };
+  }
+  if (strategyType === "moving_average_cross") {
+    return { short_window: "5", long_window: "20", quantity: "0.001" };
+  }
+  return { buy_below: "95000", sell_above: "105000", quantity: "0.001" };
+}
+
+function populateCreateStrategyParameters(strategyType = normalizeStrategyType(createStrategyType.value)) {
+  const defaults = createStrategyDefaults(strategyType);
+  [createStrategyParamOne, createStrategyParamTwo, createStrategyParamThree, createStrategyParamFour].forEach(
+    (input) => {
+      input.value = "";
+      input.name = "";
+    },
+  );
+  createStrategyParameterFields().forEach((field) => {
+    field.input.value = defaults[field.key] ?? "";
+    field.input.name = field.key;
+  });
+}
+
 function canEditSelectedStrategyParameters() {
   return selectedStrategyParameterFields().length > 0;
 }
@@ -2021,6 +2145,75 @@ function validateStrategyParametersForm() {
   if (values.some((value) => !value)) return t("enter_strategy_parameters");
   if (values.some((value) => parsePositiveParameter(value) === null)) return t("strategy_parameters_must_be_numbers");
   return "";
+}
+
+function validateCreateStrategyForm() {
+  const strategyType = normalizeStrategyType(createStrategyType.value);
+  if (!createStrategyName.value.trim()) return t("enter_strategy_name");
+  if (!createStrategySymbol.value.trim()) return t("enter_strategy_symbol");
+  if (!createStrategyTimeframe.value.trim()) return t("enter_strategy_timeframe");
+  if (!CREATE_STRATEGY_TYPES.includes(strategyType)) return t("select_strategy_type");
+
+  if (strategyType === "moving_average_cross") {
+    const shortWindow = parsePositiveIntegerParameter(createStrategyParamOne.value);
+    const longWindow = parsePositiveIntegerParameter(createStrategyParamTwo.value);
+    const quantity = parsePositiveParameter(createStrategyParamThree.value);
+    if (!createStrategyParamOne.value.trim() || !createStrategyParamTwo.value.trim() || !createStrategyParamThree.value.trim()) {
+      return t("enter_moving_average_parameters");
+    }
+    if (shortWindow === null || longWindow === null) return t("moving_average_windows_must_be_integers");
+    if (shortWindow >= longWindow) return t("moving_average_short_less_than_long");
+    if (quantity === null) return t("strategy_parameters_must_be_numbers");
+    return "";
+  }
+
+  if (strategyType === "rsi_threshold") {
+    const period = parsePositiveIntegerParameter(createStrategyParamOne.value);
+    const oversold = parseRsiThresholdParameter(createStrategyParamTwo.value);
+    const overbought = parseRsiThresholdParameter(createStrategyParamThree.value);
+    const quantity = parsePositiveParameter(createStrategyParamFour.value);
+    if (
+      !createStrategyParamOne.value.trim() ||
+      !createStrategyParamTwo.value.trim() ||
+      !createStrategyParamThree.value.trim() ||
+      !createStrategyParamFour.value.trim()
+    ) {
+      return t("enter_rsi_parameters");
+    }
+    if (period === null) return t("rsi_period_must_be_integer");
+    if (oversold === null || overbought === null) return t("rsi_thresholds_must_be_numbers");
+    if (Number(oversold) >= Number(overbought)) return t("rsi_oversold_less_than_overbought");
+    if (quantity === null) return t("rsi_quantity_must_be_positive");
+    return "";
+  }
+
+  const buyBelow = parsePositiveParameter(createStrategyParamOne.value);
+  const sellAbove = parsePositiveParameter(createStrategyParamTwo.value);
+  const quantity = parsePositiveParameter(createStrategyParamThree.value);
+  if (!createStrategyParamOne.value.trim() || !createStrategyParamTwo.value.trim() || !createStrategyParamThree.value.trim()) {
+    return t("enter_strategy_parameters");
+  }
+  if (buyBelow === null || sellAbove === null || quantity === null) {
+    return t("strategy_parameters_must_be_numbers");
+  }
+  if (Number(sellAbove) <= Number(buyBelow)) return t("sell_above_must_exceed_buy_below");
+  return "";
+}
+
+function createStrategyPayload() {
+  const parameters = {};
+  createStrategyParameterFields().forEach((field) => {
+    const value = field.input.value.trim();
+    if (!value) return;
+    parameters[field.key] = Number(value);
+  });
+  return {
+    name: createStrategyName.value.trim(),
+    symbol: createStrategySymbol.value.trim().toUpperCase(),
+    timeframe: createStrategyTimeframe.value.trim(),
+    strategy_type: normalizeStrategyType(createStrategyType.value),
+    parameters,
+  };
 }
 
 function strategyParameterPayload() {
@@ -3402,6 +3595,10 @@ function validationErrorsMessage(errors, fallback) {
     name: "name",
     exchange_name: "exchange name",
     strategy_id: "strategy",
+    strategy_type: "strategy type",
+    symbol: "symbol",
+    timeframe: "timeframe",
+    parameters: "parameters",
   };
   const fields = [
     ...new Set(
@@ -3906,6 +4103,7 @@ function hasInFlightAction() {
     isUpdatingPrice ||
     isFetchingBinancePrice ||
     isCreatingBot ||
+    isCreatingStrategy ||
     isLoadingEditBot ||
     isSavingEditBot ||
     isDeletingBot ||
@@ -4187,6 +4385,13 @@ function createBotValidationMessage(error) {
   return requestErrorMessage(error, t("could_not_create_bot"));
 }
 
+function createStrategyValidationMessage(error) {
+  if (error?.status === 422) {
+    return validationErrorsMessage(error?.data?.errors, t("check_strategy_fields"));
+  }
+  return requestErrorMessage(error, t("create_strategy_failed"));
+}
+
 function editBotValidationMessage(error) {
   if (error?.status === 422) {
     return validationErrorsMessage(error?.data?.errors, t("check_bot_fields"));
@@ -4251,6 +4456,14 @@ function resetCreateBotForm() {
   createBotStrategyId.value = strategies[0] ? String(strategies[0].id) : "";
   createBotExchangeName.value = "binance";
   createBotNotes.value = "";
+}
+
+function resetCreateStrategyForm() {
+  createStrategyName.value = "";
+  createStrategySymbol.value = "BTCUSDT";
+  createStrategyTimeframe.value = "1m";
+  createStrategyType.value = "price_threshold";
+  populateCreateStrategyParameters("price_threshold");
 }
 
 function populateEditBotForm(botConfig) {
@@ -4375,6 +4588,48 @@ async function submitCreateBot(event) {
     isCreateBotOpen = true;
   } finally {
     isCreatingBot = false;
+    render();
+  }
+}
+
+async function submitCreateStrategy(event) {
+  event.preventDefault();
+  if (isCreatingStrategy) return;
+
+  const validationError = validateCreateStrategyForm();
+  if (validationError) {
+    createStrategyMessage = validationError;
+    createStrategyMessageType = "error";
+    isCreateStrategyOpen = true;
+    render();
+    return;
+  }
+
+  isCreatingStrategy = true;
+  createStrategyMessage = "";
+  createStrategyMessageType = "";
+  render();
+
+  try {
+    const createdStrategy = await fetchJson("/api/v1/strategies", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(createStrategyPayload()),
+    });
+    await loadStrategies();
+    await refreshDashboardData();
+    createStrategyMessage = t("create_strategy_success", {
+      name: createdStrategy?.name || t("unnamed_strategy"),
+    });
+    createStrategyMessageType = "success";
+    isCreateStrategyOpen = true;
+    resetCreateStrategyForm();
+  } catch (error) {
+    createStrategyMessage = createStrategyValidationMessage(error);
+    createStrategyMessageType = "error";
+    isCreateStrategyOpen = true;
+  } finally {
+    isCreatingStrategy = false;
     render();
   }
 }
@@ -4997,6 +5252,50 @@ function renderCreateBotForm() {
     : "form-message";
 }
 
+function renderCreateStrategyTypeOptions() {
+  const selectedType = normalizeStrategyType(createStrategyType.value || "price_threshold");
+  createStrategyType.innerHTML = CREATE_STRATEGY_TYPES.map(
+    (strategyType) =>
+      `<option value="${strategyType}"${strategyType === selectedType ? " selected" : ""}>${humanizeMessage(
+        strategyType,
+      )}</option>`,
+  ).join("");
+  createStrategyType.value = CREATE_STRATEGY_TYPES.includes(selectedType) ? selectedType : "price_threshold";
+}
+
+function renderCreateStrategyForm() {
+  createStrategyForm.setAttribute("data-open", String(isCreateStrategyOpen));
+  toggleCreateStrategy.textContent = isCreateStrategyOpen ? t("close") : t("create_strategy");
+  toggleCreateStrategy.disabled = isCreatingStrategy;
+  createStrategySubmit.textContent = isCreatingStrategy ? t("creating_strategy") : t("save_strategy");
+  createStrategySubmit.disabled = isCreatingStrategy;
+  createStrategyCancel.textContent = t("cancel");
+  createStrategyCancel.disabled = isCreatingStrategy;
+  renderCreateStrategyTypeOptions();
+
+  const fields = createStrategyParameterFields();
+  [createStrategyParamOne, createStrategyParamTwo, createStrategyParamThree, createStrategyParamFour].forEach(
+    (input) => {
+      input.disabled = isCreatingStrategy;
+      input.inputMode = "decimal";
+    },
+  );
+  fields.forEach((field) => {
+    field.labelEl.textContent = field.label;
+    field.input.name = field.key;
+    field.input.inputMode = field.key.includes("window") || field.key === "period" ? "numeric" : "decimal";
+  });
+  createStrategyParamFourField.hidden = fields.length < 4;
+  createStrategyName.disabled = isCreatingStrategy;
+  createStrategySymbol.disabled = isCreatingStrategy;
+  createStrategyTimeframe.disabled = isCreatingStrategy;
+  createStrategyType.disabled = isCreatingStrategy;
+  createStrategyMessageEl.textContent = createStrategyMessage;
+  createStrategyMessageEl.className = createStrategyMessageType
+    ? `form-message ${createStrategyMessageType}`
+    : "form-message";
+}
+
 function renderEditBotForm() {
   editBotForm.setAttribute("data-open", String(isEditBotOpen));
   editBot.textContent = isLoadingEditBot ? t("loading_generic") : t("edit");
@@ -5480,6 +5779,7 @@ function render() {
   renderHeaderMeta();
   renderRefreshControl();
   renderCreateBotForm();
+  renderCreateStrategyForm();
   renderBotList();
   renderSummary();
   renderDecisionExplanation();
@@ -5505,6 +5805,31 @@ toggleCreateBot.addEventListener("click", () => {
   }
   render();
 });
+toggleCreateStrategy.addEventListener("click", () => {
+  isCreateStrategyOpen = !isCreateStrategyOpen;
+  if (isCreateStrategyOpen) {
+    populateCreateStrategyParameters(normalizeStrategyType(createStrategyType.value || "price_threshold"));
+  }
+  if (!isCreateStrategyOpen && !isCreatingStrategy) {
+    createStrategyMessage = "";
+    createStrategyMessageType = "";
+  }
+  render();
+});
+createStrategyType.addEventListener("change", () => {
+  populateCreateStrategyParameters(normalizeStrategyType(createStrategyType.value));
+  createStrategyMessage = "";
+  createStrategyMessageType = "";
+  renderCreateStrategyForm();
+});
+createStrategyCancel.addEventListener("click", () => {
+  if (isCreatingStrategy) return;
+  isCreateStrategyOpen = false;
+  createStrategyMessage = "";
+  createStrategyMessageType = "";
+  resetCreateStrategyForm();
+  render();
+});
 botSearch.addEventListener("input", () => {
   botSearchQuery = botSearch.value;
   renderBotList();
@@ -5519,6 +5844,7 @@ editBotCancel.addEventListener("click", closeEditBotForm);
 editStrategyParameters.addEventListener("click", openStrategyParametersForm);
 strategyParametersCancel.addEventListener("click", closeStrategyParametersForm);
 createBotForm.addEventListener("submit", submitCreateBot);
+createStrategyForm.addEventListener("submit", submitCreateStrategy);
 editBotForm.addEventListener("submit", submitEditBot);
 executionSettingsForm.addEventListener("submit", submitExecutionSettings);
 strategyParametersForm.addEventListener("submit", submitStrategyParameters);

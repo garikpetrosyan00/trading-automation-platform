@@ -804,6 +804,7 @@ dd {
 .bot-settings-panel,
 .execution-settings-panel,
 .strategy-parameters-panel,
+.create-strategy-panel,
 .risk-settings-panel,
 .backtest-panel {
   margin: 0 0 18px;
@@ -901,7 +902,22 @@ dd {
   display: grid;
 }
 
-.strategy-parameters-actions {
+.create-strategy-form {
+  display: none;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fbfcfa;
+  padding: 14px;
+}
+
+.create-strategy-form[data-open="true"] {
+  display: grid;
+}
+
+.strategy-parameters-actions,
+.create-strategy-actions {
   grid-column: 1 / -1;
   display: flex;
   flex-wrap: wrap;
@@ -1828,6 +1844,7 @@ dd {
 
   .execution-settings-form,
   .strategy-parameters-form,
+  .create-strategy-form,
   .risk-settings-form,
   .backtest-optimization-form,
   .backtest-form,
@@ -1871,6 +1888,7 @@ dd {
   .strategy-parameters-grid,
   .execution-settings-form,
   .strategy-parameters-form,
+  .create-strategy-form,
   .risk-settings-form,
   .backtest-optimization-form,
   .backtest-result-grid,
