@@ -1221,13 +1221,19 @@ dd {
   line-height: 1.4;
 }
 
+.backtest-optimization-filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 0 0 10px;
+}
+
 .backtest-optimization-filter {
   display: inline-flex;
   align-items: center;
   gap: 8px;
   width: fit-content;
   min-height: 30px;
-  margin: 0 0 10px;
   border: 1px solid var(--line);
   border-radius: 8px;
   background: var(--surface);

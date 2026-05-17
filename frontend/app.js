@@ -35,6 +35,7 @@ let isLoadingBacktestHistory = false;
 let backtestStrategyTouched = false;
 let backtestOptimizationTouched = false;
 let showMeaningfulOptimizationOnly = false;
+let showPassedOptimizationOnly = false;
 let symbolTouched = false;
 let botListError = "";
 let summaryError = "";
@@ -229,12 +230,16 @@ const translations = {
     optimization_closed_trade_results: "With closed trades: {count}",
     optimization_open_position_results: "Ending open: {count}",
     optimization_unique_returns: "Unique returns: {count}",
+    optimization_passed_quality_results: "Passed quality filters: {count}",
+    optimization_failed_quality_results: "Failed quality filters: {count}",
     optimization_warning_no_closed_trades: "No parameter set produced closed trades, so results are inconclusive.",
     optimization_warning_most_no_closed_trades: "Most parameter sets did not produce closed trades.",
     optimization_warning_similar_returns: "Returns are nearly identical across all parameter sets.",
     optimization_warning_all_open_positions: "Every result ends with an open position.",
     optimization_warning_few_trades: "Results have very few trades; rankings may be fragile.",
     optimization_meaningful_filter: "Show only results with closed trades locally",
+    optimization_passed_quality_filter: "Show only results that passed quality filters",
+    optimization_no_display_filter_results: "No optimization results match the selected display filters.",
     optimization_no_meaningful_results:
       "No parameter set produced closed trades. Try importing more candles or widening the buy/sell ranges.",
     optimization_quality_passed: "Passed quality filters",
@@ -649,12 +654,16 @@ const translations = {
     optimization_closed_trade_results: "Փակված trade-երով՝ {count}",
     optimization_open_position_results: "Բաց position-ով ավարտված՝ {count}",
     optimization_unique_returns: "Տարբեր return-ներ՝ {count}",
+    optimization_passed_quality_results: "Որակի ֆիլտրերն անցած՝ {count}",
+    optimization_failed_quality_results: "Որակի ֆիլտրերը չանցած՝ {count}",
     optimization_warning_no_closed_trades: "Ոչ մի parameter set փակված trade չունի, ուստի արդյունքները թույլ են։",
     optimization_warning_most_no_closed_trades: "Parameter set-երի մեծ մասը փակված trade չունի։",
     optimization_warning_similar_returns: "Return-ները գրեթե նույնն են բոլոր parameter set-երում։",
     optimization_warning_all_open_positions: "Բոլոր արդյունքները ավարտվում են բաց position-ով։",
     optimization_warning_few_trades: "Trade-երը շատ քիչ են, ranking-ը կարող է անկայուն լինել։",
     optimization_meaningful_filter: "Տեղում ցույց տալ միայն փակված trade-երով արդյունքները",
+    optimization_passed_quality_filter: "Ցույց տալ միայն որակի ֆիլտրերն անցած արդյունքները",
+    optimization_no_display_filter_results: "Ընտրված ցուցադրման ֆիլտրերին համապատասխան optimization result չկա։",
     optimization_no_meaningful_results:
       "Ոչ մի parameter set փակված trade չունի։ Փորձիր ներմուծել ավելի շատ candle կամ լայնացնել buy/sell միջակայքերը։",
     optimization_quality_passed: "Անցել է որակի ֆիլտրերը",
@@ -2218,6 +2227,8 @@ function optimizationQuality(results) {
   const total = results.length;
   const closedTradeResults = results.filter((item) => item.hasClosedTrades).length;
   const openPositionResults = results.filter((item) => item.hasOpenPosition).length;
+  const passedQualityResults = results.filter((item) => item.passesQualityFilters).length;
+  const failedQualityResults = total - passedQualityResults;
   const uniqueReturns = new Set(results.map((item) => optimizationReturnBucket(item.totalReturnPercent))).size;
   const lowTradeResults = results.filter((item) => Number(item.numberOfTrades) <= 1).length;
   const warnings = [];
@@ -2237,7 +2248,15 @@ function optimizationQuality(results) {
     warnings.push(t("optimization_warning_few_trades"));
   }
 
-  return { total, closedTradeResults, openPositionResults, uniqueReturns, warnings };
+  return {
+    total,
+    closedTradeResults,
+    openPositionResults,
+    uniqueReturns,
+    passedQualityResults,
+    failedQualityResults,
+    warnings,
+  };
 }
 
 function renderOptimizationQualitySummary(results) {
@@ -2258,6 +2277,8 @@ function renderOptimizationQualitySummary(results) {
     t("optimization_closed_trade_results", { count: formatDecimal(quality.closedTradeResults) }),
     t("optimization_open_position_results", { count: formatDecimal(quality.openPositionResults) }),
     t("optimization_unique_returns", { count: formatDecimal(quality.uniqueReturns) }),
+    t("optimization_passed_quality_results", { count: formatDecimal(quality.passedQualityResults) }),
+    t("optimization_failed_quality_results", { count: formatDecimal(quality.failedQualityResults) }),
   ].forEach((text) => {
     const chip = document.createElement("span");
     chip.textContent = text;
@@ -2281,20 +2302,42 @@ function renderOptimizationQualitySummary(results) {
   return summary;
 }
 
-function renderOptimizationFilter(results) {
+function renderOptimizationDisplayFilter({ checked, label, onChange }) {
   const wrapper = document.createElement("label");
   wrapper.className = "backtest-optimization-filter";
   const checkbox = document.createElement("input");
   const text = document.createElement("span");
   checkbox.type = "checkbox";
-  checkbox.checked = showMeaningfulOptimizationOnly;
-  text.textContent = t("optimization_meaningful_filter");
+  checkbox.checked = checked;
+  text.textContent = label;
   checkbox.addEventListener("change", () => {
-    showMeaningfulOptimizationOnly = checkbox.checked;
+    onChange(checkbox.checked);
     renderBacktestOptimizationResult();
   });
   wrapper.append(checkbox, text);
   return wrapper;
+}
+
+function renderOptimizationFilters() {
+  const filters = document.createElement("div");
+  filters.className = "backtest-optimization-filters";
+  filters.append(
+    renderOptimizationDisplayFilter({
+      checked: showMeaningfulOptimizationOnly,
+      label: t("optimization_meaningful_filter"),
+      onChange: (checked) => {
+        showMeaningfulOptimizationOnly = checked;
+      },
+    }),
+    renderOptimizationDisplayFilter({
+      checked: showPassedOptimizationOnly,
+      label: t("optimization_passed_quality_filter"),
+      onChange: (checked) => {
+        showPassedOptimizationOnly = checked;
+      },
+    }),
+  );
+  return filters;
 }
 
 function optimizationApplyKeys(strategyType) {
@@ -2340,11 +2383,13 @@ function renderBacktestOptimizationResult() {
   }
 
   const allResults = backtestOptimizationResult.results;
-  const visibleResults = showMeaningfulOptimizationOnly
-    ? allResults.filter((item) => item.hasClosedTrades)
-    : allResults;
+  const visibleResults = allResults.filter(
+    (item) =>
+      (!showMeaningfulOptimizationOnly || item.hasClosedTrades) &&
+      (!showPassedOptimizationOnly || item.passesQualityFilters),
+  );
   const qualitySummary = renderOptimizationQualitySummary(allResults);
-  const filter = renderOptimizationFilter(allResults);
+  const filters = renderOptimizationFilters();
 
   const note = document.createElement("p");
   note.className = "backtest-optimization-note";
@@ -2353,9 +2398,12 @@ function renderBacktestOptimizationResult() {
   if (visibleResults.length === 0) {
     const empty = document.createElement("div");
     empty.className = "backtest-optimization-result empty";
-    empty.textContent = t("optimization_no_meaningful_results");
+    empty.textContent =
+      showMeaningfulOptimizationOnly || showPassedOptimizationOnly
+        ? t("optimization_no_display_filter_results")
+        : t("optimization_no_meaningful_results");
     backtestOptimizationResultEl.className = "backtest-optimization-result";
-    backtestOptimizationResultEl.append(qualitySummary, filter, empty);
+    backtestOptimizationResultEl.append(qualitySummary, filters, empty);
     return;
   }
 
@@ -2463,7 +2511,7 @@ function renderBacktestOptimizationResult() {
   });
 
   backtestOptimizationResultEl.className = "backtest-optimization-result";
-  backtestOptimizationResultEl.append(qualitySummary, filter, note, list);
+  backtestOptimizationResultEl.append(qualitySummary, filters, note, list);
 }
 
 function renderBacktestPanel() {
@@ -3530,6 +3578,7 @@ function clearSelectedBotMessages() {
   backtestResult = null;
   backtestOptimizationResult = null;
   showMeaningfulOptimizationOnly = false;
+  showPassedOptimizationOnly = false;
   backtestHistory = [];
   backtestHistoryError = "";
   backtestHistoryRequestId += 1;
@@ -4331,6 +4380,7 @@ async function submitBacktestOptimization(event) {
   backtestOptimizationMessageType = "";
   backtestOptimizationResult = null;
   showMeaningfulOptimizationOnly = false;
+  showPassedOptimizationOnly = false;
   render();
 
   try {
@@ -5183,6 +5233,7 @@ backtestStrategyId.addEventListener("change", () => {
   backtestOptimizationMessageType = "";
   backtestOptimizationResult = null;
   showMeaningfulOptimizationOnly = false;
+  showPassedOptimizationOnly = false;
   backtestOptimizationTouched = false;
   optimizationMinClosedTrades.value = "0";
   optimizationRequireClosedPosition.checked = false;
