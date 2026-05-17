@@ -33,28 +33,41 @@ MOVING_AVERAGE_CROSS_OPTIMIZATION_REQUEST_EXAMPLE = {
     ],
 }
 
+RSI_THRESHOLD_OPTIMIZATION_REQUEST_EXAMPLE = {
+    "strategy_id": 126,
+    "initial_balance": "15000",
+    "source": "binance",
+    "min_closed_trades": 2,
+    "require_closed_position": True,
+    "parameter_sets": [
+        {"period": "14", "oversold": "30", "overbought": "70", "quantity": "0.05"},
+        {"period": "10", "oversold": "25", "overbought": "75", "quantity": "0.04"},
+        {"oversold": "35", "overbought": "65"},
+    ],
+}
+
 BACKTEST_OPTIMIZATION_RESPONSE_EXAMPLE = {
-    "strategy_id": 42,
+    "strategy_id": 126,
     "symbol": "BTCUSDT",
     "timeframe": "1h",
-    "strategy_type": "price_threshold",
-    "source": "manual",
-    "initial_balance": "10000",
+    "strategy_type": "rsi_threshold",
+    "source": "binance",
+    "initial_balance": "15000",
     "total_runs": 3,
     "results": [
         {
             "rank": 1,
-            "parameters": {"buy_below": "65000", "sell_above": "69000", "quantity": "0.05"},
-            "base_parameters": {"buy_below": "66000", "sell_above": "70500", "quantity": "0.04"},
-            "parameter_overrides": {"buy_below": "65000", "sell_above": "69000", "quantity": "0.05"},
-            "effective_parameters": {"buy_below": "65000", "sell_above": "69000", "quantity": "0.05"},
-            "final_balance": "10575.00000000",
-            "total_return": "575.00000000",
-            "total_return_percent": "5.75000000",
-            "win_rate": "66.66666667",
-            "profit_factor": "2.87500000",
-            "number_of_trades": 6,
-            "closed_trades": 3,
+            "parameters": {"period": "10", "oversold": "25", "overbought": "75", "quantity": "0.04"},
+            "base_parameters": {"period": "14", "oversold": "30", "overbought": "70", "quantity": "0.05"},
+            "parameter_overrides": {"period": "10", "oversold": "25", "overbought": "75", "quantity": "0.04"},
+            "effective_parameters": {"period": "10", "oversold": "25", "overbought": "75", "quantity": "0.04"},
+            "final_balance": "15840.00000000",
+            "total_return": "840.00000000",
+            "total_return_percent": "5.60000000",
+            "win_rate": "75.00000000",
+            "profit_factor": "3.20000000",
+            "number_of_trades": 8,
+            "closed_trades": 4,
             "open_position": False,
             "position_quantity": "0",
             "entry_price": None,
@@ -65,13 +78,13 @@ BACKTEST_OPTIMIZATION_RESPONSE_EXAMPLE = {
         },
         {
             "rank": 2,
-            "parameters": {"quantity": "0.03"},
-            "base_parameters": {"buy_below": "66000", "sell_above": "70500", "quantity": "0.04"},
-            "parameter_overrides": {"quantity": "0.03"},
-            "effective_parameters": {"buy_below": "66000", "sell_above": "70500", "quantity": "0.03"},
-            "final_balance": "10120.00000000",
-            "total_return": "120.00000000",
-            "total_return_percent": "1.20000000",
+            "parameters": {"oversold": "35", "overbought": "65"},
+            "base_parameters": {"period": "14", "oversold": "30", "overbought": "70", "quantity": "0.05"},
+            "parameter_overrides": {"oversold": "35", "overbought": "65"},
+            "effective_parameters": {"period": "14", "oversold": "35", "overbought": "65", "quantity": "0.05"},
+            "final_balance": "15125.00000000",
+            "total_return": "125.00000000",
+            "total_return_percent": "0.83333333",
             "win_rate": None,
             "profit_factor": None,
             "number_of_trades": 1,
@@ -108,7 +121,9 @@ class BacktestOptimizationRequest(BacktestRunRequest):
         max_length=50,
         description=(
             "Candidate parameter overrides to evaluate. Each item is merged with the saved strategy "
-            "parameters for that run and does not mutate the strategy."
+            "parameters for that run and does not mutate the strategy. Supported keys depend on strategy_type: "
+            "price_threshold uses buy_below, sell_above, quantity; moving_average_cross uses short_window, "
+            "long_window, quantity; rsi_threshold uses period, oversold, overbought, quantity."
         ),
     )
     min_closed_trades: int = Field(
@@ -126,6 +141,7 @@ class BacktestOptimizationRequest(BacktestRunRequest):
             "examples": [
                 PRICE_THRESHOLD_OPTIMIZATION_REQUEST_EXAMPLE,
                 MOVING_AVERAGE_CROSS_OPTIMIZATION_REQUEST_EXAMPLE,
+                RSI_THRESHOLD_OPTIMIZATION_REQUEST_EXAMPLE,
             ]
         }
     )

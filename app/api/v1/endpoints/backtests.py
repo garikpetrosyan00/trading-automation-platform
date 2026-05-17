@@ -19,6 +19,7 @@ from app.schemas.backtest import (
     BacktestTradeResponse,
     MOVING_AVERAGE_CROSS_OPTIMIZATION_REQUEST_EXAMPLE,
     PRICE_THRESHOLD_OPTIMIZATION_REQUEST_EXAMPLE,
+    RSI_THRESHOLD_OPTIMIZATION_REQUEST_EXAMPLE,
 )
 from app.schemas.strategy import (
     validate_moving_average_cross_parameters,
@@ -305,6 +306,13 @@ async def optimize_backtest(
                         "Optimizes moving average windows and quantity with quality filters included."
                     ),
                     "value": MOVING_AVERAGE_CROSS_OPTIMIZATION_REQUEST_EXAMPLE,
+                },
+                "rsi_threshold": {
+                    "summary": "RSI threshold candidate overrides",
+                    "description": (
+                        "Optimizes RSI period, threshold levels, and quantity while preserving base strategy parameters."
+                    ),
+                    "value": RSI_THRESHOLD_OPTIMIZATION_REQUEST_EXAMPLE,
                 },
             }
         ),
