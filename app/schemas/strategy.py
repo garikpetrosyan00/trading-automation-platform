@@ -11,10 +11,11 @@ PlaceholderSafeStr = Annotated[
     StringConstraints(strip_whitespace=True, min_length=1),
     AfterValidator(lambda value: reject_placeholder_string(value)),
 ]
-StrategyType = Literal["price_threshold", "moving_average_cross", "rsi_threshold"]
+StrategyType = Literal["price_threshold", "moving_average_cross", "rsi_threshold", "bollinger_bands"]
 PRICE_THRESHOLD_PARAMETER_KEYS = ("buy_below", "sell_above", "quantity")
 MOVING_AVERAGE_CROSS_PARAMETER_KEYS = ("short_window", "long_window", "quantity")
 RSI_THRESHOLD_PARAMETER_KEYS = ("period", "oversold", "overbought", "quantity")
+BOLLINGER_BANDS_PARAMETER_KEYS = ("period", "stddev_multiplier", "quantity")
 DEFAULT_RSI_OVERSOLD = Decimal("30")
 DEFAULT_RSI_OVERBOUGHT = Decimal("70")
 
@@ -151,6 +152,30 @@ def validate_rsi_threshold_parameters(parameters: dict[str, Any] | None) -> dict
         raise ValueError("rsi_threshold parameter overbought must be less than 100")
     if (oversold is not None or overbought is not None) and effective_oversold >= effective_overbought:
         raise ValueError("rsi_threshold oversold must be less than overbought")
+
+    return parameters
+
+
+def validate_bollinger_bands_parameters(parameters: dict[str, Any] | None) -> dict[str, Any] | None:
+    if not parameters:
+        return parameters
+
+    period = (
+        _parse_positive_integer(
+            "bollinger_bands",
+            "period",
+            parameters["period"],
+        )
+        if "period" in parameters
+        else None
+    )
+    if "stddev_multiplier" in parameters:
+        _parse_positive_number("bollinger_bands", "stddev_multiplier", parameters["stddev_multiplier"])
+    if "quantity" in parameters:
+        _parse_positive_number("bollinger_bands", "quantity", parameters["quantity"])
+
+    if period is not None and period < 2:
+        raise ValueError("bollinger_bands parameter period must be at least 2")
 
     return parameters
 

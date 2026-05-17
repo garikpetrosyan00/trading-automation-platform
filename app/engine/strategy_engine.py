@@ -10,11 +10,14 @@ ZERO = Decimal("0")
 PRICE_THRESHOLD_STRATEGY_TYPE = "price_threshold"
 MOVING_AVERAGE_CROSS_STRATEGY_TYPE = "moving_average_cross"
 RSI_THRESHOLD_STRATEGY_TYPE = "rsi_threshold"
+BOLLINGER_BANDS_STRATEGY_TYPE = "bollinger_bands"
 DEFAULT_MOVING_AVERAGE_SHORT_WINDOW = 5
 DEFAULT_MOVING_AVERAGE_LONG_WINDOW = 20
 DEFAULT_RSI_PERIOD = 14
 DEFAULT_RSI_OVERSOLD = Decimal("30")
 DEFAULT_RSI_OVERBOUGHT = Decimal("70")
+DEFAULT_BOLLINGER_PERIOD = 20
+DEFAULT_BOLLINGER_STDDEV_MULTIPLIER = Decimal("2")
 
 
 @dataclass(frozen=True)
@@ -40,6 +43,15 @@ class RsiThresholdConfig:
     period: int | None
     oversold: Decimal | None
     overbought: Decimal | None
+    order_quantity: Decimal | None
+    invalid_parameter: str | None = None
+    invalid_reason: str | None = None
+
+
+@dataclass(frozen=True)
+class BollingerBandsConfig:
+    period: int | None
+    stddev_multiplier: Decimal | None
     order_quantity: Decimal | None
     invalid_parameter: str | None = None
     invalid_reason: str | None = None
@@ -100,6 +112,13 @@ class StrategyEngine:
             )
         if strategy_type == RSI_THRESHOLD_STRATEGY_TYPE:
             return cls.evaluate_rsi_threshold(
+                parameters=parameters,
+                profile=profile,
+                candles=candles or [],
+                position_quantity=position_quantity,
+            )
+        if strategy_type == BOLLINGER_BANDS_STRATEGY_TYPE:
+            return cls.evaluate_bollinger_bands(
                 parameters=parameters,
                 profile=profile,
                 candles=candles or [],
@@ -319,6 +338,82 @@ class StrategyEngine:
             order_quantity=config.order_quantity,
         )
 
+    @classmethod
+    def evaluate_bollinger_bands(
+        cls,
+        *,
+        parameters: dict[str, Any] | None,
+        profile,
+        candles: list[Any],
+        position_quantity: Decimal,
+    ) -> StrategyDecision:
+        config = cls.resolve_bollinger_bands_config(parameters, profile)
+        if config.invalid_parameter is not None:
+            return StrategyDecision(
+                decision="skip",
+                reason=config.invalid_reason or "invalid_strategy_parameter",
+                metadata={
+                    "event_decision": "skipped",
+                    "parameter": config.invalid_parameter,
+                    "strategy_type": BOLLINGER_BANDS_STRATEGY_TYPE,
+                },
+            )
+
+        assert config.period is not None
+        assert config.stddev_multiplier is not None
+        current_price = candles[-1].close_price if candles else None
+
+        if len(candles) < config.period:
+            return cls._bollinger_bands_decision(
+                decision="skip",
+                event_decision="skipped",
+                reason="insufficient_candles",
+                current_price=current_price,
+                position_quantity=position_quantity,
+                period=config.period,
+                stddev_multiplier=config.stddev_multiplier,
+                candles_used=len(candles),
+                order_quantity=config.order_quantity,
+            )
+
+        close_prices = [candle.close_price for candle in candles[-config.period :]]
+        sma = cls.moving_average(close_prices)
+        stddev = cls.standard_deviation(close_prices, sma=sma)
+        upper_band = (sma + (config.stddev_multiplier * stddev)).quantize(Decimal("0.00000001"))
+        lower_band = (sma - (config.stddev_multiplier * stddev)).quantize(Decimal("0.00000001"))
+
+        if position_quantity <= ZERO and current_price <= lower_band:
+            decision = "buy"
+            event_decision = "buy"
+            reason = "price is at or below lower bollinger band"
+        elif position_quantity > ZERO and current_price >= upper_band:
+            decision = "sell"
+            event_decision = "sell"
+            reason = "price is at or above upper bollinger band"
+        elif position_quantity <= ZERO:
+            decision = "skip"
+            event_decision = "skipped"
+            reason = "price is above lower bollinger band, so no buy signal"
+        else:
+            decision = "skip"
+            event_decision = "skipped"
+            reason = "price is below upper bollinger band, so no sell signal"
+
+        return cls._bollinger_bands_decision(
+            decision=decision,
+            event_decision=event_decision,
+            reason=reason,
+            current_price=current_price,
+            position_quantity=position_quantity,
+            period=config.period,
+            stddev_multiplier=config.stddev_multiplier,
+            candles_used=len(candles),
+            sma=sma,
+            upper_band=upper_band,
+            lower_band=lower_band,
+            order_quantity=config.order_quantity,
+        )
+
     @staticmethod
     def strategy_type(strategy) -> str:
         return getattr(strategy, "strategy_type", None) or PRICE_THRESHOLD_STRATEGY_TYPE
@@ -335,6 +430,11 @@ class StrategyEngine:
             if rsi_config.invalid_parameter is not None or rsi_config.period is None:
                 return None
             return rsi_config.period + 1
+        if strategy_type == BOLLINGER_BANDS_STRATEGY_TYPE:
+            bollinger_config = cls.resolve_bollinger_bands_config(parameters)
+            if bollinger_config.invalid_parameter is not None or bollinger_config.period is None:
+                return None
+            return bollinger_config.period
         return None
 
     @classmethod
@@ -442,6 +542,43 @@ class StrategyEngine:
 
         return RsiThresholdConfig(period, oversold, overbought, quantity)
 
+    @classmethod
+    def resolve_bollinger_bands_config(
+        cls,
+        parameters: dict[str, Any] | None,
+        profile=None,
+    ) -> BollingerBandsConfig:
+        period, invalid_reason = cls.parse_integer_parameter(parameters, "period")
+        if invalid_reason is not None:
+            return BollingerBandsConfig(None, None, None, "period", invalid_reason)
+        stddev_multiplier, invalid_reason = cls.parse_decimal_parameter(parameters, "stddev_multiplier")
+        if invalid_reason is not None:
+            return BollingerBandsConfig(None, None, None, "stddev_multiplier", invalid_reason)
+        quantity, invalid_reason = cls.parse_decimal_parameter(parameters, "quantity")
+        if invalid_reason is not None:
+            return BollingerBandsConfig(None, None, None, "quantity", invalid_reason)
+
+        period = period if period is not None else DEFAULT_BOLLINGER_PERIOD
+        stddev_multiplier = (
+            stddev_multiplier
+            if stddev_multiplier is not None
+            else DEFAULT_BOLLINGER_STDDEV_MULTIPLIER
+        )
+
+        if period < 2:
+            return BollingerBandsConfig(
+                None,
+                None,
+                None,
+                "period",
+                "bollinger_bands parameter period must be at least 2",
+            )
+
+        if quantity is None and profile is not None:
+            quantity = getattr(profile, "order_quantity", None)
+
+        return BollingerBandsConfig(period, stddev_multiplier, quantity)
+
     @staticmethod
     def parse_decimal_parameter(parameters: dict[str, Any] | None, key: str) -> tuple[Decimal | None, str | None]:
         if not parameters or key not in parameters:
@@ -495,6 +632,12 @@ class StrategyEngine:
         relative_strength = average_gain / average_loss
         rsi = Decimal("100") - (Decimal("100") / (Decimal("1") + relative_strength))
         return rsi.quantize(Decimal("0.00000001"))
+
+    @staticmethod
+    def standard_deviation(values: list[Decimal], *, sma: Decimal | None = None) -> Decimal:
+        mean = sma if sma is not None else StrategyEngine.moving_average(values)
+        variance = sum((value - mean) ** 2 for value in values) / Decimal(len(values))
+        return variance.sqrt().quantize(Decimal("0.00000001"))
 
     @staticmethod
     def price_threshold_decision_detail(
@@ -580,4 +723,37 @@ class StrategyEngine:
         }
         if rsi is not None:
             metadata["rsi"] = format(rsi, "f")
+        return StrategyDecision(decision=decision, reason=reason, current_price=current_price, metadata=metadata)
+
+    @staticmethod
+    def _bollinger_bands_decision(
+        *,
+        decision: str,
+        event_decision: str,
+        reason: str,
+        current_price: Decimal | None,
+        position_quantity: Decimal,
+        period: int,
+        stddev_multiplier: Decimal,
+        candles_used: int,
+        sma: Decimal | None = None,
+        upper_band: Decimal | None = None,
+        lower_band: Decimal | None = None,
+        order_quantity: Decimal | None = None,
+    ) -> StrategyDecision:
+        metadata: dict[str, Any] = {
+            "_order_quantity": order_quantity,
+            "event_decision": event_decision,
+            "position_qty": str(position_quantity),
+            "period": period,
+            "stddev_multiplier": str(stddev_multiplier),
+            "candles_used": candles_used,
+            "strategy_type": BOLLINGER_BANDS_STRATEGY_TYPE,
+        }
+        if sma is not None:
+            metadata["sma"] = format(sma, "f")
+        if upper_band is not None:
+            metadata["upper_band"] = format(upper_band, "f")
+        if lower_band is not None:
+            metadata["lower_band"] = format(lower_band, "f")
         return StrategyDecision(decision=decision, reason=reason, current_price=current_price, metadata=metadata)

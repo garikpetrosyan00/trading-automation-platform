@@ -10,6 +10,7 @@ from app.repositories.market_candle import MarketCandleRepository
 from app.repositories.strategy import StrategyRepository
 from app.schemas.backtest import (
     BACKTEST_OPTIMIZATION_RESPONSE_EXAMPLE,
+    BOLLINGER_BANDS_OPTIMIZATION_REQUEST_EXAMPLE,
     BacktestOptimizationRequest,
     BacktestOptimizationResponse,
     BacktestOptimizationResultResponse,
@@ -22,6 +23,7 @@ from app.schemas.backtest import (
     RSI_THRESHOLD_OPTIMIZATION_REQUEST_EXAMPLE,
 )
 from app.schemas.strategy import (
+    validate_bollinger_bands_parameters,
     validate_moving_average_cross_parameters,
     validate_price_threshold_parameters,
     validate_rsi_threshold_parameters,
@@ -34,6 +36,7 @@ router = APIRouter()
 PRICE_THRESHOLD_STRATEGY_TYPE = "price_threshold"
 MOVING_AVERAGE_CROSS_STRATEGY_TYPE = "moving_average_cross"
 RSI_THRESHOLD_STRATEGY_TYPE = "rsi_threshold"
+BOLLINGER_BANDS_STRATEGY_TYPE = "bollinger_bands"
 
 
 def get_strategy_service(db: DbSession) -> StrategyService:
@@ -92,6 +95,8 @@ def validate_optimization_parameters(
             validate_moving_average_cross_parameters(parameters)
         elif strategy_type == RSI_THRESHOLD_STRATEGY_TYPE:
             validate_rsi_threshold_parameters(parameters)
+        elif strategy_type == BOLLINGER_BANDS_STRATEGY_TYPE:
+            validate_bollinger_bands_parameters(parameters)
     except ValueError as exc:
         raise AppError(
             f"parameter_sets[{index}]: {exc}",
@@ -163,6 +168,28 @@ def normalize_optimization_parameters(
                 normalized["oversold"] = str(positive_decimal_parameter(parameters, "oversold"))
             if "overbought" in parameters:
                 normalized["overbought"] = str(positive_decimal_parameter(parameters, "overbought"))
+            if "quantity" in parameters:
+                normalized["quantity"] = str(positive_decimal_parameter(parameters, "quantity"))
+        except AppError as exc:
+            raise AppError(
+                f"parameter_sets[{index}]: {exc.message}",
+                status_code=422,
+                error_code="invalid_optimization_parameters",
+            ) from exc
+        validate_optimization_parameters(
+            strategy_type=strategy_type,
+            parameters={**(base_parameters or {}), **normalized},
+            index=index,
+        )
+        return normalized
+
+    if strategy_type == BOLLINGER_BANDS_STRATEGY_TYPE:
+        try:
+            normalized = {}
+            if "period" in parameters:
+                normalized["period"] = str(positive_integer_parameter(parameters, "period"))
+            if "stddev_multiplier" in parameters:
+                normalized["stddev_multiplier"] = str(positive_decimal_parameter(parameters, "stddev_multiplier"))
             if "quantity" in parameters:
                 normalized["quantity"] = str(positive_decimal_parameter(parameters, "quantity"))
         except AppError as exc:
@@ -313,6 +340,13 @@ async def optimize_backtest(
                         "Optimizes RSI period, threshold levels, and quantity while preserving base strategy parameters."
                     ),
                     "value": RSI_THRESHOLD_OPTIMIZATION_REQUEST_EXAMPLE,
+                },
+                "bollinger_bands": {
+                    "summary": "Bollinger Bands candidate overrides",
+                    "description": (
+                        "Optimizes Bollinger period, standard deviation multiplier, and quantity."
+                    ),
+                    "value": BOLLINGER_BANDS_OPTIMIZATION_REQUEST_EXAMPLE,
                 },
             }
         ),

@@ -11,6 +11,7 @@ from app.core.logging import get_logger
 from app.data.schemas import MarketEvent
 from app.engine.risk import RISK_REASON_STOP_LOSS_TRIGGERED, RiskLimits, RiskManager
 from app.engine.strategy_engine import (
+    BOLLINGER_BANDS_STRATEGY_TYPE,
     MOVING_AVERAGE_CROSS_STRATEGY_TYPE,
     PRICE_THRESHOLD_STRATEGY_TYPE,
     RSI_THRESHOLD_STRATEGY_TYPE,
@@ -359,7 +360,11 @@ class BotRunner:
         position_quantity = position.quantity if position is not None else ZERO
         candles = None
         candle_source = None
-        if strategy_type in {MOVING_AVERAGE_CROSS_STRATEGY_TYPE, RSI_THRESHOLD_STRATEGY_TYPE}:
+        if strategy_type in {
+            MOVING_AVERAGE_CROSS_STRATEGY_TYPE,
+            RSI_THRESHOLD_STRATEGY_TYPE,
+            BOLLINGER_BANDS_STRATEGY_TYPE,
+        }:
             candle_limit = StrategyEngine.required_candle_count(
                 strategy_type=strategy_type,
                 parameters=strategy.parameters,
@@ -385,7 +390,11 @@ class BotRunner:
 
         if strategy_type != PRICE_THRESHOLD_STRATEGY_TYPE:
             decision_payload["strategy_type"] = strategy_type
-        if strategy_type in {MOVING_AVERAGE_CROSS_STRATEGY_TYPE, RSI_THRESHOLD_STRATEGY_TYPE}:
+        if strategy_type in {
+            MOVING_AVERAGE_CROSS_STRATEGY_TYPE,
+            RSI_THRESHOLD_STRATEGY_TYPE,
+            BOLLINGER_BANDS_STRATEGY_TYPE,
+        }:
             decision_payload["timeframe"] = strategy.timeframe
             if candle_source is not None:
                 decision_payload["candle_source"] = candle_source
@@ -394,6 +403,7 @@ class BotRunner:
             PRICE_THRESHOLD_STRATEGY_TYPE,
             MOVING_AVERAGE_CROSS_STRATEGY_TYPE,
             RSI_THRESHOLD_STRATEGY_TYPE,
+            BOLLINGER_BANDS_STRATEGY_TYPE,
         }:
             if record_noop_events:
                 self._record_event(

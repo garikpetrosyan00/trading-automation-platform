@@ -68,6 +68,25 @@ def create_rsi_threshold_strategy(session) -> Strategy:
     return strategy
 
 
+def create_bollinger_bands_strategy(session) -> Strategy:
+    strategy = Strategy(
+        name="Bollinger Bands Backtest",
+        symbol="BTCUSDT",
+        timeframe="1m",
+        strategy_type="bollinger_bands",
+        parameters={
+            "period": "3",
+            "stddev_multiplier": "2",
+            "quantity": "1",
+        },
+        is_active=True,
+    )
+    session.add(strategy)
+    session.commit()
+    session.refresh(strategy)
+    return strategy
+
+
 def add_candles(session, *, closes: list[str], source: str = "manual", timeframe: str = "1m") -> None:
     start = datetime(2026, 4, 28, 12, 0, tzinfo=timezone.utc)
     for index, close in enumerate(closes):
@@ -591,6 +610,32 @@ def test_optimize_rsi_threshold_rejects_invalid_candidate_after_merge(
     assert response.json()["detail"] == "parameter_sets[0]: rsi_threshold oversold must be less than overbought"
 
 
+def test_optimize_bollinger_bands_rejects_invalid_candidate_after_merge(
+    db_session,
+    stub_market_data_service,
+    noop_bot_runner,
+    configure_app_state,
+) -> None:
+    configure_app_state(market_data_service=stub_market_data_service, bot_runner=noop_bot_runner)
+    strategy = create_bollinger_bands_strategy(db_session)
+
+    with TestClient(app) as client:
+        response = client.post(
+            "/api/v1/backtests/optimize",
+            json={
+                "strategy_id": strategy.id,
+                "initial_balance": "100",
+                "parameter_sets": [
+                    {"period": "1"},
+                ],
+            },
+        )
+
+    assert response.status_code == 422
+    assert response.json()["error_code"] == "invalid_optimization_parameters"
+    assert response.json()["detail"] == "parameter_sets[0]: bollinger_bands parameter period must be at least 2"
+
+
 def test_optimize_backtest_accepts_valid_partial_candidate_merged_with_base_parameters(
     db_session,
     stub_market_data_service,
@@ -667,6 +712,47 @@ def test_optimize_backtest_accepts_valid_partial_rsi_candidate_merged_with_base_
         "period": "2",
         "oversold": "25",
         "overbought": "70",
+        "quantity": "1",
+    }
+
+    db_session.refresh(strategy)
+    assert strategy.parameters == original_parameters
+
+
+def test_optimize_backtest_accepts_valid_partial_bollinger_candidate_merged_with_base_parameters(
+    db_session,
+    stub_market_data_service,
+    noop_bot_runner,
+    configure_app_state,
+) -> None:
+    configure_app_state(market_data_service=stub_market_data_service, bot_runner=noop_bot_runner)
+    strategy = create_bollinger_bands_strategy(db_session)
+    original_parameters = dict(strategy.parameters)
+    add_candles(db_session, closes=["10", "10", "1", "12"])
+
+    with TestClient(app) as client:
+        response = client.post(
+            "/api/v1/backtests/optimize",
+            json={
+                "strategy_id": strategy.id,
+                "initial_balance": "100",
+                "source": "manual",
+                "parameter_sets": [
+                    {"stddev_multiplier": "1.5"},
+                ],
+            },
+        )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["strategy_type"] == "bollinger_bands"
+    assert body["total_runs"] == 1
+    assert body["results"][0]["parameters"] == {"stddev_multiplier": "1.5"}
+    assert body["results"][0]["base_parameters"] == original_parameters
+    assert body["results"][0]["parameter_overrides"] == {"stddev_multiplier": "1.5"}
+    assert body["results"][0]["effective_parameters"] == {
+        "period": "3",
+        "stddev_multiplier": "1.5",
         "quantity": "1",
     }
 

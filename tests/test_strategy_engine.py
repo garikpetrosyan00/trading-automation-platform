@@ -235,6 +235,75 @@ def test_rsi_threshold_with_insufficient_data_skips_safely() -> None:
     assert "rsi" not in decision.metadata
 
 
+def test_bollinger_bands_buys_sells_and_holds_with_metadata() -> None:
+    profile = SimpleNamespace(order_quantity=Decimal("0.1"))
+    buy_candles = [SimpleNamespace(close_price=Decimal(value)) for value in ("10", "10", "1")]
+    sell_candles = [SimpleNamespace(close_price=Decimal(value)) for value in ("1", "1", "10")]
+    hold_candles = [SimpleNamespace(close_price=Decimal(value)) for value in ("9", "10", "11")]
+
+    buy_decision = StrategyEngine.evaluate(
+        strategy_type="bollinger_bands",
+        parameters={"period": "3", "stddev_multiplier": "0.5", "quantity": "0.2"},
+        profile=profile,
+        latest_price=Decimal("1"),
+        position_quantity=Decimal("0"),
+        candles=buy_candles,
+    )
+    sell_decision = StrategyEngine.evaluate(
+        strategy_type="bollinger_bands",
+        parameters={"period": "3", "stddev_multiplier": "0.5", "quantity": "0.2"},
+        profile=profile,
+        latest_price=Decimal("10"),
+        position_quantity=Decimal("0.2"),
+        candles=sell_candles,
+    )
+    hold_decision = StrategyEngine.evaluate(
+        strategy_type="bollinger_bands",
+        parameters={"period": "3", "stddev_multiplier": "2", "quantity": "0.2"},
+        profile=profile,
+        latest_price=Decimal("11"),
+        position_quantity=Decimal("0"),
+        candles=hold_candles,
+    )
+
+    assert buy_decision.decision == "buy"
+    assert buy_decision.reason == "price is at or below lower bollinger band"
+    assert buy_decision.metadata["sma"] == "7.00000000"
+    assert buy_decision.metadata["upper_band"] == "9.12132034"
+    assert buy_decision.metadata["lower_band"] == "4.87867966"
+    assert buy_decision.metadata["period"] == 3
+    assert buy_decision.metadata["stddev_multiplier"] == "0.5"
+    assert buy_decision.metadata["position_qty"] == "0"
+    assert buy_decision.metadata["_order_quantity"] == Decimal("0.2")
+    assert sell_decision.decision == "sell"
+    assert sell_decision.reason == "price is at or above upper bollinger band"
+    assert hold_decision.decision == "skip"
+    assert hold_decision.reason == "price is above lower bollinger band, so no buy signal"
+
+
+def test_bollinger_bands_with_insufficient_data_skips_safely() -> None:
+    candles = [
+        SimpleNamespace(close_price=Decimal("10")),
+        SimpleNamespace(close_price=Decimal("9")),
+    ]
+
+    decision = StrategyEngine.evaluate(
+        strategy_type="bollinger_bands",
+        parameters={"period": "3", "stddev_multiplier": "2", "quantity": "0.2"},
+        profile=SimpleNamespace(order_quantity=Decimal("0.1")),
+        latest_price=Decimal("9"),
+        position_quantity=Decimal("0"),
+        candles=candles,
+    )
+
+    assert decision.decision == "skip"
+    assert decision.reason == "insufficient_candles"
+    assert decision.current_price == Decimal("9")
+    assert decision.metadata["candles_used"] == 2
+    assert decision.metadata["period"] == 3
+    assert "sma" not in decision.metadata
+
+
 def test_price_threshold_does_not_require_candles() -> None:
     profile = SimpleNamespace(
         entry_below=Decimal("100"),

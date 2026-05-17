@@ -379,6 +379,87 @@ def test_create_rsi_threshold_strategy_with_invalid_parameters_fails_cleanly(
     assert range_response.json()["detail"] == "rsi_threshold oversold must be less than overbought"
 
 
+def test_create_bollinger_bands_strategy_with_valid_parameters_succeeds(
+    stub_market_data_service,
+    bot_runner_factory,
+    configure_app_state,
+) -> None:
+    configure_app_state(
+        market_data_service=stub_market_data_service,
+        bot_runner=bot_runner_factory(),
+    )
+
+    payload = {
+        "name": "Bollinger Bands Strategy",
+        "symbol": "BTCUSDT",
+        "timeframe": "1m",
+        "strategy_type": "bollinger_bands",
+        "parameters": {
+            "period": 20,
+            "stddev_multiplier": "2",
+            "quantity": "0.01",
+        },
+    }
+
+    with TestClient(app) as client:
+        response = client.post("/api/v1/strategies", json=payload)
+
+    assert response.status_code == 201
+    assert response.json()["strategy_type"] == "bollinger_bands"
+    assert response.json()["parameters"] == payload["parameters"]
+
+
+def test_create_bollinger_bands_strategy_with_invalid_parameters_fails_cleanly(
+    stub_market_data_service,
+    bot_runner_factory,
+    configure_app_state,
+) -> None:
+    configure_app_state(
+        market_data_service=stub_market_data_service,
+        bot_runner=bot_runner_factory(),
+    )
+
+    with TestClient(app) as client:
+        period_response = client.post(
+            "/api/v1/strategies",
+            json={
+                "name": "Invalid Bollinger Strategy",
+                "symbol": "BTCUSDT",
+                "timeframe": "1m",
+                "strategy_type": "bollinger_bands",
+                "parameters": {
+                    "period": 1,
+                    "stddev_multiplier": "2",
+                    "quantity": "0.01",
+                },
+            },
+        )
+        multiplier_response = client.post(
+            "/api/v1/strategies",
+            json={
+                "name": "Invalid Bollinger Multiplier Strategy",
+                "symbol": "BTCUSDT",
+                "timeframe": "1m",
+                "strategy_type": "bollinger_bands",
+                "parameters": {
+                    "period": 20,
+                    "stddev_multiplier": "0",
+                    "quantity": "0.01",
+                },
+            },
+        )
+
+    assert period_response.status_code == 422
+    assert period_response.json()["error_code"] == "invalid_strategy_parameters"
+    assert period_response.json()["detail"] == "bollinger_bands parameter period must be at least 2"
+    assert multiplier_response.status_code == 422
+    assert multiplier_response.json()["error_code"] == "invalid_strategy_parameters"
+    assert (
+        multiplier_response.json()["detail"]
+        == "bollinger_bands parameter stddev_multiplier must be a positive number"
+    )
+
+
 def test_create_price_threshold_strategy_with_invalid_parameters_fails_cleanly(
     stub_market_data_service,
     bot_runner_factory,
