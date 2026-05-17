@@ -11,6 +11,7 @@ PRICE_THRESHOLD_STRATEGY_TYPE = "price_threshold"
 MOVING_AVERAGE_CROSS_STRATEGY_TYPE = "moving_average_cross"
 RSI_THRESHOLD_STRATEGY_TYPE = "rsi_threshold"
 BOLLINGER_BANDS_STRATEGY_TYPE = "bollinger_bands"
+MACD_CROSSOVER_STRATEGY_TYPE = "macd_crossover"
 DEFAULT_MOVING_AVERAGE_SHORT_WINDOW = 5
 DEFAULT_MOVING_AVERAGE_LONG_WINDOW = 20
 DEFAULT_RSI_PERIOD = 14
@@ -18,6 +19,9 @@ DEFAULT_RSI_OVERSOLD = Decimal("30")
 DEFAULT_RSI_OVERBOUGHT = Decimal("70")
 DEFAULT_BOLLINGER_PERIOD = 20
 DEFAULT_BOLLINGER_STDDEV_MULTIPLIER = Decimal("2")
+DEFAULT_MACD_FAST_PERIOD = 12
+DEFAULT_MACD_SLOW_PERIOD = 26
+DEFAULT_MACD_SIGNAL_PERIOD = 9
 
 
 @dataclass(frozen=True)
@@ -52,6 +56,16 @@ class RsiThresholdConfig:
 class BollingerBandsConfig:
     period: int | None
     stddev_multiplier: Decimal | None
+    order_quantity: Decimal | None
+    invalid_parameter: str | None = None
+    invalid_reason: str | None = None
+
+
+@dataclass(frozen=True)
+class MacdCrossoverConfig:
+    fast_period: int | None
+    slow_period: int | None
+    signal_period: int | None
     order_quantity: Decimal | None
     invalid_parameter: str | None = None
     invalid_reason: str | None = None
@@ -119,6 +133,13 @@ class StrategyEngine:
             )
         if strategy_type == BOLLINGER_BANDS_STRATEGY_TYPE:
             return cls.evaluate_bollinger_bands(
+                parameters=parameters,
+                profile=profile,
+                candles=candles or [],
+                position_quantity=position_quantity,
+            )
+        if strategy_type == MACD_CROSSOVER_STRATEGY_TYPE:
+            return cls.evaluate_macd_crossover(
                 parameters=parameters,
                 profile=profile,
                 candles=candles or [],
@@ -414,6 +435,92 @@ class StrategyEngine:
             order_quantity=config.order_quantity,
         )
 
+    @classmethod
+    def evaluate_macd_crossover(
+        cls,
+        *,
+        parameters: dict[str, Any] | None,
+        profile,
+        candles: list[Any],
+        position_quantity: Decimal,
+    ) -> StrategyDecision:
+        config = cls.resolve_macd_crossover_config(parameters, profile)
+        if config.invalid_parameter is not None:
+            return StrategyDecision(
+                decision="skip",
+                reason=config.invalid_reason or "invalid_strategy_parameter",
+                metadata={
+                    "event_decision": "skipped",
+                    "parameter": config.invalid_parameter,
+                    "strategy_type": MACD_CROSSOVER_STRATEGY_TYPE,
+                },
+            )
+
+        assert config.fast_period is not None
+        assert config.slow_period is not None
+        assert config.signal_period is not None
+        required_candles = config.slow_period + config.signal_period
+        current_price = candles[-1].close_price if candles else None
+
+        if len(candles) < required_candles:
+            return cls._macd_crossover_decision(
+                decision="skip",
+                event_decision="skipped",
+                reason="insufficient_candles",
+                current_price=current_price,
+                position_quantity=position_quantity,
+                fast_period=config.fast_period,
+                slow_period=config.slow_period,
+                signal_period=config.signal_period,
+                candles_used=len(candles),
+                order_quantity=config.order_quantity,
+            )
+
+        macd_points = cls.macd_points(
+            [candle.close_price for candle in candles],
+            fast_period=config.fast_period,
+            slow_period=config.slow_period,
+            signal_period=config.signal_period,
+        )
+        previous_macd, previous_signal = macd_points[-2]
+        current_macd, current_signal = macd_points[-1]
+        histogram = (current_macd - current_signal).quantize(Decimal("0.00000001"))
+
+        if position_quantity <= ZERO and previous_macd <= previous_signal and current_macd > current_signal:
+            decision = "buy"
+            event_decision = "buy"
+            reason = "macd crossed above signal line"
+        elif position_quantity > ZERO and previous_macd >= previous_signal and current_macd < current_signal:
+            decision = "sell"
+            event_decision = "sell"
+            reason = "macd crossed below signal line"
+        elif position_quantity <= ZERO:
+            decision = "skip"
+            event_decision = "skipped"
+            reason = "macd did not cross above signal line, so no buy signal"
+        else:
+            decision = "skip"
+            event_decision = "skipped"
+            reason = "macd did not cross below signal line, so no sell signal"
+
+        return cls._macd_crossover_decision(
+            decision=decision,
+            event_decision=event_decision,
+            reason=reason,
+            current_price=current_price,
+            position_quantity=position_quantity,
+            fast_period=config.fast_period,
+            slow_period=config.slow_period,
+            signal_period=config.signal_period,
+            candles_used=len(candles),
+            macd=current_macd,
+            signal=current_signal,
+            histogram=histogram,
+            previous_macd=previous_macd,
+            previous_signal=previous_signal,
+            order_quantity=config.order_quantity,
+        )
+
     @staticmethod
     def strategy_type(strategy) -> str:
         return getattr(strategy, "strategy_type", None) or PRICE_THRESHOLD_STRATEGY_TYPE
@@ -435,6 +542,15 @@ class StrategyEngine:
             if bollinger_config.invalid_parameter is not None or bollinger_config.period is None:
                 return None
             return bollinger_config.period
+        if strategy_type == MACD_CROSSOVER_STRATEGY_TYPE:
+            macd_config = cls.resolve_macd_crossover_config(parameters)
+            if (
+                macd_config.invalid_parameter is not None
+                or macd_config.slow_period is None
+                or macd_config.signal_period is None
+            ):
+                return None
+            return macd_config.slow_period + macd_config.signal_period
         return None
 
     @classmethod
@@ -579,6 +695,44 @@ class StrategyEngine:
 
         return BollingerBandsConfig(period, stddev_multiplier, quantity)
 
+    @classmethod
+    def resolve_macd_crossover_config(
+        cls,
+        parameters: dict[str, Any] | None,
+        profile=None,
+    ) -> MacdCrossoverConfig:
+        fast_period, invalid_reason = cls.parse_integer_parameter(parameters, "fast_period")
+        if invalid_reason is not None:
+            return MacdCrossoverConfig(None, None, None, None, "fast_period", invalid_reason)
+        slow_period, invalid_reason = cls.parse_integer_parameter(parameters, "slow_period")
+        if invalid_reason is not None:
+            return MacdCrossoverConfig(None, None, None, None, "slow_period", invalid_reason)
+        signal_period, invalid_reason = cls.parse_integer_parameter(parameters, "signal_period")
+        if invalid_reason is not None:
+            return MacdCrossoverConfig(None, None, None, None, "signal_period", invalid_reason)
+        quantity, invalid_reason = cls.parse_decimal_parameter(parameters, "quantity")
+        if invalid_reason is not None:
+            return MacdCrossoverConfig(None, None, None, None, "quantity", invalid_reason)
+
+        fast_period = fast_period if fast_period is not None else DEFAULT_MACD_FAST_PERIOD
+        slow_period = slow_period if slow_period is not None else DEFAULT_MACD_SLOW_PERIOD
+        signal_period = signal_period if signal_period is not None else DEFAULT_MACD_SIGNAL_PERIOD
+
+        if fast_period >= slow_period:
+            return MacdCrossoverConfig(
+                None,
+                None,
+                None,
+                None,
+                "fast_period",
+                "macd_crossover fast_period must be less than slow_period",
+            )
+
+        if quantity is None and profile is not None:
+            quantity = getattr(profile, "order_quantity", None)
+
+        return MacdCrossoverConfig(fast_period, slow_period, signal_period, quantity)
+
     @staticmethod
     def parse_decimal_parameter(parameters: dict[str, Any] | None, key: str) -> tuple[Decimal | None, str | None]:
         if not parameters or key not in parameters:
@@ -638,6 +792,40 @@ class StrategyEngine:
         mean = sma if sma is not None else StrategyEngine.moving_average(values)
         variance = sum((value - mean) ** 2 for value in values) / Decimal(len(values))
         return variance.sqrt().quantize(Decimal("0.00000001"))
+
+    @staticmethod
+    def exponential_moving_average(values: list[Decimal], period: int) -> list[Decimal]:
+        if len(values) < period:
+            return []
+        multiplier = Decimal("2") / Decimal(period + 1)
+        ema = sum(values[:period], ZERO) / Decimal(period)
+        results = [ema.quantize(Decimal("0.00000001"))]
+        for value in values[period:]:
+            ema = ((value - ema) * multiplier) + ema
+            results.append(ema.quantize(Decimal("0.00000001")))
+        return results
+
+    @classmethod
+    def macd_points(
+        cls,
+        values: list[Decimal],
+        *,
+        fast_period: int,
+        slow_period: int,
+        signal_period: int,
+    ) -> list[tuple[Decimal, Decimal]]:
+        fast_emas = cls.exponential_moving_average(values, fast_period)
+        slow_emas = cls.exponential_moving_average(values, slow_period)
+        macd_values: list[Decimal] = []
+        fast_offset = slow_period - fast_period
+        for index, slow_ema in enumerate(slow_emas):
+            macd_values.append((fast_emas[index + fast_offset] - slow_ema).quantize(Decimal("0.00000001")))
+        signal_values = cls.exponential_moving_average(macd_values, signal_period)
+        macd_offset = signal_period - 1
+        return [
+            (macd_values[index + macd_offset], signal)
+            for index, signal in enumerate(signal_values)
+        ]
 
     @staticmethod
     def price_threshold_decision_detail(
@@ -756,4 +944,45 @@ class StrategyEngine:
             metadata["upper_band"] = format(upper_band, "f")
         if lower_band is not None:
             metadata["lower_band"] = format(lower_band, "f")
+        return StrategyDecision(decision=decision, reason=reason, current_price=current_price, metadata=metadata)
+
+    @staticmethod
+    def _macd_crossover_decision(
+        *,
+        decision: str,
+        event_decision: str,
+        reason: str,
+        current_price: Decimal | None,
+        position_quantity: Decimal,
+        fast_period: int,
+        slow_period: int,
+        signal_period: int,
+        candles_used: int,
+        macd: Decimal | None = None,
+        signal: Decimal | None = None,
+        histogram: Decimal | None = None,
+        previous_macd: Decimal | None = None,
+        previous_signal: Decimal | None = None,
+        order_quantity: Decimal | None = None,
+    ) -> StrategyDecision:
+        metadata: dict[str, Any] = {
+            "_order_quantity": order_quantity,
+            "event_decision": event_decision,
+            "position_qty": str(position_quantity),
+            "fast_period": fast_period,
+            "slow_period": slow_period,
+            "signal_period": signal_period,
+            "candles_used": candles_used,
+            "strategy_type": MACD_CROSSOVER_STRATEGY_TYPE,
+        }
+        if macd is not None:
+            metadata["macd"] = format(macd, "f")
+        if signal is not None:
+            metadata["signal"] = format(signal, "f")
+        if histogram is not None:
+            metadata["histogram"] = format(histogram, "f")
+        if previous_macd is not None:
+            metadata["previous_macd"] = format(previous_macd, "f")
+        if previous_signal is not None:
+            metadata["previous_signal"] = format(previous_signal, "f")
         return StrategyDecision(decision=decision, reason=reason, current_price=current_price, metadata=metadata)

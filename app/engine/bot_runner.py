@@ -12,6 +12,7 @@ from app.data.schemas import MarketEvent
 from app.engine.risk import RISK_REASON_STOP_LOSS_TRIGGERED, RiskLimits, RiskManager
 from app.engine.strategy_engine import (
     BOLLINGER_BANDS_STRATEGY_TYPE,
+    MACD_CROSSOVER_STRATEGY_TYPE,
     MOVING_AVERAGE_CROSS_STRATEGY_TYPE,
     PRICE_THRESHOLD_STRATEGY_TYPE,
     RSI_THRESHOLD_STRATEGY_TYPE,
@@ -364,6 +365,7 @@ class BotRunner:
             MOVING_AVERAGE_CROSS_STRATEGY_TYPE,
             RSI_THRESHOLD_STRATEGY_TYPE,
             BOLLINGER_BANDS_STRATEGY_TYPE,
+            MACD_CROSSOVER_STRATEGY_TYPE,
         }:
             candle_limit = StrategyEngine.required_candle_count(
                 strategy_type=strategy_type,
@@ -394,6 +396,7 @@ class BotRunner:
             MOVING_AVERAGE_CROSS_STRATEGY_TYPE,
             RSI_THRESHOLD_STRATEGY_TYPE,
             BOLLINGER_BANDS_STRATEGY_TYPE,
+            MACD_CROSSOVER_STRATEGY_TYPE,
         }:
             decision_payload["timeframe"] = strategy.timeframe
             if candle_source is not None:
@@ -404,6 +407,7 @@ class BotRunner:
             MOVING_AVERAGE_CROSS_STRATEGY_TYPE,
             RSI_THRESHOLD_STRATEGY_TYPE,
             BOLLINGER_BANDS_STRATEGY_TYPE,
+            MACD_CROSSOVER_STRATEGY_TYPE,
         }:
             if record_noop_events:
                 self._record_event(

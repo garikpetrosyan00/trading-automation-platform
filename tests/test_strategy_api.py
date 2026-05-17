@@ -460,6 +460,87 @@ def test_create_bollinger_bands_strategy_with_invalid_parameters_fails_cleanly(
     )
 
 
+def test_create_macd_crossover_strategy_with_valid_parameters_succeeds(
+    stub_market_data_service,
+    bot_runner_factory,
+    configure_app_state,
+) -> None:
+    configure_app_state(
+        market_data_service=stub_market_data_service,
+        bot_runner=bot_runner_factory(),
+    )
+
+    payload = {
+        "name": "MACD Crossover Strategy",
+        "symbol": "BTCUSDT",
+        "timeframe": "1m",
+        "strategy_type": "macd_crossover",
+        "parameters": {
+            "fast_period": 12,
+            "slow_period": 26,
+            "signal_period": 9,
+            "quantity": "0.01",
+        },
+    }
+
+    with TestClient(app) as client:
+        response = client.post("/api/v1/strategies", json=payload)
+
+    assert response.status_code == 201
+    assert response.json()["strategy_type"] == "macd_crossover"
+    assert response.json()["parameters"] == payload["parameters"]
+
+
+def test_create_macd_crossover_strategy_with_invalid_parameters_fails_cleanly(
+    stub_market_data_service,
+    bot_runner_factory,
+    configure_app_state,
+) -> None:
+    configure_app_state(
+        market_data_service=stub_market_data_service,
+        bot_runner=bot_runner_factory(),
+    )
+
+    with TestClient(app) as client:
+        period_response = client.post(
+            "/api/v1/strategies",
+            json={
+                "name": "Invalid MACD Strategy",
+                "symbol": "BTCUSDT",
+                "timeframe": "1m",
+                "strategy_type": "macd_crossover",
+                "parameters": {
+                    "fast_period": 26,
+                    "slow_period": 12,
+                    "signal_period": 9,
+                    "quantity": "0.01",
+                },
+            },
+        )
+        signal_response = client.post(
+            "/api/v1/strategies",
+            json={
+                "name": "Invalid MACD Signal Strategy",
+                "symbol": "BTCUSDT",
+                "timeframe": "1m",
+                "strategy_type": "macd_crossover",
+                "parameters": {
+                    "fast_period": 12,
+                    "slow_period": 26,
+                    "signal_period": "9.5",
+                    "quantity": "0.01",
+                },
+            },
+        )
+
+    assert period_response.status_code == 422
+    assert period_response.json()["error_code"] == "invalid_strategy_parameters"
+    assert period_response.json()["detail"] == "macd_crossover fast_period must be less than slow_period"
+    assert signal_response.status_code == 422
+    assert signal_response.json()["error_code"] == "invalid_strategy_parameters"
+    assert signal_response.json()["detail"] == "macd_crossover parameter signal_period must be a positive integer"
+
+
 def test_create_price_threshold_strategy_with_invalid_parameters_fails_cleanly(
     stub_market_data_service,
     bot_runner_factory,

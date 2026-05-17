@@ -7,6 +7,7 @@ from app.schemas.strategy import (
     StrategyCreate,
     StrategyUpdate,
     validate_bollinger_bands_parameters,
+    validate_macd_crossover_parameters,
     validate_moving_average_cross_parameters,
     validate_price_threshold_parameters,
     validate_rsi_threshold_parameters,
@@ -23,6 +24,8 @@ def validate_strategy_parameters(strategy_type: str, parameters: dict[str, Any] 
             validate_rsi_threshold_parameters(parameters)
         elif strategy_type == "bollinger_bands":
             validate_bollinger_bands_parameters(parameters)
+        elif strategy_type == "macd_crossover":
+            validate_macd_crossover_parameters(parameters)
     except ValueError as exc:
         raise AppError(str(exc), status_code=422, error_code="invalid_strategy_parameters") from exc
 

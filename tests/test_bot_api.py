@@ -252,6 +252,45 @@ def test_create_bot_with_invalid_bollinger_strategy_parameters_returns_validatio
     assert response.json()["detail"] == "bollinger_bands parameter period must be at least 2"
 
 
+def test_create_bot_with_invalid_macd_strategy_parameters_returns_validation_error(
+    db_session_factory,
+    stub_market_data_service,
+    bot_runner_factory,
+    configure_app_state,
+) -> None:
+    with db_session_factory() as session:
+        strategy = Strategy(
+            name="Invalid MACD Strategy",
+            symbol="BTCUSDT",
+            timeframe="1m",
+            strategy_type="macd_crossover",
+            parameters={"fast_period": "26", "slow_period": "12", "signal_period": "9", "quantity": "1"},
+            is_active=True,
+        )
+        session.add(strategy)
+        session.commit()
+        strategy_id = strategy.id
+
+    configure_app_state(
+        market_data_service=stub_market_data_service,
+        bot_runner=bot_runner_factory(),
+    )
+
+    with TestClient(app) as client:
+        response = client.post(
+            "/api/v1/bots",
+            json={
+                "name": "Invalid MACD Strategy Bot",
+                "strategy_id": strategy_id,
+                "exchange_name": "binance",
+            },
+        )
+
+    assert response.status_code == 422
+    assert response.json()["error_code"] == "invalid_strategy_parameters"
+    assert response.json()["detail"] == "macd_crossover fast_period must be less than slow_period"
+
+
 def test_update_bot_basic_fields_returns_updated_bot(
     db_session_factory,
     stub_market_data_service,

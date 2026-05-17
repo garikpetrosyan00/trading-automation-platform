@@ -11,11 +11,18 @@ PlaceholderSafeStr = Annotated[
     StringConstraints(strip_whitespace=True, min_length=1),
     AfterValidator(lambda value: reject_placeholder_string(value)),
 ]
-StrategyType = Literal["price_threshold", "moving_average_cross", "rsi_threshold", "bollinger_bands"]
+StrategyType = Literal[
+    "price_threshold",
+    "moving_average_cross",
+    "rsi_threshold",
+    "bollinger_bands",
+    "macd_crossover",
+]
 PRICE_THRESHOLD_PARAMETER_KEYS = ("buy_below", "sell_above", "quantity")
 MOVING_AVERAGE_CROSS_PARAMETER_KEYS = ("short_window", "long_window", "quantity")
 RSI_THRESHOLD_PARAMETER_KEYS = ("period", "oversold", "overbought", "quantity")
 BOLLINGER_BANDS_PARAMETER_KEYS = ("period", "stddev_multiplier", "quantity")
+MACD_CROSSOVER_PARAMETER_KEYS = ("fast_period", "slow_period", "signal_period", "quantity")
 DEFAULT_RSI_OVERSOLD = Decimal("30")
 DEFAULT_RSI_OVERBOUGHT = Decimal("70")
 
@@ -176,6 +183,39 @@ def validate_bollinger_bands_parameters(parameters: dict[str, Any] | None) -> di
 
     if period is not None and period < 2:
         raise ValueError("bollinger_bands parameter period must be at least 2")
+
+    return parameters
+
+
+def validate_macd_crossover_parameters(parameters: dict[str, Any] | None) -> dict[str, Any] | None:
+    if not parameters:
+        return parameters
+
+    fast_period = (
+        _parse_positive_integer(
+            "macd_crossover",
+            "fast_period",
+            parameters["fast_period"],
+        )
+        if "fast_period" in parameters
+        else None
+    )
+    slow_period = (
+        _parse_positive_integer(
+            "macd_crossover",
+            "slow_period",
+            parameters["slow_period"],
+        )
+        if "slow_period" in parameters
+        else None
+    )
+    if "signal_period" in parameters:
+        _parse_positive_integer("macd_crossover", "signal_period", parameters["signal_period"])
+    if "quantity" in parameters:
+        _parse_positive_number("macd_crossover", "quantity", parameters["quantity"])
+
+    if fast_period is not None and slow_period is not None and fast_period >= slow_period:
+        raise ValueError("macd_crossover fast_period must be less than slow_period")
 
     return parameters
 

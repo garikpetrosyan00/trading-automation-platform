@@ -59,6 +59,19 @@ BOLLINGER_BANDS_OPTIMIZATION_REQUEST_EXAMPLE = {
     ],
 }
 
+MACD_CROSSOVER_OPTIMIZATION_REQUEST_EXAMPLE = {
+    "strategy_id": 210,
+    "initial_balance": "20000",
+    "source": "binance",
+    "min_closed_trades": 2,
+    "require_closed_position": True,
+    "parameter_sets": [
+        {"fast_period": "12", "slow_period": "26", "signal_period": "9", "quantity": "0.05"},
+        {"fast_period": "8", "slow_period": "21", "signal_period": "5", "quantity": "0.04"},
+        {"signal_period": "12"},
+    ],
+}
+
 BACKTEST_OPTIMIZATION_RESPONSE_EXAMPLE = {
     "strategy_id": 126,
     "symbol": "BTCUSDT",
@@ -137,7 +150,8 @@ class BacktestOptimizationRequest(BacktestRunRequest):
             "parameters for that run and does not mutate the strategy. Supported keys depend on strategy_type: "
             "price_threshold uses buy_below, sell_above, quantity; moving_average_cross uses short_window, "
             "long_window, quantity; rsi_threshold uses period, oversold, overbought, quantity; "
-            "bollinger_bands uses period, stddev_multiplier, quantity."
+            "bollinger_bands uses period, stddev_multiplier, quantity; macd_crossover uses fast_period, "
+            "slow_period, signal_period, quantity."
         ),
     )
     min_closed_trades: int = Field(
@@ -157,6 +171,7 @@ class BacktestOptimizationRequest(BacktestRunRequest):
                 MOVING_AVERAGE_CROSS_OPTIMIZATION_REQUEST_EXAMPLE,
                 RSI_THRESHOLD_OPTIMIZATION_REQUEST_EXAMPLE,
                 BOLLINGER_BANDS_OPTIMIZATION_REQUEST_EXAMPLE,
+                MACD_CROSSOVER_OPTIMIZATION_REQUEST_EXAMPLE,
             ]
         }
     )

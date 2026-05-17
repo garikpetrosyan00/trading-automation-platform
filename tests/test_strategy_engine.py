@@ -304,6 +304,83 @@ def test_bollinger_bands_with_insufficient_data_skips_safely() -> None:
     assert "sma" not in decision.metadata
 
 
+def test_macd_crossover_buys_sells_and_holds_with_metadata() -> None:
+    profile = SimpleNamespace(order_quantity=Decimal("0.1"))
+    buy_candles = [SimpleNamespace(close_price=Decimal(value)) for value in ("1", "1", "1", "1", "2")]
+    sell_candles = [SimpleNamespace(close_price=Decimal(value)) for value in ("1", "1", "1", "2", "1")]
+    hold_candles = [SimpleNamespace(close_price=Decimal(value)) for value in ("1", "1", "1", "1", "1")]
+
+    buy_decision = StrategyEngine.evaluate(
+        strategy_type="macd_crossover",
+        parameters={"fast_period": "2", "slow_period": "3", "signal_period": "2", "quantity": "0.2"},
+        profile=profile,
+        latest_price=Decimal("2"),
+        position_quantity=Decimal("0"),
+        candles=buy_candles,
+    )
+    sell_decision = StrategyEngine.evaluate(
+        strategy_type="macd_crossover",
+        parameters={"fast_period": "2", "slow_period": "3", "signal_period": "2", "quantity": "0.2"},
+        profile=profile,
+        latest_price=Decimal("1"),
+        position_quantity=Decimal("0.2"),
+        candles=sell_candles,
+    )
+    hold_decision = StrategyEngine.evaluate(
+        strategy_type="macd_crossover",
+        parameters={"fast_period": "2", "slow_period": "3", "signal_period": "2", "quantity": "0.2"},
+        profile=profile,
+        latest_price=Decimal("1"),
+        position_quantity=Decimal("0"),
+        candles=hold_candles,
+    )
+
+    assert buy_decision.decision == "buy"
+    assert buy_decision.reason == "macd crossed above signal line"
+    assert buy_decision.metadata["macd"] == "0.16666667"
+    assert buy_decision.metadata["signal"] == "0.11111111"
+    assert buy_decision.metadata["histogram"] == "0.05555556"
+    assert buy_decision.metadata["previous_macd"] == "0.00000000"
+    assert buy_decision.metadata["previous_signal"] == "0.00000000"
+    assert buy_decision.metadata["fast_period"] == 2
+    assert buy_decision.metadata["slow_period"] == 3
+    assert buy_decision.metadata["signal_period"] == 2
+    assert buy_decision.metadata["position_qty"] == "0"
+    assert buy_decision.metadata["_order_quantity"] == Decimal("0.2")
+    assert sell_decision.decision == "sell"
+    assert sell_decision.reason == "macd crossed below signal line"
+    assert sell_decision.metadata["histogram"] == "-0.03703704"
+    assert hold_decision.decision == "skip"
+    assert hold_decision.reason == "macd did not cross above signal line, so no buy signal"
+
+
+def test_macd_crossover_with_insufficient_data_skips_safely() -> None:
+    candles = [
+        SimpleNamespace(close_price=Decimal("1")),
+        SimpleNamespace(close_price=Decimal("1")),
+        SimpleNamespace(close_price=Decimal("2")),
+        SimpleNamespace(close_price=Decimal("3")),
+    ]
+
+    decision = StrategyEngine.evaluate(
+        strategy_type="macd_crossover",
+        parameters={"fast_period": "2", "slow_period": "3", "signal_period": "2", "quantity": "0.2"},
+        profile=SimpleNamespace(order_quantity=Decimal("0.1")),
+        latest_price=Decimal("3"),
+        position_quantity=Decimal("0"),
+        candles=candles,
+    )
+
+    assert decision.decision == "skip"
+    assert decision.reason == "insufficient_candles"
+    assert decision.current_price == Decimal("3")
+    assert decision.metadata["candles_used"] == 4
+    assert decision.metadata["fast_period"] == 2
+    assert decision.metadata["slow_period"] == 3
+    assert decision.metadata["signal_period"] == 2
+    assert "macd" not in decision.metadata
+
+
 def test_price_threshold_does_not_require_candles() -> None:
     profile = SimpleNamespace(
         entry_below=Decimal("100"),
