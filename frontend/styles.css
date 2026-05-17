@@ -1134,6 +1134,40 @@ dd {
   padding: 14px;
 }
 
+.backtest-optimization-presets {
+  grid-column: 1 / -1;
+  display: grid;
+  gap: 10px;
+  border-bottom: 1px solid var(--line);
+  padding-bottom: 12px;
+}
+
+.backtest-optimization-presets strong {
+  display: block;
+  color: var(--ink);
+  font-size: 0.82rem;
+}
+
+.backtest-optimization-presets p {
+  margin: 4px 0 0;
+  color: var(--muted);
+  font-size: 0.78rem;
+  font-weight: 800;
+  line-height: 1.4;
+}
+
+.backtest-optimization-preset-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.optimization-preset-button {
+  min-height: 30px;
+  padding: 0 9px;
+  font-size: 0.76rem;
+}
+
 .backtest-optimization-actions {
   grid-column: 1 / -1;
   display: flex;

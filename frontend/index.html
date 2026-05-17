@@ -4,7 +4,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Dashboard</title>
-    <link rel="stylesheet" href="/static/styles.css?v=optimization-display-filters" />
+    <link rel="stylesheet" href="/static/styles.css?v=optimization-presets" />
   </head>
   <body>
     <main class="dashboard-shell">
@@ -364,6 +364,32 @@
               </div>
               <p id="backtest-optimization-help" class="backtest-optimization-help"></p>
               <form id="backtest-optimization-form" class="backtest-optimization-form" aria-label="Parameter Optimization">
+                <div class="backtest-optimization-presets">
+                  <div>
+                    <strong id="optimization-presets-title">Optimization presets</strong>
+                    <p id="optimization-presets-help"></p>
+                  </div>
+                  <div class="backtest-optimization-preset-actions">
+                    <button id="optimization-price-conservative" type="button" class="secondary-button optimization-preset-button">
+                      Conservative range
+                    </button>
+                    <button id="optimization-price-balanced" type="button" class="secondary-button optimization-preset-button">
+                      Balanced range
+                    </button>
+                    <button id="optimization-price-wide" type="button" class="secondary-button optimization-preset-button">
+                      Wider range
+                    </button>
+                    <button id="optimization-ma-fast" type="button" class="secondary-button optimization-preset-button">
+                      Fast signals
+                    </button>
+                    <button id="optimization-ma-balanced" type="button" class="secondary-button optimization-preset-button">
+                      Balanced windows
+                    </button>
+                    <button id="optimization-ma-slow" type="button" class="secondary-button optimization-preset-button">
+                      Slower signals
+                    </button>
+                  </div>
+                </div>
                 <label>
                   <span id="optimization-first-values-label">Buy below values</span>
                   <input id="optimization-first-values" autocomplete="off" />
@@ -419,6 +445,6 @@
       </section>
     </main>
 
-    <script src="/static/app.js?v=optimization-display-filters"></script>
+    <script src="/static/app.js?v=optimization-presets"></script>
   </body>
 </html>

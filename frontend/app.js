@@ -216,6 +216,15 @@ const translations = {
     optimization_unsupported_strategy: "Optimization is not available for this strategy type yet.",
     optimization_price_help: "Comma-separated buy/sell thresholds generate every combination with the quantity.",
     optimization_ma_help: "Comma-separated short/long windows generate every combination with the quantity.",
+    optimization_presets_title: "Optimization presets",
+    optimization_presets_help:
+      "Use presets as starting points, then review results before applying. Quality filters help identify more reliable combinations.",
+    optimization_preset_conservative_range: "Conservative range",
+    optimization_preset_balanced_range: "Balanced range",
+    optimization_preset_wider_range: "Wider range",
+    optimization_preset_fast_signals: "Fast signals",
+    optimization_preset_balanced_windows: "Balanced windows",
+    optimization_preset_slower_signals: "Slower signals",
     optimization_min_closed_trades_label: "Minimum closed trades",
     optimization_require_closed_position_label: "Require closed position",
     optimization_quality_filters_invalid: "Minimum closed trades must be a whole number of 0 or more.",
@@ -640,6 +649,15 @@ const translations = {
     optimization_unsupported_strategy: "Այս strategy type-ի համար optimization-ը դեռ հասանելի չէ։",
     optimization_price_help: "Ստորակետերով buy/sell շեմերը quantity-ի հետ ստեղծում են բոլոր combination-ները։",
     optimization_ma_help: "Ստորակետերով short/long window-ները quantity-ի հետ ստեղծում են բոլոր combination-ները։",
+    optimization_presets_title: "Optimization preset-ներ",
+    optimization_presets_help:
+      "Preset-ները օգտագործիր որպես մեկնարկային կետ, հետո արդյունքները վերանայիր մինչև կիրառելը։ Որակի ֆիլտրերը օգնում են գտնել ավելի հուսալի combination-ներ։",
+    optimization_preset_conservative_range: "Զուսպ միջակայք",
+    optimization_preset_balanced_range: "Հավասարակշռված միջակայք",
+    optimization_preset_wider_range: "Ավելի լայն միջակայք",
+    optimization_preset_fast_signals: "Արագ signal-ներ",
+    optimization_preset_balanced_windows: "Հավասարակշռված window-ներ",
+    optimization_preset_slower_signals: "Ավելի դանդաղ signal-ներ",
     optimization_min_closed_trades_label: "Փակված trade-երի նվազագույն քանակ",
     optimization_require_closed_position_label: "Պահանջել փակ position",
     optimization_quality_filters_invalid: "Փակված trade-երի նվազագույնը պետք է լինի 0 կամ մեծ ամբողջ թիվ։",
@@ -1075,6 +1093,14 @@ const backtestMessageEl = document.querySelector("#backtest-message");
 const backtestOptimizationHeading = document.querySelector("#backtest-optimization-heading");
 const backtestOptimizationHelp = document.querySelector("#backtest-optimization-help");
 const backtestOptimizationForm = document.querySelector("#backtest-optimization-form");
+const optimizationPresetsTitle = document.querySelector("#optimization-presets-title");
+const optimizationPresetsHelp = document.querySelector("#optimization-presets-help");
+const optimizationPriceConservative = document.querySelector("#optimization-price-conservative");
+const optimizationPriceBalanced = document.querySelector("#optimization-price-balanced");
+const optimizationPriceWide = document.querySelector("#optimization-price-wide");
+const optimizationMaFast = document.querySelector("#optimization-ma-fast");
+const optimizationMaBalanced = document.querySelector("#optimization-ma-balanced");
+const optimizationMaSlow = document.querySelector("#optimization-ma-slow");
 const optimizationFirstValuesLabel = document.querySelector("#optimization-first-values-label");
 const optimizationFirstValues = document.querySelector("#optimization-first-values");
 const optimizationSecondValuesLabel = document.querySelector("#optimization-second-values-label");
@@ -1258,6 +1284,14 @@ function applyStaticTranslations() {
   backtestOptimizationSubmit.textContent = isRunningBacktestOptimization
     ? t("running_optimization")
     : t("run_optimization");
+  optimizationPresetsTitle.textContent = t("optimization_presets_title");
+  optimizationPresetsHelp.textContent = t("optimization_presets_help");
+  optimizationPriceConservative.textContent = t("optimization_preset_conservative_range");
+  optimizationPriceBalanced.textContent = t("optimization_preset_balanced_range");
+  optimizationPriceWide.textContent = t("optimization_preset_wider_range");
+  optimizationMaFast.textContent = t("optimization_preset_fast_signals");
+  optimizationMaBalanced.textContent = t("optimization_preset_balanced_windows");
+  optimizationMaSlow.textContent = t("optimization_preset_slower_signals");
   optimizationMinClosedTradesLabel.textContent = t("optimization_min_closed_trades_label");
   optimizationRequireClosedPositionLabel.textContent = t("optimization_require_closed_position_label");
   backtestHistoryPanel?.setAttribute("aria-label", t("recent_backtests_aria"));
@@ -2563,6 +2597,8 @@ function renderBacktestPanel() {
   populateOptimizationDefaults();
   const strategyType = optimizationStrategyType();
   const optimizationSupported = ["price_threshold", "moving_average_cross"].includes(strategyType);
+  const pricePresetButtons = [optimizationPriceConservative, optimizationPriceBalanced, optimizationPriceWide];
+  const movingAveragePresetButtons = [optimizationMaFast, optimizationMaBalanced, optimizationMaSlow];
   optimizationFirstValuesLabel.textContent =
     strategyType === "moving_average_cross" ? t("short_window_values_label") : t("buy_below_values_label");
   optimizationSecondValuesLabel.textContent =
@@ -2577,6 +2613,14 @@ function renderBacktestPanel() {
   const shouldDisableOptimization = shouldDisable || !optimizationSupported;
   [optimizationFirstValues, optimizationSecondValues, optimizationQuantity, optimizationMinClosedTrades].forEach((input) => {
     input.disabled = shouldDisableOptimization;
+  });
+  pricePresetButtons.forEach((button) => {
+    button.hidden = strategyType !== "price_threshold";
+    button.disabled = shouldDisableOptimization;
+  });
+  movingAveragePresetButtons.forEach((button) => {
+    button.hidden = strategyType !== "moving_average_cross";
+    button.disabled = shouldDisableOptimization;
   });
   optimizationRequireClosedPosition.disabled = shouldDisableOptimization;
   backtestOptimizationSubmit.textContent = isRunningBacktestOptimization
@@ -3339,6 +3383,65 @@ function nearbyOptimizationValues(value, fallback) {
   return [base * 0.98, base, base * 1.02]
     .map((item) => item.toFixed(8).replace(/\.?0+$/, ""))
     .join(", ");
+}
+
+function formatOptimizationPresetValue(value) {
+  return Number(value).toFixed(8).replace(/\.?0+$/, "");
+}
+
+function optimizationPresetQuantity(parameters) {
+  const quantity = parsePositiveParameter(String(parameters?.quantity ?? ""));
+  return quantity === null ? null : formatValue(parameters.quantity);
+}
+
+function setOptimizationPresetValues({ firstValues, secondValues, quantity }) {
+  optimizationFirstValues.value = firstValues.join(", ");
+  optimizationSecondValues.value = secondValues.join(", ");
+  if (quantity) optimizationQuantity.value = quantity;
+  backtestOptimizationTouched = true;
+}
+
+function priceThresholdPresetBases() {
+  const parameters = selectedBacktestStrategy()?.parameters ?? {};
+  const parsedBuyBelow = Number(parameters.buy_below);
+  const buyBelow = Number.isFinite(parsedBuyBelow) && parsedBuyBelow > 0 ? parsedBuyBelow : 100;
+  const parsedSellAbove = Number(parameters.sell_above);
+  const sellAbove =
+    Number.isFinite(parsedSellAbove) && parsedSellAbove > buyBelow ? parsedSellAbove : buyBelow * 1.1;
+  return { buyBelow, sellAbove, quantity: optimizationPresetQuantity(parameters) };
+}
+
+function safePriceThresholdPreset(buyMultipliers, sellMultipliers) {
+  const { buyBelow, sellAbove, quantity } = priceThresholdPresetBases();
+  const buyValues = buyMultipliers.map((multiplier) => buyBelow * multiplier);
+  const maxBuy = Math.max(...buyValues);
+  const sellFloor = Math.max(sellAbove, maxBuy * 1.02);
+  const sellValues = sellMultipliers.map((multiplier) => Math.max(sellAbove * multiplier, sellFloor));
+  return {
+    firstValues: buyValues.map(formatOptimizationPresetValue),
+    secondValues: sellValues.map(formatOptimizationPresetValue),
+    quantity,
+  };
+}
+
+function applyPriceThresholdPreset(kind) {
+  const presets = {
+    conservative: safePriceThresholdPreset([0.99, 1], [1, 1.01]),
+    balanced: safePriceThresholdPreset([0.98, 1, 1.02], [0.99, 1, 1.02]),
+    wide: safePriceThresholdPreset([0.94, 0.98, 1.02], [0.98, 1.03, 1.08]),
+  };
+  setOptimizationPresetValues(presets[kind] ?? presets.balanced);
+}
+
+function applyMovingAveragePreset(kind) {
+  const parameters = selectedBacktestStrategy()?.parameters ?? {};
+  const quantity = optimizationPresetQuantity(parameters);
+  const presets = {
+    fast: { firstValues: ["3", "5", "8"], secondValues: ["12", "20", "26"] },
+    balanced: { firstValues: ["5", "10", "13"], secondValues: ["20", "30", "50"] },
+    slow: { firstValues: ["10", "20", "30"], secondValues: ["50", "100", "150"] },
+  };
+  setOptimizationPresetValues({ ...(presets[kind] ?? presets.balanced), quantity });
 }
 
 function populateOptimizationDefaults() {
@@ -5216,6 +5319,12 @@ backtestForm.addEventListener("submit", submitBacktest);
 backtestSubmit.addEventListener("click", submitBacktest);
 backtestImportBinance.addEventListener("click", importBacktestBinanceCandles);
 backtestOptimizationForm.addEventListener("submit", submitBacktestOptimization);
+optimizationPriceConservative.addEventListener("click", () => applyPriceThresholdPreset("conservative"));
+optimizationPriceBalanced.addEventListener("click", () => applyPriceThresholdPreset("balanced"));
+optimizationPriceWide.addEventListener("click", () => applyPriceThresholdPreset("wide"));
+optimizationMaFast.addEventListener("click", () => applyMovingAveragePreset("fast"));
+optimizationMaBalanced.addEventListener("click", () => applyMovingAveragePreset("balanced"));
+optimizationMaSlow.addEventListener("click", () => applyMovingAveragePreset("slow"));
 refreshBacktestHistory.addEventListener("click", loadBacktestHistory);
 priceForm.addEventListener("submit", updateMarketPrice);
 binancePriceFetch.addEventListener("click", fetchBinancePriceForSelectedBot);
