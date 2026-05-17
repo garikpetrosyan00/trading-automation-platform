@@ -11,9 +11,12 @@ PlaceholderSafeStr = Annotated[
     StringConstraints(strip_whitespace=True, min_length=1),
     AfterValidator(lambda value: reject_placeholder_string(value)),
 ]
-StrategyType = Literal["price_threshold", "moving_average_cross"]
+StrategyType = Literal["price_threshold", "moving_average_cross", "rsi_threshold"]
 PRICE_THRESHOLD_PARAMETER_KEYS = ("buy_below", "sell_above", "quantity")
 MOVING_AVERAGE_CROSS_PARAMETER_KEYS = ("short_window", "long_window", "quantity")
+RSI_THRESHOLD_PARAMETER_KEYS = ("period", "oversold", "overbought", "quantity")
+DEFAULT_RSI_OVERSOLD = Decimal("30")
+DEFAULT_RSI_OVERBOUGHT = Decimal("70")
 
 
 def reject_placeholder_string(value: str) -> str:
@@ -101,6 +104,53 @@ def validate_moving_average_cross_parameters(parameters: dict[str, Any] | None) 
 
     if short_window is not None and long_window is not None and short_window >= long_window:
         raise ValueError("moving_average_cross short_window must be less than long_window")
+
+    return parameters
+
+
+def validate_rsi_threshold_parameters(parameters: dict[str, Any] | None) -> dict[str, Any] | None:
+    if not parameters:
+        return parameters
+
+    period = (
+        _parse_positive_integer(
+            "rsi_threshold",
+            "period",
+            parameters["period"],
+        )
+        if "period" in parameters
+        else None
+    )
+    oversold = (
+        _parse_positive_number(
+            "rsi_threshold",
+            "oversold",
+            parameters["oversold"],
+        )
+        if "oversold" in parameters
+        else None
+    )
+    overbought = (
+        _parse_positive_number(
+            "rsi_threshold",
+            "overbought",
+            parameters["overbought"],
+        )
+        if "overbought" in parameters
+        else None
+    )
+    if "quantity" in parameters:
+        _parse_positive_number("rsi_threshold", "quantity", parameters["quantity"])
+
+    effective_oversold = oversold if oversold is not None else DEFAULT_RSI_OVERSOLD
+    effective_overbought = overbought if overbought is not None else DEFAULT_RSI_OVERBOUGHT
+
+    if oversold is not None and oversold >= Decimal("100"):
+        raise ValueError("rsi_threshold parameter oversold must be less than 100")
+    if overbought is not None and overbought >= Decimal("100"):
+        raise ValueError("rsi_threshold parameter overbought must be less than 100")
+    if (oversold is not None or overbought is not None) and effective_oversold >= effective_overbought:
+        raise ValueError("rsi_threshold oversold must be less than overbought")
 
     return parameters
 

@@ -23,6 +23,7 @@ from app.schemas.backtest import (
 from app.schemas.strategy import (
     validate_moving_average_cross_parameters,
     validate_price_threshold_parameters,
+    validate_rsi_threshold_parameters,
 )
 from app.services.backtest import BacktestService
 from app.services.strategy import StrategyService
@@ -31,6 +32,7 @@ router = APIRouter()
 
 PRICE_THRESHOLD_STRATEGY_TYPE = "price_threshold"
 MOVING_AVERAGE_CROSS_STRATEGY_TYPE = "moving_average_cross"
+RSI_THRESHOLD_STRATEGY_TYPE = "rsi_threshold"
 
 
 def get_strategy_service(db: DbSession) -> StrategyService:
@@ -87,6 +89,8 @@ def validate_optimization_parameters(
             validate_price_threshold_parameters(parameters)
         elif strategy_type == MOVING_AVERAGE_CROSS_STRATEGY_TYPE:
             validate_moving_average_cross_parameters(parameters)
+        elif strategy_type == RSI_THRESHOLD_STRATEGY_TYPE:
+            validate_rsi_threshold_parameters(parameters)
     except ValueError as exc:
         raise AppError(
             f"parameter_sets[{index}]: {exc}",
@@ -134,6 +138,30 @@ def normalize_optimization_parameters(
                 normalized["short_window"] = str(positive_integer_parameter(parameters, "short_window"))
             if "long_window" in parameters:
                 normalized["long_window"] = str(positive_integer_parameter(parameters, "long_window"))
+            if "quantity" in parameters:
+                normalized["quantity"] = str(positive_decimal_parameter(parameters, "quantity"))
+        except AppError as exc:
+            raise AppError(
+                f"parameter_sets[{index}]: {exc.message}",
+                status_code=422,
+                error_code="invalid_optimization_parameters",
+            ) from exc
+        validate_optimization_parameters(
+            strategy_type=strategy_type,
+            parameters={**(base_parameters or {}), **normalized},
+            index=index,
+        )
+        return normalized
+
+    if strategy_type == RSI_THRESHOLD_STRATEGY_TYPE:
+        try:
+            normalized = {}
+            if "period" in parameters:
+                normalized["period"] = str(positive_integer_parameter(parameters, "period"))
+            if "oversold" in parameters:
+                normalized["oversold"] = str(positive_decimal_parameter(parameters, "oversold"))
+            if "overbought" in parameters:
+                normalized["overbought"] = str(positive_decimal_parameter(parameters, "overbought"))
             if "quantity" in parameters:
                 normalized["quantity"] = str(positive_decimal_parameter(parameters, "quantity"))
         except AppError as exc:

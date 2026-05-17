@@ -164,6 +164,77 @@ def test_moving_average_cross_bearish_crossover_sells() -> None:
     assert decision.metadata["_order_quantity"] == Decimal("0.1")
 
 
+def test_rsi_threshold_buys_sells_and_holds_with_metadata() -> None:
+    profile = SimpleNamespace(order_quantity=Decimal("0.1"))
+    buy_candles = [SimpleNamespace(close_price=Decimal(value)) for value in ("10", "9", "8", "7")]
+    sell_candles = [SimpleNamespace(close_price=Decimal(value)) for value in ("7", "8", "9", "10")]
+    hold_candles = [SimpleNamespace(close_price=Decimal(value)) for value in ("10", "11", "10", "11")]
+
+    buy_decision = StrategyEngine.evaluate(
+        strategy_type="rsi_threshold",
+        parameters={"period": "3", "oversold": "30", "overbought": "70", "quantity": "0.2"},
+        profile=profile,
+        latest_price=Decimal("7"),
+        position_quantity=Decimal("0"),
+        candles=buy_candles,
+    )
+    sell_decision = StrategyEngine.evaluate(
+        strategy_type="rsi_threshold",
+        parameters={"period": "3", "oversold": "30", "overbought": "70", "quantity": "0.2"},
+        profile=profile,
+        latest_price=Decimal("10"),
+        position_quantity=Decimal("0.2"),
+        candles=sell_candles,
+    )
+    hold_decision = StrategyEngine.evaluate(
+        strategy_type="rsi_threshold",
+        parameters={"period": "3", "oversold": "30", "overbought": "70", "quantity": "0.2"},
+        profile=profile,
+        latest_price=Decimal("11"),
+        position_quantity=Decimal("0"),
+        candles=hold_candles,
+    )
+
+    assert buy_decision.decision == "buy"
+    assert buy_decision.reason == "rsi is at or below oversold threshold"
+    assert buy_decision.metadata["rsi"] == "0.00000000"
+    assert buy_decision.metadata["period"] == 3
+    assert buy_decision.metadata["oversold"] == "30"
+    assert buy_decision.metadata["overbought"] == "70"
+    assert buy_decision.metadata["position_qty"] == "0"
+    assert buy_decision.metadata["_order_quantity"] == Decimal("0.2")
+    assert sell_decision.decision == "sell"
+    assert sell_decision.reason == "rsi is at or above overbought threshold"
+    assert sell_decision.metadata["rsi"] == "100.00000000"
+    assert hold_decision.decision == "skip"
+    assert hold_decision.reason == "rsi is above oversold threshold, so no buy signal"
+    assert hold_decision.metadata["rsi"] == "66.66666667"
+
+
+def test_rsi_threshold_with_insufficient_data_skips_safely() -> None:
+    candles = [
+        SimpleNamespace(close_price=Decimal("10")),
+        SimpleNamespace(close_price=Decimal("9")),
+        SimpleNamespace(close_price=Decimal("8")),
+    ]
+
+    decision = StrategyEngine.evaluate(
+        strategy_type="rsi_threshold",
+        parameters={"period": "3", "oversold": "30", "overbought": "70", "quantity": "0.2"},
+        profile=SimpleNamespace(order_quantity=Decimal("0.1")),
+        latest_price=Decimal("8"),
+        position_quantity=Decimal("0"),
+        candles=candles,
+    )
+
+    assert decision.decision == "skip"
+    assert decision.reason == "insufficient_candles"
+    assert decision.current_price == Decimal("8")
+    assert decision.metadata["candles_used"] == 3
+    assert decision.metadata["period"] == 3
+    assert "rsi" not in decision.metadata
+
+
 def test_price_threshold_does_not_require_candles() -> None:
     profile = SimpleNamespace(
         entry_below=Decimal("100"),

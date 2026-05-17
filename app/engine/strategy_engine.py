@@ -9,8 +9,12 @@ from app.engine.strategy_evaluator import StrategyEvaluator
 ZERO = Decimal("0")
 PRICE_THRESHOLD_STRATEGY_TYPE = "price_threshold"
 MOVING_AVERAGE_CROSS_STRATEGY_TYPE = "moving_average_cross"
+RSI_THRESHOLD_STRATEGY_TYPE = "rsi_threshold"
 DEFAULT_MOVING_AVERAGE_SHORT_WINDOW = 5
 DEFAULT_MOVING_AVERAGE_LONG_WINDOW = 20
+DEFAULT_RSI_PERIOD = 14
+DEFAULT_RSI_OVERSOLD = Decimal("30")
+DEFAULT_RSI_OVERBOUGHT = Decimal("70")
 
 
 @dataclass(frozen=True)
@@ -26,6 +30,16 @@ class PriceThresholdConfig:
 class MovingAverageCrossConfig:
     short_window: int | None
     long_window: int | None
+    order_quantity: Decimal | None
+    invalid_parameter: str | None = None
+    invalid_reason: str | None = None
+
+
+@dataclass(frozen=True)
+class RsiThresholdConfig:
+    period: int | None
+    oversold: Decimal | None
+    overbought: Decimal | None
     order_quantity: Decimal | None
     invalid_parameter: str | None = None
     invalid_reason: str | None = None
@@ -79,6 +93,13 @@ class StrategyEngine:
             )
         if strategy_type == MOVING_AVERAGE_CROSS_STRATEGY_TYPE:
             return cls.evaluate_moving_average_cross(
+                parameters=parameters,
+                profile=profile,
+                candles=candles or [],
+                position_quantity=position_quantity,
+            )
+        if strategy_type == RSI_THRESHOLD_STRATEGY_TYPE:
+            return cls.evaluate_rsi_threshold(
                 parameters=parameters,
                 profile=profile,
                 candles=candles or [],
@@ -225,18 +246,96 @@ class StrategyEngine:
             order_quantity=config.order_quantity,
         )
 
+    @classmethod
+    def evaluate_rsi_threshold(
+        cls,
+        *,
+        parameters: dict[str, Any] | None,
+        profile,
+        candles: list[Any],
+        position_quantity: Decimal,
+    ) -> StrategyDecision:
+        config = cls.resolve_rsi_threshold_config(parameters, profile)
+        if config.invalid_parameter is not None:
+            return StrategyDecision(
+                decision="skip",
+                reason=config.invalid_reason or "invalid_strategy_parameter",
+                metadata={
+                    "event_decision": "skipped",
+                    "parameter": config.invalid_parameter,
+                    "strategy_type": RSI_THRESHOLD_STRATEGY_TYPE,
+                },
+            )
+
+        assert config.period is not None
+        assert config.oversold is not None
+        assert config.overbought is not None
+        required_candles = config.period + 1
+        current_price = candles[-1].close_price if candles else None
+
+        if len(candles) < required_candles:
+            return cls._rsi_threshold_decision(
+                decision="skip",
+                event_decision="skipped",
+                reason="insufficient_candles",
+                current_price=current_price,
+                position_quantity=position_quantity,
+                period=config.period,
+                oversold=config.oversold,
+                overbought=config.overbought,
+                candles_used=len(candles),
+                order_quantity=config.order_quantity,
+            )
+
+        rsi = cls.relative_strength_index([candle.close_price for candle in candles[-required_candles:]])
+        if position_quantity <= ZERO and rsi <= config.oversold:
+            decision = "buy"
+            event_decision = "buy"
+            reason = "rsi is at or below oversold threshold"
+        elif position_quantity > ZERO and rsi >= config.overbought:
+            decision = "sell"
+            event_decision = "sell"
+            reason = "rsi is at or above overbought threshold"
+        elif position_quantity <= ZERO:
+            decision = "skip"
+            event_decision = "skipped"
+            reason = "rsi is above oversold threshold, so no buy signal"
+        else:
+            decision = "skip"
+            event_decision = "skipped"
+            reason = "rsi is below overbought threshold, so no sell signal"
+
+        return cls._rsi_threshold_decision(
+            decision=decision,
+            event_decision=event_decision,
+            reason=reason,
+            current_price=current_price,
+            position_quantity=position_quantity,
+            period=config.period,
+            oversold=config.oversold,
+            overbought=config.overbought,
+            candles_used=len(candles),
+            rsi=rsi,
+            order_quantity=config.order_quantity,
+        )
+
     @staticmethod
     def strategy_type(strategy) -> str:
         return getattr(strategy, "strategy_type", None) or PRICE_THRESHOLD_STRATEGY_TYPE
 
     @classmethod
     def required_candle_count(cls, *, strategy_type: str, parameters: dict[str, Any] | None) -> int | None:
-        if strategy_type != MOVING_AVERAGE_CROSS_STRATEGY_TYPE:
-            return None
-        config = cls.resolve_moving_average_cross_config(parameters)
-        if config.invalid_parameter is not None or config.long_window is None:
-            return None
-        return config.long_window + 1
+        if strategy_type == MOVING_AVERAGE_CROSS_STRATEGY_TYPE:
+            moving_average_config = cls.resolve_moving_average_cross_config(parameters)
+            if moving_average_config.invalid_parameter is not None or moving_average_config.long_window is None:
+                return None
+            return moving_average_config.long_window + 1
+        if strategy_type == RSI_THRESHOLD_STRATEGY_TYPE:
+            rsi_config = cls.resolve_rsi_threshold_config(parameters)
+            if rsi_config.invalid_parameter is not None or rsi_config.period is None:
+                return None
+            return rsi_config.period + 1
+        return None
 
     @classmethod
     def resolve_price_threshold_config(cls, parameters: dict[str, Any] | None, profile) -> PriceThresholdConfig:
@@ -287,6 +386,62 @@ class StrategyEngine:
 
         return MovingAverageCrossConfig(short_window, long_window, quantity)
 
+    @classmethod
+    def resolve_rsi_threshold_config(
+        cls,
+        parameters: dict[str, Any] | None,
+        profile=None,
+    ) -> RsiThresholdConfig:
+        period, invalid_reason = cls.parse_integer_parameter(parameters, "period")
+        if invalid_reason is not None:
+            return RsiThresholdConfig(None, None, None, None, "period", invalid_reason)
+        oversold, invalid_reason = cls.parse_decimal_parameter(parameters, "oversold")
+        if invalid_reason is not None:
+            return RsiThresholdConfig(None, None, None, None, "oversold", invalid_reason)
+        overbought, invalid_reason = cls.parse_decimal_parameter(parameters, "overbought")
+        if invalid_reason is not None:
+            return RsiThresholdConfig(None, None, None, None, "overbought", invalid_reason)
+        quantity, invalid_reason = cls.parse_decimal_parameter(parameters, "quantity")
+        if invalid_reason is not None:
+            return RsiThresholdConfig(None, None, None, None, "quantity", invalid_reason)
+
+        period = period if period is not None else DEFAULT_RSI_PERIOD
+        oversold = oversold if oversold is not None else DEFAULT_RSI_OVERSOLD
+        overbought = overbought if overbought is not None else DEFAULT_RSI_OVERBOUGHT
+
+        if oversold >= Decimal("100"):
+            return RsiThresholdConfig(
+                None,
+                None,
+                None,
+                None,
+                "oversold",
+                "strategy parameter oversold must be less than 100",
+            )
+        if overbought >= Decimal("100"):
+            return RsiThresholdConfig(
+                None,
+                None,
+                None,
+                None,
+                "overbought",
+                "strategy parameter overbought must be less than 100",
+            )
+        if oversold >= overbought:
+            return RsiThresholdConfig(
+                None,
+                None,
+                None,
+                None,
+                "oversold",
+                "rsi_threshold oversold must be less than overbought",
+            )
+
+        if quantity is None and profile is not None:
+            quantity = getattr(profile, "order_quantity", None)
+
+        return RsiThresholdConfig(period, oversold, overbought, quantity)
+
     @staticmethod
     def parse_decimal_parameter(parameters: dict[str, Any] | None, key: str) -> tuple[Decimal | None, str | None]:
         if not parameters or key not in parameters:
@@ -318,6 +473,28 @@ class StrategyEngine:
     @staticmethod
     def moving_average(values: list[Decimal]) -> Decimal:
         return (sum(values, ZERO) / Decimal(len(values))).quantize(Decimal("0.00000001"))
+
+    @staticmethod
+    def relative_strength_index(values: list[Decimal]) -> Decimal:
+        gains: list[Decimal] = []
+        losses: list[Decimal] = []
+        for previous, current in zip(values, values[1:]):
+            change = current - previous
+            gains.append(change if change > ZERO else ZERO)
+            losses.append(abs(change) if change < ZERO else ZERO)
+
+        average_gain = sum(gains, ZERO) / Decimal(len(gains))
+        average_loss = sum(losses, ZERO) / Decimal(len(losses))
+        if average_loss == ZERO and average_gain > ZERO:
+            return Decimal("100.00000000")
+        if average_gain == ZERO and average_loss > ZERO:
+            return Decimal("0.00000000")
+        if average_gain == ZERO and average_loss == ZERO:
+            return Decimal("50.00000000")
+
+        relative_strength = average_gain / average_loss
+        rsi = Decimal("100") - (Decimal("100") / (Decimal("1") + relative_strength))
+        return rsi.quantize(Decimal("0.00000001"))
 
     @staticmethod
     def price_threshold_decision_detail(
@@ -374,4 +551,33 @@ class StrategyEngine:
             metadata["current_short_ma"] = str(current_short_ma)
         if current_long_ma is not None:
             metadata["current_long_ma"] = str(current_long_ma)
+        return StrategyDecision(decision=decision, reason=reason, current_price=current_price, metadata=metadata)
+
+    @staticmethod
+    def _rsi_threshold_decision(
+        *,
+        decision: str,
+        event_decision: str,
+        reason: str,
+        current_price: Decimal | None,
+        position_quantity: Decimal,
+        period: int,
+        oversold: Decimal,
+        overbought: Decimal,
+        candles_used: int,
+        rsi: Decimal | None = None,
+        order_quantity: Decimal | None = None,
+    ) -> StrategyDecision:
+        metadata: dict[str, Any] = {
+            "_order_quantity": order_quantity,
+            "event_decision": event_decision,
+            "position_qty": str(position_quantity),
+            "period": period,
+            "oversold": str(oversold),
+            "overbought": str(overbought),
+            "candles_used": candles_used,
+            "strategy_type": RSI_THRESHOLD_STRATEGY_TYPE,
+        }
+        if rsi is not None:
+            metadata["rsi"] = format(rsi, "f")
         return StrategyDecision(decision=decision, reason=reason, current_price=current_price, metadata=metadata)

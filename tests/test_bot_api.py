@@ -174,6 +174,45 @@ def test_create_bot_with_invalid_strategy_parameters_returns_validation_error(
     assert response.json()["detail"] == "price_threshold sell_above must be greater than buy_below"
 
 
+def test_create_bot_with_invalid_rsi_strategy_parameters_returns_validation_error(
+    db_session_factory,
+    stub_market_data_service,
+    bot_runner_factory,
+    configure_app_state,
+) -> None:
+    with db_session_factory() as session:
+        strategy = Strategy(
+            name="Invalid RSI Strategy",
+            symbol="BTCUSDT",
+            timeframe="1m",
+            strategy_type="rsi_threshold",
+            parameters={"period": "14", "oversold": "70", "overbought": "70", "quantity": "1"},
+            is_active=True,
+        )
+        session.add(strategy)
+        session.commit()
+        strategy_id = strategy.id
+
+    configure_app_state(
+        market_data_service=stub_market_data_service,
+        bot_runner=bot_runner_factory(),
+    )
+
+    with TestClient(app) as client:
+        response = client.post(
+            "/api/v1/bots",
+            json={
+                "name": "Invalid RSI Strategy Bot",
+                "strategy_id": strategy_id,
+                "exchange_name": "binance",
+            },
+        )
+
+    assert response.status_code == 422
+    assert response.json()["error_code"] == "invalid_strategy_parameters"
+    assert response.json()["detail"] == "rsi_threshold oversold must be less than overbought"
+
+
 def test_update_bot_basic_fields_returns_updated_bot(
     db_session_factory,
     stub_market_data_service,

@@ -298,6 +298,87 @@ def test_create_moving_average_cross_strategy_with_non_positive_quantity_fails_c
     assert response.json()["detail"] == "moving_average_cross parameter quantity must be a positive number"
 
 
+def test_create_rsi_threshold_strategy_with_valid_parameters_succeeds(
+    stub_market_data_service,
+    bot_runner_factory,
+    configure_app_state,
+) -> None:
+    configure_app_state(
+        market_data_service=stub_market_data_service,
+        bot_runner=bot_runner_factory(),
+    )
+
+    payload = {
+        "name": "RSI Threshold Strategy",
+        "symbol": "BTCUSDT",
+        "timeframe": "1m",
+        "strategy_type": "rsi_threshold",
+        "parameters": {
+            "period": 14,
+            "oversold": "30",
+            "overbought": "70",
+            "quantity": "0.01",
+        },
+    }
+
+    with TestClient(app) as client:
+        response = client.post("/api/v1/strategies", json=payload)
+
+    assert response.status_code == 201
+    assert response.json()["strategy_type"] == "rsi_threshold"
+    assert response.json()["parameters"] == payload["parameters"]
+
+
+def test_create_rsi_threshold_strategy_with_invalid_parameters_fails_cleanly(
+    stub_market_data_service,
+    bot_runner_factory,
+    configure_app_state,
+) -> None:
+    configure_app_state(
+        market_data_service=stub_market_data_service,
+        bot_runner=bot_runner_factory(),
+    )
+
+    with TestClient(app) as client:
+        response = client.post(
+            "/api/v1/strategies",
+            json={
+                "name": "Invalid RSI Strategy",
+                "symbol": "BTCUSDT",
+                "timeframe": "1m",
+                "strategy_type": "rsi_threshold",
+                "parameters": {
+                    "period": "14.5",
+                    "oversold": "30",
+                    "overbought": "70",
+                    "quantity": "0.01",
+                },
+            },
+        )
+        range_response = client.post(
+            "/api/v1/strategies",
+            json={
+                "name": "Invalid RSI Range Strategy",
+                "symbol": "BTCUSDT",
+                "timeframe": "1m",
+                "strategy_type": "rsi_threshold",
+                "parameters": {
+                    "period": 14,
+                    "oversold": "75",
+                    "overbought": "70",
+                    "quantity": "0.01",
+                },
+            },
+        )
+
+    assert response.status_code == 422
+    assert response.json()["error_code"] == "invalid_strategy_parameters"
+    assert response.json()["detail"] == "rsi_threshold parameter period must be a positive integer"
+    assert range_response.status_code == 422
+    assert range_response.json()["error_code"] == "invalid_strategy_parameters"
+    assert range_response.json()["detail"] == "rsi_threshold oversold must be less than overbought"
+
+
 def test_create_price_threshold_strategy_with_invalid_parameters_fails_cleanly(
     stub_market_data_service,
     bot_runner_factory,

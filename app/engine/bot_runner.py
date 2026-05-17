@@ -13,6 +13,7 @@ from app.engine.risk import RISK_REASON_STOP_LOSS_TRIGGERED, RiskLimits, RiskMan
 from app.engine.strategy_engine import (
     MOVING_AVERAGE_CROSS_STRATEGY_TYPE,
     PRICE_THRESHOLD_STRATEGY_TYPE,
+    RSI_THRESHOLD_STRATEGY_TYPE,
     StrategyEngine,
 )
 from app.models.bot_run import BotRun
@@ -358,7 +359,7 @@ class BotRunner:
         position_quantity = position.quantity if position is not None else ZERO
         candles = None
         candle_source = None
-        if strategy_type == MOVING_AVERAGE_CROSS_STRATEGY_TYPE:
+        if strategy_type in {MOVING_AVERAGE_CROSS_STRATEGY_TYPE, RSI_THRESHOLD_STRATEGY_TYPE}:
             candle_limit = StrategyEngine.required_candle_count(
                 strategy_type=strategy_type,
                 parameters=strategy.parameters,
@@ -384,12 +385,16 @@ class BotRunner:
 
         if strategy_type != PRICE_THRESHOLD_STRATEGY_TYPE:
             decision_payload["strategy_type"] = strategy_type
-        if strategy_type == MOVING_AVERAGE_CROSS_STRATEGY_TYPE:
+        if strategy_type in {MOVING_AVERAGE_CROSS_STRATEGY_TYPE, RSI_THRESHOLD_STRATEGY_TYPE}:
             decision_payload["timeframe"] = strategy.timeframe
             if candle_source is not None:
                 decision_payload["candle_source"] = candle_source
 
-        if strategy_type not in {PRICE_THRESHOLD_STRATEGY_TYPE, MOVING_AVERAGE_CROSS_STRATEGY_TYPE}:
+        if strategy_type not in {
+            PRICE_THRESHOLD_STRATEGY_TYPE,
+            MOVING_AVERAGE_CROSS_STRATEGY_TYPE,
+            RSI_THRESHOLD_STRATEGY_TYPE,
+        }:
             if record_noop_events:
                 self._record_event(
                     db,
