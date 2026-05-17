@@ -4,7 +4,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Dashboard</title>
-    <link rel="stylesheet" href="/static/styles.css?v=strategy-create-dashboard" />
+    <link rel="stylesheet" href="/static/styles.css?v=bollinger-label-cleanup" />
   </head>
   <body>
     <main class="dashboard-shell">
@@ -293,7 +293,7 @@
             <form id="create-strategy-form" class="create-strategy-form" aria-label="Create strategy">
               <label>
                 <span id="create-strategy-name-label">Strategy name</span>
-                <input id="create-strategy-name" name="name" placeholder="RSI BTC 1m" autocomplete="off" />
+                <input id="create-strategy-name" name="name" placeholder="Bollinger BTC 1m" autocomplete="off" />
               </label>
               <label>
                 <span id="create-strategy-symbol-label">Symbol</span>
@@ -449,6 +449,15 @@
                     <button id="optimization-rsi-conservative" type="button" class="secondary-button optimization-preset-button">
                       Conservative RSI
                     </button>
+                    <button id="optimization-bollinger-standard" type="button" class="secondary-button optimization-preset-button">
+                      Standard Bands
+                    </button>
+                    <button id="optimization-bollinger-tight" type="button" class="secondary-button optimization-preset-button">
+                      Tight Bands
+                    </button>
+                    <button id="optimization-bollinger-wide" type="button" class="secondary-button optimization-preset-button">
+                      Wide Bands
+                    </button>
                   </div>
                 </div>
                 <label>
@@ -510,6 +519,6 @@
       </section>
     </main>
 
-    <script src="/static/app.js?v=strategy-create-dashboard"></script>
+    <script src="/static/app.js?v=bollinger-label-cleanup"></script>
   </body>
 </html>

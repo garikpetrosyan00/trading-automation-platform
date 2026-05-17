@@ -223,6 +223,10 @@ label {
   font-weight: 700;
 }
 
+label[hidden] {
+  display: none !important;
+}
+
 input:not([type="checkbox"]) {
   width: 100%;
   min-height: 40px;
