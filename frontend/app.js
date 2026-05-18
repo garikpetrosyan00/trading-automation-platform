@@ -438,6 +438,8 @@ const translations = {
     view_latest_run: "View latest run",
     latest_run_not_visible: "Latest run not visible",
     latest_run_not_visible_hint: "Latest run is not visible in the current recent list.",
+    use_for_new_backtest: "Use for new backtest",
+    strategy_not_available_for_backtest: "Strategy is not available in the backtest form.",
     candles_processed_label: "Candles",
     recent_activity: "Recent Activity",
     set_price: "Set price",
@@ -975,6 +977,8 @@ const translations = {
     view_latest_run: "Տեսնել վերջին run-ը",
     latest_run_not_visible: "Վերջին run-ը տեսանելի չէ",
     latest_run_not_visible_hint: "Վերջին run-ը ընթացիկ recent list-ում տեսանելի չէ։",
+    use_for_new_backtest: "Օգտագործել նոր backtest-ի համար",
+    strategy_not_available_for_backtest: "Strategy-ն հասանելի չէ backtest-ի ձևում։",
     candles_processed_label: "Մոմեր",
     recent_activity: "Վերջին ակտիվություն",
     set_price: "Սահմանել գինը",
@@ -3633,6 +3637,33 @@ function comparisonBadge(text, variant) {
   return badge;
 }
 
+function isStrategyAvailableForBacktest(strategyId) {
+  if (strategyId === null || strategyId === undefined || strategyId === "") return false;
+  return strategies.some((strategy) => botIdsEqual(strategy.id, strategyId));
+}
+
+function useStrategyForNewBacktest(strategyId) {
+  if (!isStrategyAvailableForBacktest(strategyId)) return;
+  backtestStrategyTouched = true;
+  backtestResult = null;
+  backtestMessage = "";
+  backtestMessageType = "";
+  backtestImportMessage = "";
+  backtestImportMessageType = "";
+  backtestOptimizationMessage = "";
+  backtestOptimizationMessageType = "";
+  backtestOptimizationResult = null;
+  showMeaningfulOptimizationOnly = false;
+  showPassedOptimizationOnly = false;
+  backtestOptimizationTouched = false;
+  optimizationMinClosedTrades.value = "0";
+  optimizationRequireClosedPosition.checked = false;
+  backtestStrategyId.value = String(strategyId);
+  render();
+  backtestForm.scrollIntoView({ behavior: "smooth", block: "center" });
+  backtestStrategyId.focus({ preventScroll: true });
+}
+
 function renderBacktestComparison() {
   backtestComparisonEl.innerHTML = "";
 
@@ -3745,6 +3776,19 @@ function renderBacktestComparison() {
       latestRunButton.addEventListener("click", () => viewLatestBacktestRun(latestRun?.id, row.strategyId));
     }
     actions.append(latestRunButton);
+    const strategyAvailableForBacktest = isStrategyAvailableForBacktest(row.strategyId);
+    const useButton = document.createElement("button");
+    useButton.type = "button";
+    useButton.className = "secondary-button backtest-comparison-action";
+    useButton.textContent = t("use_for_new_backtest");
+    useButton.title = strategyAvailableForBacktest
+      ? t("use_for_new_backtest")
+      : t("strategy_not_available_for_backtest");
+    useButton.disabled = !strategyAvailableForBacktest;
+    if (strategyAvailableForBacktest) {
+      useButton.addEventListener("click", () => useStrategyForNewBacktest(row.strategyId));
+    }
+    actions.append(useButton);
 
     item.append(header);
     if (badges.childElementCount > 0) item.append(badges);
