@@ -68,6 +68,7 @@ let backtestHistoryError = "";
 let backtestHistoryRequestId = 0;
 let backtestHistoryScope = "selected";
 let highlightedBacktestRunTimeout = null;
+const expandedBacktestDetails = new Set();
 let strategyLoadError = "";
 let priceMessage = "";
 let priceMessageType = "";
@@ -409,6 +410,9 @@ const translations = {
     backtest_history_scope_all: "All recent runs",
     backtest_history_scope_selected_help: "Showing runs for the selected strategy.",
     backtest_history_scope_all_help: "Showing all loaded recent runs.",
+    view_details: "View details",
+    hide_details: "Hide details",
+    backtest_details: "Backtest details",
     backtest_strategy_fallback: "Strategy #{id}",
     winning_losing_trades_label: "Wins / losses",
     best_recent_run: "Best recent run",
@@ -948,6 +952,9 @@ const translations = {
     backtest_history_scope_all: "Բոլոր վերջին run-երը",
     backtest_history_scope_selected_help: "Ցուցադրվում են ընտրված strategy-ի run-երը։",
     backtest_history_scope_all_help: "Ցուցադրվում են բեռնված բոլոր վերջին run-երը։",
+    view_details: "Տեսնել մանրամասները",
+    hide_details: "Թաքցնել մանրամասները",
+    backtest_details: "Backtest-ի մանրամասներ",
     backtest_strategy_fallback: "Strategy #{id}",
     winning_losing_trades_label: "Հաղթ. / պարտ.",
     best_recent_run: "Լավագույն վերջին run-ը",
@@ -1763,15 +1770,23 @@ function normalizeBacktestHistoryItem(rawItem) {
     source: rawItem.source ?? "",
     initialBalance: rawItem.initial_balance ?? null,
     finalBalance: rawItem.final_balance ?? null,
+    cashBalance: rawItem.cash_balance ?? rawItem.cashBalance ?? null,
     realizedPnl: rawItem.realized_pnl ?? null,
+    unrealizedPnl: rawItem.unrealized_pnl ?? rawItem.unrealizedPnl ?? null,
     totalReturn: rawItem.total_return ?? null,
     totalReturnPercent: rawItem.total_return_percent ?? null,
     winRate: rawItem.win_rate ?? null,
+    averageTradePnl: rawItem.average_trade_pnl ?? rawItem.averageTradePnl ?? null,
+    bestTradePnl: rawItem.best_trade_pnl ?? rawItem.bestTradePnl ?? null,
+    worstTradePnl: rawItem.worst_trade_pnl ?? rawItem.worstTradePnl ?? null,
     profitFactor: rawItem.profit_factor ?? null,
     numberOfTrades: rawItem.number_of_trades ?? 0,
     closedTrades: rawItem.closed_trades ?? rawItem.closedTrades ?? null,
     winningTrades: rawItem.winning_trades ?? null,
     losingTrades: rawItem.losing_trades ?? null,
+    openPosition: rawItem.open_position ?? rawItem.openPosition ?? null,
+    positionQuantity: rawItem.position_quantity ?? rawItem.positionQuantity ?? null,
+    candleSource: rawItem.candle_source ?? rawItem.candleSource ?? rawItem.source ?? "",
     candlesProcessed: rawItem.candles_processed ?? null,
     createdAt: rawItem.created_at ?? null,
   };
@@ -3606,6 +3621,89 @@ function renderBacktestHistoryScopeControl() {
   backtestHistoryScopeAll.title = t("backtest_history_scope_all_help");
 }
 
+function backtestHistoryItemKey(item) {
+  return String(firstAvailable(item?.id, `${item?.strategyId ?? "strategy"}-${item?.createdAt ?? "run"}`));
+}
+
+function hasBacktestDetailValue(value) {
+  return value !== null && value !== undefined && value !== "";
+}
+
+function backtestDetailRows(item) {
+  const rows = [
+    { label: t("strategy"), value: strategyLabelForHistory(item.strategyId), always: true },
+    { label: t("strategy_type_label"), value: humanizeMessage(item.strategyType, "—"), always: true },
+    { label: t("initial_balance_label"), value: item.initialBalance, formatter: formatDecimal },
+    {
+      label: t("final_balance_label"),
+      value: item.finalBalance,
+      formatter: formatDecimal,
+      className: pnlClass(item.finalBalance, item.initialBalance),
+    },
+    { label: t("cash_balance_label"), value: item.cashBalance, formatter: formatDecimal },
+    { label: t("total_return_label"), value: item.totalReturn, formatter: formatDecimal, className: pnlClass(item.totalReturn) },
+    {
+      label: t("return_percent_label"),
+      value: item.totalReturnPercent,
+      formatter: formatPercent,
+      className: pnlClass(item.totalReturnPercent),
+    },
+    { label: t("realized_pnl_label"), value: item.realizedPnl, formatter: formatDecimal, className: pnlClass(item.realizedPnl) },
+    {
+      label: t("unrealized_pnl_label"),
+      value: item.unrealizedPnl,
+      formatter: formatDecimal,
+      className: pnlClass(item.unrealizedPnl),
+    },
+    { label: t("number_of_trades_label"), value: item.numberOfTrades, formatter: formatDecimal },
+    { label: t("closed_trades_label"), value: item.closedTrades, formatter: formatDecimal },
+    {
+      label: t("winning_losing_trades_label"),
+      value: `${formatDecimal(item.winningTrades, "0")} / ${formatDecimal(item.losingTrades, "0")}`,
+      hasValue: hasBacktestDetailValue(item.winningTrades) || hasBacktestDetailValue(item.losingTrades),
+    },
+    { label: t("win_rate_label"), value: item.winRate, formatter: formatPercent },
+    { label: t("profit_factor_label"), value: item.profitFactor, formatter: formatRatio },
+    { label: t("average_trade_pnl_label"), value: item.averageTradePnl, formatter: formatDecimal, className: pnlClass(item.averageTradePnl) },
+    { label: t("best_trade_pnl_label"), value: item.bestTradePnl, formatter: formatDecimal, className: pnlClass(item.bestTradePnl) },
+    { label: t("worst_trade_pnl_label"), value: item.worstTradePnl, formatter: formatDecimal, className: pnlClass(item.worstTradePnl) },
+    { label: t("open_position_label"), value: item.openPosition, formatter: formatBoolean },
+    { label: t("open_position_qty_label"), value: item.positionQuantity, formatter: formatDecimal },
+    { label: t("source_label"), value: item.candleSource || item.source, formatter: formatValue },
+    { label: t("candles_processed_label"), value: item.candlesProcessed, formatter: formatDecimal },
+    { label: t("updated_time_label"), value: item.createdAt, formatter: formatDateTime },
+  ];
+
+  return rows.filter(
+    (row) =>
+      row.always ||
+      row.hasValue ||
+      hasBacktestDetailValue(row.value),
+  );
+}
+
+function renderBacktestHistoryDetails(item) {
+  const section = document.createElement("section");
+  section.className = "backtest-history-details";
+  section.setAttribute("aria-label", t("backtest_details"));
+
+  const grid = document.createElement("dl");
+  grid.className = "backtest-history-details-grid";
+  backtestDetailRows(item).forEach((detail) => {
+    const group = document.createElement("div");
+    const label = document.createElement("dt");
+    const value = document.createElement("dd");
+    label.textContent = detail.label;
+    value.textContent = detail.formatter ? detail.formatter(detail.value) : formatValue(detail.value);
+    if (detail.className) value.classList.add(detail.className);
+    group.append(label, value);
+    grid.append(group);
+  });
+
+  section.append(grid);
+  return section;
+}
+
 function isBacktestRunVisibleInHistory(runId, strategyId) {
   const visibleItems = visibleBacktestHistory();
   if (runId !== null && runId !== undefined && runId !== "") {
@@ -3896,6 +3994,9 @@ function renderBacktestHistory() {
     row.className = "backtest-history-item";
     row.dataset.backtestRunId = item.id ?? "";
     row.dataset.strategyId = item.strategyId ?? "";
+    const itemKey = backtestHistoryItemKey(item);
+    const detailsId = `backtest-details-${itemKey.replace(/[^a-z0-9_-]/gi, "-")}`;
+    const detailsExpanded = expandedBacktestDetails.has(itemKey);
 
     const header = document.createElement("div");
     header.className = "backtest-history-item-header";
@@ -3969,7 +4070,30 @@ function renderBacktestHistory() {
       metrics.append(group);
     });
 
-    row.append(header, meta, metrics);
+    const actions = document.createElement("div");
+    actions.className = "backtest-history-actions";
+    const detailsButton = document.createElement("button");
+    detailsButton.type = "button";
+    detailsButton.className = "secondary-button backtest-history-detail-toggle";
+    detailsButton.textContent = detailsExpanded ? t("hide_details") : t("view_details");
+    detailsButton.setAttribute("aria-expanded", String(detailsExpanded));
+    detailsButton.setAttribute("aria-controls", detailsId);
+    detailsButton.addEventListener("click", () => {
+      if (expandedBacktestDetails.has(itemKey)) {
+        expandedBacktestDetails.delete(itemKey);
+      } else {
+        expandedBacktestDetails.add(itemKey);
+      }
+      render();
+    });
+    actions.append(detailsButton);
+
+    row.append(header, meta, metrics, actions);
+    if (detailsExpanded) {
+      const details = renderBacktestHistoryDetails(item);
+      details.id = detailsId;
+      row.append(details);
+    }
     list.append(row);
   });
 
