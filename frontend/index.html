@@ -4,7 +4,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Dashboard</title>
-    <link rel="stylesheet" href="/static/styles.css?v=macd-dashboard" />
+    <link rel="stylesheet" href="/static/styles.css?v=strategy-performance-comparison-placement-fix" />
   </head>
   <body>
     <main class="dashboard-shell">
@@ -509,6 +509,13 @@
               <div id="backtest-optimization-result" class="backtest-optimization-result empty"></div>
             </section>
             <div id="backtest-result" class="backtest-result empty"></div>
+            <section class="backtest-comparison-panel" aria-label="Strategy Performance Comparison">
+              <div class="panel-heading compact-heading backtest-comparison-heading">
+                <h3 id="backtest-comparison-heading">Strategy Performance Comparison</h3>
+              </div>
+              <p id="backtest-comparison-help" class="backtest-comparison-help"></p>
+              <div id="backtest-comparison" class="backtest-comparison empty"></div>
+            </section>
             <section class="backtest-history-panel" aria-label="Recent Backtests">
               <div class="panel-heading compact-heading backtest-history-heading">
                 <h3 id="backtest-history-heading">Recent Backtests</h3>
@@ -528,6 +535,6 @@
       </section>
     </main>
 
-    <script src="/static/app.js?v=macd-dashboard"></script>
+    <script src="/static/app.js?v=strategy-performance-comparison-placement-fix"></script>
   </body>
 </html>

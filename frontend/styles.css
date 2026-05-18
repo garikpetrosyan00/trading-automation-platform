@@ -1472,10 +1472,12 @@ dd {
   line-height: 1.35;
 }
 
+.backtest-comparison-panel,
 .backtest-history-panel {
   margin-top: 16px;
 }
 
+.backtest-comparison-heading,
 .backtest-history-heading {
   border-bottom: 0;
   margin-bottom: 8px;
@@ -1483,32 +1485,107 @@ dd {
   padding: 0;
 }
 
+.backtest-comparison-heading h3,
 .backtest-history-heading h3 {
   margin: 0;
   font-size: 0.88rem;
   letter-spacing: 0;
 }
 
+.backtest-comparison,
 .backtest-history {
   margin-top: 0;
 }
 
+.backtest-comparison.empty {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface);
+  padding: 12px;
+}
+
 .backtest-result.empty,
+.backtest-comparison.empty,
 .backtest-history.empty {
   display: grid;
   gap: 4px;
 }
 
 .backtest-result.empty strong,
+.backtest-comparison.empty strong,
 .backtest-history.empty strong {
   color: var(--ink);
 }
 
 .backtest-result.empty span,
+.backtest-comparison.empty span,
 .backtest-history.empty span {
   color: var(--muted);
   font-size: 0.82rem;
   line-height: 1.35;
+}
+
+.backtest-comparison-help {
+  margin: -2px 0 10px;
+  color: var(--muted);
+  font-size: 0.82rem;
+  font-weight: 750;
+  line-height: 1.4;
+}
+
+.backtest-comparison-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 10px;
+}
+
+.backtest-comparison-item {
+  display: grid;
+  gap: 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface);
+  padding: 12px;
+}
+
+.backtest-comparison-item-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px 10px;
+}
+
+.backtest-comparison-item-header div {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.backtest-comparison-item-header strong {
+  overflow-wrap: anywhere;
+  font-size: 0.92rem;
+}
+
+.backtest-comparison-item-header span {
+  color: var(--muted);
+  font-size: 0.78rem;
+  font-weight: 800;
+}
+
+.backtest-comparison-badge {
+  display: inline-flex;
+  align-items: center;
+  min-height: 24px;
+  border-radius: 999px;
+  background: #e8f6ef;
+  color: var(--green) !important;
+  padding: 0 9px;
+  white-space: nowrap;
+}
+
+.backtest-comparison-metrics {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
 .backtest-best-run,

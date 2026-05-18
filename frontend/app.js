@@ -407,6 +407,24 @@ const translations = {
     best_recent_run: "Best recent run",
     best_recent_run_help: "Based on recent saved backtests for this strategy.",
     run_more_backtests_to_compare: "Run more backtests to compare recent results.",
+    strategy_performance_comparison: "Strategy Performance Comparison",
+    strategy_performance_comparison_aria: "Strategy Performance Comparison",
+    strategy_performance_comparison_help:
+      "Compares strategies using the limited recent backtests currently loaded, not all-time performance.",
+    loading_strategy_comparison: "Loading strategy comparison...",
+    loading_strategy_comparison_hint: "Recent backtest history is being prepared for comparison.",
+    strategy_comparison_error: "Could not load strategy comparison.",
+    strategy_comparison_error_hint: "Recent backtest history is unavailable right now. Try refreshing.",
+    no_strategy_comparison: "No strategy comparison yet.",
+    no_strategy_comparison_hint: "Run backtests for different strategies to compare recent performance.",
+    no_comparable_strategy_runs: "No comparable strategy runs found.",
+    no_comparable_strategy_runs_hint:
+      "Recent backtests are missing strategy IDs, so they cannot be compared safely.",
+    best_return_label: "Best return",
+    latest_return_label: "Latest return",
+    recent_runs_label: "Recent runs",
+    last_backtest_label: "Last backtest",
+    selected_bot_strategy_label: "Selected bot strategy",
     candles_processed_label: "Candles",
     recent_activity: "Recent Activity",
     set_price: "Set price",
@@ -915,6 +933,24 @@ const translations = {
     best_recent_run: "Լավագույն վերջին run-ը",
     best_recent_run_help: "Հիմնված է այս strategy-ի վերջին պահպանված backtest-երի վրա։",
     run_more_backtests_to_compare: "Գործարկիր ավելի շատ backtest-եր՝ վերջին արդյունքները համեմատելու համար։",
+    strategy_performance_comparison: "Strategy-ների performance-ի համեմատություն",
+    strategy_performance_comparison_aria: "Strategy-ների performance-ի համեմատություն",
+    strategy_performance_comparison_help:
+      "Համեմատում է strategy-ները՝ օգտագործելով այժմ բեռնված սահմանափակ վերջին backtest-երը, ոչ թե ամբողջ պատմությունը։",
+    loading_strategy_comparison: "Բեռնվում է strategy-ների համեմատությունը...",
+    loading_strategy_comparison_hint: "Վերջին backtest history-ն պատրաստվում է համեմատության համար։",
+    strategy_comparison_error: "Չհաջողվեց բեռնել strategy-ների համեմատությունը։",
+    strategy_comparison_error_hint: "Վերջին backtest history-ն այժմ հասանելի չէ։ Փորձիր թարմացնել։",
+    no_strategy_comparison: "Strategy-ների համեմատություն դեռ չկա։",
+    no_strategy_comparison_hint: "Գործարկիր backtest-եր տարբեր strategy-ների համար՝ վերջին performance-ը համեմատելու համար։",
+    no_comparable_strategy_runs: "Համեմատելի strategy run-եր չգտնվեցին։",
+    no_comparable_strategy_runs_hint:
+      "Վերջին backtest-երում strategy ID-ները բացակայում են, ուստի դրանք անվտանգ համեմատել հնարավոր չէ։",
+    best_return_label: "Լավագույն վերադարձ",
+    latest_return_label: "Վերջին վերադարձ",
+    recent_runs_label: "Վերջին run-եր",
+    last_backtest_label: "Վերջին backtest",
+    selected_bot_strategy_label: "Ընտրված Bot-ի strategy",
     candles_processed_label: "Մոմեր",
     recent_activity: "Վերջին ակտիվություն",
     set_price: "Սահմանել գինը",
@@ -1308,6 +1344,10 @@ const backtestOptimizationSubmit = document.querySelector("#backtest-optimizatio
 const backtestOptimizationMessageEl = document.querySelector("#backtest-optimization-message");
 const backtestOptimizationResultEl = document.querySelector("#backtest-optimization-result");
 const backtestResultEl = document.querySelector("#backtest-result");
+const backtestComparisonPanel = document.querySelector(".backtest-comparison-panel");
+const backtestComparisonHeading = document.querySelector("#backtest-comparison-heading");
+const backtestComparisonHelp = document.querySelector("#backtest-comparison-help");
+const backtestComparisonEl = document.querySelector("#backtest-comparison");
 const backtestHistoryPanel = document.querySelector(".backtest-history-panel");
 const backtestHistoryHeading = document.querySelector("#backtest-history-heading");
 const refreshBacktestHistory = document.querySelector("#refresh-backtest-history");
@@ -1504,6 +1544,9 @@ function applyStaticTranslations() {
   optimizationMacdSlow.textContent = t("optimization_preset_slow_macd");
   optimizationMinClosedTradesLabel.textContent = t("optimization_min_closed_trades_label");
   optimizationRequireClosedPositionLabel.textContent = t("optimization_require_closed_position_label");
+  backtestComparisonPanel?.setAttribute("aria-label", t("strategy_performance_comparison_aria"));
+  backtestComparisonHeading.textContent = t("strategy_performance_comparison");
+  backtestComparisonHelp.textContent = t("strategy_performance_comparison_help");
   backtestHistoryPanel?.setAttribute("aria-label", t("recent_backtests_aria"));
   backtestHistoryHeading.textContent = t("recent_backtests");
   refreshBacktestHistory.textContent = isLoadingBacktestHistory
@@ -1690,6 +1733,7 @@ function normalizeBacktestHistoryItem(rawItem) {
     winRate: rawItem.win_rate ?? null,
     profitFactor: rawItem.profit_factor ?? null,
     numberOfTrades: rawItem.number_of_trades ?? 0,
+    closedTrades: rawItem.closed_trades ?? rawItem.closedTrades ?? null,
     winningTrades: rawItem.winning_trades ?? null,
     losingTrades: rawItem.losing_trades ?? null,
     candlesProcessed: rawItem.candles_processed ?? null,
@@ -1792,6 +1836,11 @@ function comparableNumber(value) {
   return Number.isFinite(parsed) ? parsed : null;
 }
 
+function comparableTime(value) {
+  const parsed = new Date(value || 0).getTime();
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
 function selectBestRecentBacktest(items) {
   return items.reduce((best, item) => {
     if (!best) return item;
@@ -1812,10 +1861,32 @@ function selectBestRecentBacktest(items) {
       return itemTotalReturn > bestTotalReturn ? item : best;
     }
 
-    const itemTime = new Date(item.createdAt || 0).getTime();
-    const bestTime = new Date(best.createdAt || 0).getTime();
+    const itemTime = comparableTime(item.createdAt);
+    const bestTime = comparableTime(best.createdAt);
     return itemTime > bestTime ? item : best;
   }, null);
+}
+
+function compareBacktestRuns(left, right) {
+  const leftReturnPercent = comparableNumber(left?.totalReturnPercent);
+  const rightReturnPercent = comparableNumber(right?.totalReturnPercent);
+  if (leftReturnPercent !== rightReturnPercent) {
+    if (leftReturnPercent === null) return 1;
+    if (rightReturnPercent === null) return -1;
+    return rightReturnPercent - leftReturnPercent;
+  }
+
+  const leftTotalReturn = comparableNumber(left?.totalReturn);
+  const rightTotalReturn = comparableNumber(right?.totalReturn);
+  if (leftTotalReturn !== rightTotalReturn) {
+    if (leftTotalReturn === null) return 1;
+    if (rightTotalReturn === null) return -1;
+    return rightTotalReturn - leftTotalReturn;
+  }
+
+  const leftTime = comparableTime(left?.createdAt);
+  const rightTime = comparableTime(right?.createdAt);
+  return rightTime - leftTime;
 }
 
 function statusClass(status) {
@@ -3383,6 +3454,163 @@ function renderBacktestPanel() {
   backtestResultEl.append(notes, resultNotice, grid, tradesHeading, tradesList);
 }
 
+function strategyMetadata(strategyId) {
+  return strategies.find((strategy) => botIdsEqual(strategy.id, strategyId)) ?? null;
+}
+
+function strategyTypeForComparison(item, strategy) {
+  return item?.strategyType || strategy?.strategyType || "";
+}
+
+function latestBacktestRun(items) {
+  return [...items].sort((left, right) => {
+    const leftTime = comparableTime(left?.createdAt);
+    const rightTime = comparableTime(right?.createdAt);
+    return rightTime - leftTime;
+  })[0] ?? null;
+}
+
+function backtestComparisonRows() {
+  const groups = new Map();
+  backtestHistory.forEach((item) => {
+    if (item.strategyId === null || item.strategyId === undefined || item.strategyId === "") return;
+    const key = String(item.strategyId);
+    groups.set(key, [...(groups.get(key) ?? []), item]);
+  });
+
+  return [...groups.entries()]
+    .map(([strategyId, runs]) => {
+      const strategy = strategyMetadata(strategyId);
+      const bestRun = selectBestRecentBacktest(runs);
+      const latestRun = latestBacktestRun(runs);
+      return {
+        strategyId,
+        strategy,
+        runs,
+        bestRun,
+        latestRun,
+      };
+    })
+    .sort((left, right) => compareBacktestRuns(left.bestRun, right.bestRun));
+}
+
+function renderBacktestComparisonState({ title, hint, className = "" }) {
+  backtestComparisonEl.className = `backtest-comparison empty${className ? ` ${className}` : ""}`;
+  const titleEl = document.createElement("strong");
+  const hintEl = document.createElement("span");
+  titleEl.textContent = title;
+  hintEl.textContent = hint;
+  backtestComparisonEl.append(titleEl, hintEl);
+}
+
+function selectedBotStrategyId() {
+  return strategyIdForSelectedBot();
+}
+
+function visibleBacktestHistory() {
+  const strategyId = selectedBotStrategyId();
+  if (!strategyId) return backtestHistory;
+  return backtestHistory.filter((item) => botIdsEqual(item.strategyId, strategyId));
+}
+
+function renderBacktestComparison() {
+  backtestComparisonEl.innerHTML = "";
+
+  if (isLoadingBacktestHistory) {
+    renderBacktestComparisonState({
+      title: t("loading_strategy_comparison"),
+      hint: t("loading_strategy_comparison_hint"),
+      className: "loading",
+    });
+    return;
+  }
+
+  if (backtestHistoryError) {
+    renderBacktestComparisonState({
+      title: t("strategy_comparison_error"),
+      hint: isBacktestDataIssueMessage(backtestHistoryError)
+        ? t("backtest_not_enough_candle_data")
+        : backtestHistoryError || t("strategy_comparison_error_hint"),
+      className: "error",
+    });
+    return;
+  }
+
+  const rows = backtestComparisonRows();
+  if (rows.length === 0) {
+    renderBacktestComparisonState({
+      title: backtestHistory.length === 0 ? t("no_strategy_comparison") : t("no_comparable_strategy_runs"),
+      hint: backtestHistory.length === 0 ? t("no_strategy_comparison_hint") : t("no_comparable_strategy_runs_hint"),
+    });
+    return;
+  }
+
+  const list = document.createElement("div");
+  list.className = "backtest-comparison-list";
+  const selectedStrategyId = selectedBotStrategyId();
+
+  rows.forEach((row) => {
+    const item = document.createElement("article");
+    item.className = "backtest-comparison-item";
+
+    const header = document.createElement("div");
+    header.className = "backtest-comparison-item-header";
+    const titleGroup = document.createElement("div");
+    const title = document.createElement("strong");
+    const type = document.createElement("span");
+    title.textContent = row.strategy?.name || strategyLabelForHistory(row.strategyId);
+    type.textContent = humanizeMessage(strategyTypeForComparison(row.latestRun || row.bestRun, row.strategy), "—");
+    titleGroup.append(title, type);
+    header.append(titleGroup);
+
+    if (botIdsEqual(row.strategyId, selectedStrategyId)) {
+      const badge = document.createElement("span");
+      badge.className = "backtest-comparison-badge";
+      badge.textContent = t("selected_bot_strategy_label");
+      header.append(badge);
+    }
+
+    const latestRun = row.latestRun;
+    const bestRun = row.bestRun;
+    const closedTradesSource = bestRun?.closedTrades !== null && bestRun?.closedTrades !== undefined ? bestRun : latestRun;
+    const qualitySource = latestRun ?? bestRun;
+    const metrics = document.createElement("dl");
+    metrics.className = "backtest-history-metrics backtest-comparison-metrics";
+    [
+      { label: t("recent_runs_label"), value: formatDecimal(row.runs.length, "0") },
+      {
+        label: t("best_return_label"),
+        value: formatPercent(bestRun?.totalReturnPercent),
+        className: pnlClass(bestRun?.totalReturnPercent),
+      },
+      {
+        label: t("latest_return_label"),
+        value: formatPercent(latestRun?.totalReturnPercent),
+        className: pnlClass(latestRun?.totalReturnPercent),
+      },
+      { label: t("closed_trades_label"), value: formatDecimal(closedTradesSource?.closedTrades) },
+      { label: t("win_rate_label"), value: formatPercent(qualitySource?.winRate) },
+      { label: t("profit_factor_label"), value: formatRatio(qualitySource?.profitFactor) },
+      { label: t("last_backtest_label"), value: formatDateTime(latestRun?.createdAt) },
+    ].forEach((metric) => {
+      const group = document.createElement("div");
+      const label = document.createElement("dt");
+      const value = document.createElement("dd");
+      label.textContent = metric.label;
+      value.textContent = metric.value;
+      if (metric.className) value.classList.add(metric.className);
+      group.append(label, value);
+      metrics.append(group);
+    });
+
+    item.append(header, metrics);
+    list.append(item);
+  });
+
+  backtestComparisonEl.className = "backtest-comparison";
+  backtestComparisonEl.append(list);
+}
+
 function renderBacktestHistory() {
   refreshBacktestHistory.textContent = isLoadingBacktestHistory
     ? t("refreshing_backtest_history")
@@ -3404,7 +3632,8 @@ function renderBacktestHistory() {
     return;
   }
 
-  if (backtestHistory.length === 0) {
+  const historyItems = visibleBacktestHistory();
+  if (historyItems.length === 0) {
     backtestHistoryEl.className = "backtest-history empty";
     const title = document.createElement("strong");
     const hint = document.createElement("span");
@@ -3415,8 +3644,8 @@ function renderBacktestHistory() {
   }
 
   const fragments = [];
-  if (backtestHistory.length >= 2) {
-    const bestRun = selectBestRecentBacktest(backtestHistory);
+  if (historyItems.length >= 2) {
+    const bestRun = selectBestRecentBacktest(historyItems);
     if (bestRun) {
       const summary = document.createElement("section");
       summary.className = "backtest-best-run";
@@ -3472,7 +3701,7 @@ function renderBacktestHistory() {
 
   const list = document.createElement("ul");
   list.className = "backtest-history-list";
-  backtestHistory.forEach((item) => {
+  historyItems.forEach((item) => {
     const row = document.createElement("li");
     row.className = "backtest-history-item";
 
@@ -4271,11 +4500,7 @@ async function loadBacktestHistory() {
   backtestHistoryError = "";
   render();
 
-  const params = new URLSearchParams({ limit: "5" });
-  const strategyId = backtestHistoryStrategyId();
-  if (strategyId) {
-    params.set("strategy_id", String(strategyId));
-  }
+  const params = new URLSearchParams({ limit: "20" });
 
   try {
     const data = await fetchJson(`/api/v1/backtests?${params.toString()}`);
@@ -6129,6 +6354,7 @@ function render() {
   renderDecisionExplanation();
   renderStrategyParametersForm();
   renderBacktestPanel();
+  renderBacktestComparison();
   renderBacktestHistory();
   renderEditBotForm();
   renderActivity();
