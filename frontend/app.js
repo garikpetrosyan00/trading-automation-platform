@@ -426,6 +426,9 @@ const translations = {
     recent_runs_label: "Recent runs",
     last_backtest_label: "Last backtest",
     selected_bot_strategy_label: "Selected bot strategy",
+    best_performer_badge: "Best performer",
+    needs_more_runs_badge: "Needs more runs",
+    no_closed_trades_badge: "No closed trades",
     view_latest_run: "View latest run",
     latest_run_not_visible: "Latest run not visible",
     latest_run_not_visible_hint: "Latest run is not visible in the current recent list.",
@@ -955,6 +958,9 @@ const translations = {
     recent_runs_label: "Վերջին run-եր",
     last_backtest_label: "Վերջին backtest",
     selected_bot_strategy_label: "Ընտրված Bot-ի strategy",
+    best_performer_badge: "Լավագույն արդյունք",
+    needs_more_runs_badge: "Պետք են ավելի շատ run-եր",
+    no_closed_trades_badge: "Փակված գործարքներ չկան",
     view_latest_run: "Տեսնել վերջին run-ը",
     latest_run_not_visible: "Վերջին run-ը տեսանելի չէ",
     latest_run_not_visible_hint: "Վերջին run-ը ընթացիկ recent list-ում տեսանելի չէ։",
@@ -3563,6 +3569,28 @@ function isBacktestRunVisibleInHistory(runId, strategyId) {
   return visibleItems.some((item) => botIdsEqual(item.strategyId, strategyId));
 }
 
+function hasValidComparisonReturn(row) {
+  return [
+    row?.bestRun?.totalReturnPercent,
+    row?.latestRun?.totalReturnPercent,
+    row?.bestRun?.totalReturn,
+    row?.latestRun?.totalReturn,
+  ].some((value) => comparableNumber(value) !== null);
+}
+
+function comparisonClosedTrades(row) {
+  const bestClosedTrades = comparableNumber(row?.bestRun?.closedTrades);
+  if (bestClosedTrades !== null) return bestClosedTrades;
+  return comparableNumber(row?.latestRun?.closedTrades);
+}
+
+function comparisonBadge(text, variant) {
+  const badge = document.createElement("span");
+  badge.className = `backtest-comparison-badge ${variant}`;
+  badge.textContent = text;
+  return badge;
+}
+
 function renderBacktestComparison() {
   backtestComparisonEl.innerHTML = "";
 
@@ -3598,8 +3626,9 @@ function renderBacktestComparison() {
   const list = document.createElement("div");
   list.className = "backtest-comparison-list";
   const selectedStrategyId = selectedBotStrategyId();
+  const hasRankedReturn = rows.some(hasValidComparisonReturn);
 
-  rows.forEach((row) => {
+  rows.forEach((row, index) => {
     const item = document.createElement("article");
     item.className = "backtest-comparison-item";
 
@@ -3613,17 +3642,25 @@ function renderBacktestComparison() {
     titleGroup.append(title, type);
     header.append(titleGroup);
 
-    if (botIdsEqual(row.strategyId, selectedStrategyId)) {
-      const badge = document.createElement("span");
-      badge.className = "backtest-comparison-badge";
-      badge.textContent = t("selected_bot_strategy_label");
-      header.append(badge);
-    }
-
     const latestRun = row.latestRun;
     const bestRun = row.bestRun;
     const closedTradesSource = bestRun?.closedTrades !== null && bestRun?.closedTrades !== undefined ? bestRun : latestRun;
     const qualitySource = latestRun ?? bestRun;
+    const badges = document.createElement("div");
+    badges.className = "backtest-comparison-badges";
+    if (index === 0 && hasRankedReturn && hasValidComparisonReturn(row)) {
+      badges.append(comparisonBadge(t("best_performer_badge"), "positive"));
+    }
+    if (Number(row.runs?.length ?? 0) < 3) {
+      badges.append(comparisonBadge(t("needs_more_runs_badge"), "neutral"));
+    }
+    if (comparisonClosedTrades(row) === 0) {
+      badges.append(comparisonBadge(t("no_closed_trades_badge"), "warning"));
+    }
+    if (botIdsEqual(row.strategyId, selectedStrategyId)) {
+      badges.append(comparisonBadge(t("selected_bot_strategy_label"), "selected"));
+    }
+
     const metrics = document.createElement("dl");
     metrics.className = "backtest-history-metrics backtest-comparison-metrics";
     [
@@ -3667,7 +3704,9 @@ function renderBacktestComparison() {
     }
     actions.append(latestRunButton);
 
-    item.append(header, metrics, actions);
+    item.append(header);
+    if (badges.childElementCount > 0) item.append(badges);
+    item.append(metrics, actions);
     list.append(item);
   });
 

@@ -1573,15 +1573,37 @@ dd {
   font-weight: 800;
 }
 
+.backtest-comparison-badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
 .backtest-comparison-badge {
   display: inline-flex;
   align-items: center;
   min-height: 24px;
   border-radius: 999px;
-  background: #e8f6ef;
-  color: var(--green) !important;
   padding: 0 9px;
+  font-size: 0.72rem;
+  font-weight: 850;
   white-space: nowrap;
+}
+
+.backtest-comparison-badge.positive,
+.backtest-comparison-badge.selected {
+  background: #e8f6ef;
+  color: var(--green);
+}
+
+.backtest-comparison-badge.neutral {
+  background: var(--surface-muted);
+  color: var(--muted);
+}
+
+.backtest-comparison-badge.warning {
+  background: var(--amber-soft);
+  color: var(--amber);
 }
 
 .backtest-comparison-metrics {
