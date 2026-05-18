@@ -1492,6 +1492,47 @@ dd {
   letter-spacing: 0;
 }
 
+.backtest-history-heading-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.backtest-history-scope {
+  display: inline-flex;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface);
+}
+
+.backtest-history-scope button {
+  min-height: 32px;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: var(--muted);
+  padding: 0 10px;
+  font-size: 0.76rem;
+  font-weight: 850;
+}
+
+.backtest-history-scope button + button {
+  border-left: 1px solid var(--line);
+}
+
+.backtest-history-scope button.active {
+  background: var(--ink);
+  color: #fff;
+}
+
+.backtest-history-scope button:disabled {
+  cursor: default;
+  opacity: 0.55;
+}
+
 .backtest-comparison,
 .backtest-history {
   margin-top: 0;
@@ -2048,6 +2089,10 @@ dd {
   .panel-heading,
   .activity-list li {
     align-items: start;
+  }
+
+  .backtest-history-heading-actions {
+    justify-content: flex-start;
   }
 
   .bot-row,

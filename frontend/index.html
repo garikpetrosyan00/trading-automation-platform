@@ -4,7 +4,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Dashboard</title>
-    <link rel="stylesheet" href="/static/styles.css?v=strategy-comparison-quality-badges" />
+    <link rel="stylesheet" href="/static/styles.css?v=recent-backtests-scope-toggle" />
   </head>
   <body>
     <main class="dashboard-shell">
@@ -519,7 +519,13 @@
             <section class="backtest-history-panel" aria-label="Recent Backtests">
               <div class="panel-heading compact-heading backtest-history-heading">
                 <h3 id="backtest-history-heading">Recent Backtests</h3>
-                <button id="refresh-backtest-history" type="button" class="secondary-button">Refresh</button>
+                <div class="backtest-history-heading-actions">
+                  <div class="backtest-history-scope" role="group" aria-label="Recent Backtests scope">
+                    <button id="backtest-history-scope-selected" type="button">Selected strategy</button>
+                    <button id="backtest-history-scope-all" type="button">All recent runs</button>
+                  </div>
+                  <button id="refresh-backtest-history" type="button" class="secondary-button">Refresh</button>
+                </div>
               </div>
               <div id="backtest-history" class="backtest-history empty"></div>
             </section>
@@ -535,6 +541,6 @@
       </section>
     </main>
 
-    <script src="/static/app.js?v=strategy-comparison-quality-badges"></script>
+    <script src="/static/app.js?v=recent-backtests-scope-toggle"></script>
   </body>
 </html>

@@ -66,6 +66,7 @@ let backtestOptimizationResult = null;
 let backtestHistory = [];
 let backtestHistoryError = "";
 let backtestHistoryRequestId = 0;
+let backtestHistoryScope = "selected";
 let highlightedBacktestRunTimeout = null;
 let strategyLoadError = "";
 let priceMessage = "";
@@ -403,6 +404,11 @@ const translations = {
     failed_to_load_backtest_history: "Failed to load backtest history.",
     refresh_backtest_history: "Refresh",
     refreshing_backtest_history: "Refreshing…",
+    backtest_history_scope_aria: "Recent Backtests scope",
+    backtest_history_scope_selected: "Selected strategy",
+    backtest_history_scope_all: "All recent runs",
+    backtest_history_scope_selected_help: "Showing runs for the selected strategy.",
+    backtest_history_scope_all_help: "Showing all loaded recent runs.",
     backtest_strategy_fallback: "Strategy #{id}",
     winning_losing_trades_label: "Wins / losses",
     best_recent_run: "Best recent run",
@@ -935,6 +941,11 @@ const translations = {
     failed_to_load_backtest_history: "Չհաջողվեց բեռնել backtest history-ն։",
     refresh_backtest_history: "Թարմացնել",
     refreshing_backtest_history: "Թարմացվում է…",
+    backtest_history_scope_aria: "Վերջին Backtest-երի scope",
+    backtest_history_scope_selected: "Ընտրված strategy",
+    backtest_history_scope_all: "Բոլոր վերջին run-երը",
+    backtest_history_scope_selected_help: "Ցուցադրվում են ընտրված strategy-ի run-երը։",
+    backtest_history_scope_all_help: "Ցուցադրվում են բեռնված բոլոր վերջին run-երը։",
     backtest_strategy_fallback: "Strategy #{id}",
     winning_losing_trades_label: "Հաղթ. / պարտ.",
     best_recent_run: "Լավագույն վերջին run-ը",
@@ -1363,6 +1374,9 @@ const backtestComparisonHelp = document.querySelector("#backtest-comparison-help
 const backtestComparisonEl = document.querySelector("#backtest-comparison");
 const backtestHistoryPanel = document.querySelector(".backtest-history-panel");
 const backtestHistoryHeading = document.querySelector("#backtest-history-heading");
+const backtestHistoryScopeControl = document.querySelector(".backtest-history-scope");
+const backtestHistoryScopeSelected = document.querySelector("#backtest-history-scope-selected");
+const backtestHistoryScopeAll = document.querySelector("#backtest-history-scope-all");
 const refreshBacktestHistory = document.querySelector("#refresh-backtest-history");
 const backtestHistoryEl = document.querySelector("#backtest-history");
 const recentActivityHeading = document.querySelector("#recent-activity-heading");
@@ -1562,6 +1576,11 @@ function applyStaticTranslations() {
   backtestComparisonHelp.textContent = t("strategy_performance_comparison_help");
   backtestHistoryPanel?.setAttribute("aria-label", t("recent_backtests_aria"));
   backtestHistoryHeading.textContent = t("recent_backtests");
+  backtestHistoryScopeControl?.setAttribute("aria-label", t("backtest_history_scope_aria"));
+  backtestHistoryScopeSelected.textContent = t("backtest_history_scope_selected");
+  backtestHistoryScopeSelected.title = t("backtest_history_scope_selected_help");
+  backtestHistoryScopeAll.textContent = t("backtest_history_scope_all");
+  backtestHistoryScopeAll.title = t("backtest_history_scope_all_help");
   refreshBacktestHistory.textContent = isLoadingBacktestHistory
     ? t("refreshing_backtest_history")
     : t("refresh_backtest_history");
@@ -3554,10 +3573,33 @@ function selectedBotStrategyId() {
   return strategyIdForSelectedBot();
 }
 
+function hasSelectedBacktestHistoryStrategy() {
+  return Boolean(selectedBotStrategyId());
+}
+
+function effectiveBacktestHistoryScope() {
+  return backtestHistoryScope === "selected" && hasSelectedBacktestHistoryStrategy() ? "selected" : "all";
+}
+
 function visibleBacktestHistory() {
-  const strategyId = selectedBotStrategyId();
+  const strategyId = effectiveBacktestHistoryScope() === "selected" ? selectedBotStrategyId() : null;
   if (!strategyId) return backtestHistory;
   return backtestHistory.filter((item) => botIdsEqual(item.strategyId, strategyId));
+}
+
+function renderBacktestHistoryScopeControl() {
+  const canUseSelectedScope = hasSelectedBacktestHistoryStrategy();
+  const activeScope = effectiveBacktestHistoryScope();
+  backtestHistoryScopeSelected.disabled = !canUseSelectedScope;
+  backtestHistoryScopeAll.disabled = false;
+  backtestHistoryScopeSelected.classList.toggle("active", activeScope === "selected");
+  backtestHistoryScopeAll.classList.toggle("active", activeScope === "all");
+  backtestHistoryScopeSelected.setAttribute("aria-pressed", String(activeScope === "selected"));
+  backtestHistoryScopeAll.setAttribute("aria-pressed", String(activeScope === "all"));
+  backtestHistoryScopeSelected.title = canUseSelectedScope
+    ? t("backtest_history_scope_selected_help")
+    : t("select_strategy_for_backtest");
+  backtestHistoryScopeAll.title = t("backtest_history_scope_all_help");
 }
 
 function isBacktestRunVisibleInHistory(runId, strategyId) {
@@ -3715,6 +3757,7 @@ function renderBacktestComparison() {
 }
 
 function renderBacktestHistory() {
+  renderBacktestHistoryScopeControl();
   refreshBacktestHistory.textContent = isLoadingBacktestHistory
     ? t("refreshing_backtest_history")
     : t("refresh_backtest_history");
@@ -6544,6 +6587,15 @@ optimizationMacdStandard.addEventListener("click", () => applyMacdPreset("standa
 optimizationMacdFast.addEventListener("click", () => applyMacdPreset("fast"));
 optimizationMacdSlow.addEventListener("click", () => applyMacdPreset("slow"));
 refreshBacktestHistory.addEventListener("click", loadBacktestHistory);
+backtestHistoryScopeSelected.addEventListener("click", () => {
+  if (!hasSelectedBacktestHistoryStrategy()) return;
+  backtestHistoryScope = "selected";
+  render();
+});
+backtestHistoryScopeAll.addEventListener("click", () => {
+  backtestHistoryScope = "all";
+  render();
+});
 priceForm.addEventListener("submit", updateMarketPrice);
 binancePriceFetch.addEventListener("click", fetchBinancePriceForSelectedBot);
 priceSymbol.addEventListener("input", () => {
@@ -6564,7 +6616,7 @@ backtestStrategyId.addEventListener("change", () => {
   backtestOptimizationTouched = false;
   optimizationMinClosedTrades.value = "0";
   optimizationRequireClosedPosition.checked = false;
-  renderBacktestPanel();
+  render();
 });
 [optimizationFirstValues, optimizationSecondValues, optimizationThirdValues, optimizationQuantity, optimizationMinClosedTrades].forEach(
   (input) => {
