@@ -66,6 +66,7 @@ let backtestOptimizationResult = null;
 let backtestHistory = [];
 let backtestHistoryError = "";
 let backtestHistoryRequestId = 0;
+let highlightedBacktestRunTimeout = null;
 let strategyLoadError = "";
 let priceMessage = "";
 let priceMessageType = "";
@@ -425,6 +426,9 @@ const translations = {
     recent_runs_label: "Recent runs",
     last_backtest_label: "Last backtest",
     selected_bot_strategy_label: "Selected bot strategy",
+    view_latest_run: "View latest run",
+    latest_run_not_visible: "Latest run not visible",
+    latest_run_not_visible_hint: "Latest run is not visible in the current recent list.",
     candles_processed_label: "Candles",
     recent_activity: "Recent Activity",
     set_price: "Set price",
@@ -951,6 +955,9 @@ const translations = {
     recent_runs_label: "Վերջին run-եր",
     last_backtest_label: "Վերջին backtest",
     selected_bot_strategy_label: "Ընտրված Bot-ի strategy",
+    view_latest_run: "Տեսնել վերջին run-ը",
+    latest_run_not_visible: "Վերջին run-ը տեսանելի չէ",
+    latest_run_not_visible_hint: "Վերջին run-ը ընթացիկ recent list-ում տեսանելի չէ։",
     candles_processed_label: "Մոմեր",
     recent_activity: "Վերջին ակտիվություն",
     set_price: "Սահմանել գինը",
@@ -3503,6 +3510,40 @@ function renderBacktestComparisonState({ title, hint, className = "" }) {
   backtestComparisonEl.append(titleEl, hintEl);
 }
 
+function visibleBacktestRunElement(runId, strategyId) {
+  const historyCards = Array.from(backtestHistoryEl.querySelectorAll(".backtest-history-item"));
+  if (runId !== null && runId !== undefined && runId !== "") {
+    const runMatch = historyCards.find((item) => String(item.dataset.backtestRunId) === String(runId));
+    if (runMatch) return runMatch;
+  }
+  if (strategyId === null || strategyId === undefined || strategyId === "") return null;
+  return historyCards.find((item) => String(item.dataset.strategyId) === String(strategyId)) ?? null;
+}
+
+function viewLatestBacktestRun(runId, strategyId) {
+  const target = visibleBacktestRunElement(runId, strategyId);
+  if (!target) {
+    backtestComparisonHelp.textContent = t("latest_run_not_visible");
+    window.setTimeout(() => {
+      backtestComparisonHelp.textContent = t("strategy_performance_comparison_help");
+    }, 2200);
+    return;
+  }
+
+  if (highlightedBacktestRunTimeout) window.clearTimeout(highlightedBacktestRunTimeout);
+  backtestHistoryEl.querySelectorAll(".backtest-history-item.highlight").forEach((item) => {
+    item.classList.remove("highlight");
+  });
+  target.classList.add("highlight");
+  target.tabIndex = -1;
+  target.scrollIntoView({ behavior: "smooth", block: "center" });
+  target.focus({ preventScroll: true });
+  highlightedBacktestRunTimeout = window.setTimeout(() => {
+    target.classList.remove("highlight");
+    highlightedBacktestRunTimeout = null;
+  }, 1800);
+}
+
 function selectedBotStrategyId() {
   return strategyIdForSelectedBot();
 }
@@ -3511,6 +3552,15 @@ function visibleBacktestHistory() {
   const strategyId = selectedBotStrategyId();
   if (!strategyId) return backtestHistory;
   return backtestHistory.filter((item) => botIdsEqual(item.strategyId, strategyId));
+}
+
+function isBacktestRunVisibleInHistory(runId, strategyId) {
+  const visibleItems = visibleBacktestHistory();
+  if (runId !== null && runId !== undefined && runId !== "") {
+    return visibleItems.some((item) => String(item.id) === String(runId));
+  }
+  if (strategyId === null || strategyId === undefined || strategyId === "") return false;
+  return visibleItems.some((item) => botIdsEqual(item.strategyId, strategyId));
 }
 
 function renderBacktestComparison() {
@@ -3603,7 +3653,21 @@ function renderBacktestComparison() {
       metrics.append(group);
     });
 
-    item.append(header, metrics);
+    const actions = document.createElement("div");
+    actions.className = "backtest-comparison-actions";
+    const latestRunIsVisible = isBacktestRunVisibleInHistory(latestRun?.id, row.strategyId);
+    const latestRunButton = document.createElement("button");
+    latestRunButton.type = "button";
+    latestRunButton.className = "secondary-button backtest-comparison-action";
+    latestRunButton.textContent = latestRunIsVisible ? t("view_latest_run") : t("latest_run_not_visible");
+    latestRunButton.title = latestRunIsVisible ? t("view_latest_run") : t("latest_run_not_visible_hint");
+    latestRunButton.disabled = !latestRunIsVisible;
+    if (latestRunIsVisible) {
+      latestRunButton.addEventListener("click", () => viewLatestBacktestRun(latestRun?.id, row.strategyId));
+    }
+    actions.append(latestRunButton);
+
+    item.append(header, metrics, actions);
     list.append(item);
   });
 
@@ -3704,6 +3768,8 @@ function renderBacktestHistory() {
   historyItems.forEach((item) => {
     const row = document.createElement("li");
     row.className = "backtest-history-item";
+    row.dataset.backtestRunId = item.id ?? "";
+    row.dataset.strategyId = item.strategyId ?? "";
 
     const header = document.createElement("div");
     header.className = "backtest-history-item-header";

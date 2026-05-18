@@ -1588,6 +1588,22 @@ dd {
   grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
+.backtest-comparison-actions {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.backtest-comparison-action {
+  min-height: 32px;
+  padding: 0 10px;
+  font-size: 0.78rem;
+}
+
+.backtest-comparison-action:disabled {
+  cursor: default;
+  opacity: 0.68;
+}
+
 .backtest-best-run,
 .backtest-compare-note {
   margin: 0 0 10px;
@@ -1641,6 +1657,18 @@ dd {
   border-radius: 8px;
   background: var(--surface);
   padding: 12px;
+  scroll-margin-block: 24px;
+  transition:
+    border-color 160ms ease,
+    box-shadow 160ms ease,
+    background 160ms ease;
+}
+
+.backtest-history-item.highlight {
+  border-color: var(--amber);
+  background: #fffaf0;
+  box-shadow: 0 0 0 3px var(--amber-soft);
+  outline: none;
 }
 
 .backtest-history-item-header,
