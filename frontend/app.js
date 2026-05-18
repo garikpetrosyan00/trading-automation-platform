@@ -413,6 +413,11 @@ const translations = {
     view_details: "View details",
     hide_details: "Hide details",
     backtest_details: "Backtest details",
+    visible_runs_label: "Visible runs",
+    best_visible_return_label: "Best return",
+    average_return_label: "Average return",
+    profitable_runs_label: "Profitable runs",
+    with_closed_trades_label: "With closed trades",
     backtest_strategy_fallback: "Strategy #{id}",
     winning_losing_trades_label: "Wins / losses",
     best_recent_run: "Best recent run",
@@ -955,6 +960,11 @@ const translations = {
     view_details: "Տեսնել մանրամասները",
     hide_details: "Թաքցնել մանրամասները",
     backtest_details: "Backtest-ի մանրամասներ",
+    visible_runs_label: "Երևացող run-եր",
+    best_visible_return_label: "Լավագույն եկամտաբերություն",
+    average_return_label: "Միջին եկամտաբերություն",
+    profitable_runs_label: "Շահութաբեր run-եր",
+    with_closed_trades_label: "Փակված գործարքներով",
     backtest_strategy_fallback: "Strategy #{id}",
     winning_losing_trades_label: "Հաղթ. / պարտ.",
     best_recent_run: "Լավագույն վերջին run-ը",
@@ -3704,6 +3714,49 @@ function renderBacktestHistoryDetails(item) {
   return section;
 }
 
+function visibleBacktestSummary(items) {
+  const returnValues = items
+    .map((item) => comparableNumber(item.totalReturnPercent))
+    .filter((value) => value !== null);
+  const bestReturn = returnValues.length > 0 ? Math.max(...returnValues) : null;
+  const averageReturn =
+    returnValues.length > 0
+      ? returnValues.reduce((total, value) => total + value, 0) / returnValues.length
+      : null;
+  return {
+    visibleRuns: items.length,
+    bestReturn,
+    averageReturn,
+    profitableRuns: returnValues.filter((value) => value > 0).length,
+    runsWithClosedTrades: items.filter((item) => {
+      const closedTrades = comparableNumber(item.closedTrades);
+      return closedTrades !== null && closedTrades > 0;
+    }).length,
+  };
+}
+
+function renderBacktestVisibleSummary(items) {
+  const summary = visibleBacktestSummary(items);
+  const grid = document.createElement("dl");
+  grid.className = "backtest-visible-summary";
+  [
+    { label: t("visible_runs_label"), value: formatDecimal(summary.visibleRuns, "0") },
+    { label: t("best_visible_return_label"), value: formatPercent(summary.bestReturn) },
+    { label: t("average_return_label"), value: formatPercent(summary.averageReturn) },
+    { label: t("profitable_runs_label"), value: formatDecimal(summary.profitableRuns, "0") },
+    { label: t("with_closed_trades_label"), value: formatDecimal(summary.runsWithClosedTrades, "0") },
+  ].forEach((item) => {
+    const group = document.createElement("div");
+    const label = document.createElement("dt");
+    const value = document.createElement("dd");
+    label.textContent = item.label;
+    value.textContent = item.value;
+    group.append(label, value);
+    grid.append(group);
+  });
+  return grid;
+}
+
 function isBacktestRunVisibleInHistory(runId, strategyId) {
   const visibleItems = visibleBacktestHistory();
   if (runId !== null && runId !== undefined && runId !== "") {
@@ -3932,6 +3985,7 @@ function renderBacktestHistory() {
   }
 
   const fragments = [];
+  fragments.push(renderBacktestVisibleSummary(historyItems));
   if (historyItems.length >= 2) {
     const bestRun = selectBestRecentBacktest(historyItems);
     if (bestRun) {

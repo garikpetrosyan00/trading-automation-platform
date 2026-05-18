@@ -1707,6 +1707,35 @@ dd {
   margin: 0;
 }
 
+.backtest-visible-summary {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 8px;
+  margin: 0 0 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface);
+  padding: 10px;
+}
+
+.backtest-visible-summary div {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.backtest-visible-summary dt {
+  color: var(--muted);
+  font-size: 0.72rem;
+  font-weight: 850;
+}
+
+.backtest-visible-summary dd {
+  overflow-wrap: anywhere;
+  font-size: 0.92rem;
+  font-weight: 850;
+}
+
 .backtest-history-list {
   display: grid;
   gap: 10px;
@@ -2056,6 +2085,7 @@ dd {
   .bot-settings-grid,
   .strategy-parameters-grid,
   .backtest-result-grid,
+  .backtest-visible-summary,
   .backtest-history-metrics,
   .backtest-history-details-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -2111,6 +2141,7 @@ dd {
   .risk-settings-form,
   .backtest-optimization-form,
   .backtest-result-grid,
+  .backtest-visible-summary,
   .backtest-history-metrics,
   .backtest-history-details-grid,
   .backtest-form,
