@@ -1517,21 +1517,33 @@ function getStoredLiveMarketSymbols() {
 }
 
 function getStoredLiveMarketAutoRefresh() {
-  return window.localStorage.getItem(LIVE_MARKET_AUTO_REFRESH_STORAGE_KEY) === "true";
+  try {
+    return window.localStorage.getItem(LIVE_MARKET_AUTO_REFRESH_STORAGE_KEY) === "true";
+  } catch (error) {
+    return false;
+  }
 }
 
 function persistLiveMarketSymbols() {
-  window.localStorage.setItem(
-    LIVE_MARKET_STORAGE_KEY,
-    JSON.stringify(liveMarketSymbols.map((item) => item.symbol)),
-  );
+  try {
+    window.localStorage.setItem(
+      LIVE_MARKET_STORAGE_KEY,
+      JSON.stringify(liveMarketSymbols.map((item) => item.symbol)),
+    );
+  } catch (error) {
+    // Keep the watchlist usable in memory when browser storage is unavailable.
+  }
 }
 
 function persistLiveMarketAutoRefresh() {
-  window.localStorage.setItem(
-    LIVE_MARKET_AUTO_REFRESH_STORAGE_KEY,
-    String(liveMarketAutoRefreshEnabled),
-  );
+  try {
+    window.localStorage.setItem(
+      LIVE_MARKET_AUTO_REFRESH_STORAGE_KEY,
+      String(liveMarketAutoRefreshEnabled),
+    );
+  } catch (error) {
+    // Auto-refresh still works for the current page session without storage.
+  }
 }
 
 function getStoredLanguage() {
@@ -5541,7 +5553,7 @@ function updateLiveMarketAutoRefresh() {
     liveMarketTimer = null;
   }
 
-  if (!liveMarketAutoRefreshEnabled) return;
+  if (!liveMarketAutoRefreshEnabled || document.hidden) return;
   liveMarketTimer = setInterval(() => {
     if (!document.hidden) {
       refreshLiveMarket();
