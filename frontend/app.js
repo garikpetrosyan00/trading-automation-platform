@@ -1,8 +1,12 @@
 const API_BASE_URL = "";
 const AUTO_REFRESH_MS = 10000;
+const LIVE_MARKET_REFRESH_MS = 10000;
 const LANGUAGE_STORAGE_KEY = "dashboard.language";
+const LIVE_MARKET_STORAGE_KEY = "dashboard.liveMarketSymbols";
+const LIVE_MARKET_AUTO_REFRESH_STORAGE_KEY = "dashboard.liveMarketAutoRefresh";
 const DEFAULT_LANGUAGE = "en";
 const SUPPORTED_LANGUAGES = new Set(["en", "am"]);
+const DEFAULT_LIVE_MARKET_SYMBOLS = ["BTCUSDT", "ETHUSDT"];
 
 let bots = [];
 let strategies = [];
@@ -72,6 +76,12 @@ const expandedBacktestDetails = new Set();
 let strategyLoadError = "";
 let priceMessage = "";
 let priceMessageType = "";
+let liveMarketSymbols = getStoredLiveMarketSymbols();
+let isRefreshingLiveMarket = false;
+let liveMarketAutoRefreshEnabled = getStoredLiveMarketAutoRefresh();
+let liveMarketTimer = null;
+let liveMarketMessage = "";
+let liveMarketMessageType = "";
 let refreshMessage = "";
 let refreshMessageType = "";
 let botSearchQuery = "";
@@ -236,6 +246,34 @@ const translations = {
     risk_settings_save_failed: "Could not update Risk settings.",
     risk_settings_unavailable: "Risk settings unavailable.",
     risk_settings_must_be_positive: "Risk settings must be positive numbers.",
+    live_market: "Live Market",
+    live_market_aria: "Live Market",
+    live_market_help:
+      "Track public Binance prices locally. Simulated dashboard only; no orders are placed.",
+    live_market_add_symbol_aria: "Add market symbol",
+    live_market_symbol_label: "Symbol",
+    live_market_add_symbol: "Add symbol",
+    live_market_refresh: "Refresh market",
+    live_market_refreshing: "Refreshing…",
+    live_market_auto_refresh: "Auto-refresh",
+    live_market_empty: "No market symbols tracked yet.",
+    live_market_empty_hint: "Add a Binance symbol such as BTCUSDT.",
+    live_market_symbol_required: "Enter a symbol to watch.",
+    live_market_duplicate_symbol: "{symbol} is already in the watchlist.",
+    live_market_added_symbol: "Added {symbol} to Live Market.",
+    live_market_removed_symbol: "Removed {symbol}.",
+    live_market_price_error: "Could not load Binance price.",
+    live_market_latest_price: "Latest price",
+    live_market_previous_price: "Previous price",
+    live_market_absolute_change: "Change",
+    live_market_percent_change: "Change %",
+    live_market_direction: "Direction",
+    live_market_last_updated: "Last updated",
+    live_market_loading: "Loading price…",
+    live_market_direction_up: "Up",
+    live_market_direction_down: "Down",
+    live_market_direction_flat: "Flat",
+    live_market_remove_symbol: "Remove {symbol}",
     backtest: "Backtest",
     backtest_aria: "Run backtest",
     backtest_overview:
@@ -783,6 +821,34 @@ const translations = {
     risk_settings_save_failed: "Չհաջողվեց թարմացնել Risk կարգավորումները։",
     risk_settings_unavailable: "Risk կարգավորումները հասանելի չեն։",
     risk_settings_must_be_positive: "Risk կարգավորումները պետք է լինեն դրական թվեր։",
+    live_market: "Live Market",
+    live_market_aria: "Live Market",
+    live_market_help:
+      "Հետևիր Binance-ի public գներին տեղային watchlist-ով։ Սա միայն simulation dashboard է․ order-ներ չեն տեղադրվում։",
+    live_market_add_symbol_aria: "Ավելացնել market symbol",
+    live_market_symbol_label: "Symbol",
+    live_market_add_symbol: "Ավելացնել symbol",
+    live_market_refresh: "Թարմացնել market-ը",
+    live_market_refreshing: "Թարմացվում է…",
+    live_market_auto_refresh: "Auto-refresh",
+    live_market_empty: "Market symbol-ներ դեռ չեն հետևվում։",
+    live_market_empty_hint: "Ավելացրու Binance symbol, օրինակ՝ BTCUSDT։",
+    live_market_symbol_required: "Մուտքագրիր symbol՝ հետևելու համար։",
+    live_market_duplicate_symbol: "{symbol}-ն արդեն watchlist-ում է։",
+    live_market_added_symbol: "{symbol}-ը ավելացվեց Live Market-ում։",
+    live_market_removed_symbol: "{symbol}-ը հեռացվեց։",
+    live_market_price_error: "Չհաջողվեց բեռնել Binance գինը։",
+    live_market_latest_price: "Վերջին գին",
+    live_market_previous_price: "Նախորդ գին",
+    live_market_absolute_change: "Փոփոխություն",
+    live_market_percent_change: "Փոփոխություն %",
+    live_market_direction: "Ուղղություն",
+    live_market_last_updated: "Վերջին թարմացում",
+    live_market_loading: "Գինը բեռնվում է…",
+    live_market_direction_up: "Վերև",
+    live_market_direction_down: "Ներքև",
+    live_market_direction_flat: "Կայուն",
+    live_market_remove_symbol: "Հեռացնել {symbol}",
     backtest: "Backtest",
     backtest_aria: "Գործարկել backtest",
     backtest_overview:
@@ -1269,6 +1335,18 @@ const selectedStrategyLabel = document.querySelector("#selected-strategy-label")
 const selectedCooldownLabel = document.querySelector("#selected-cooldown-label");
 const selectedPriceLabel = document.querySelector("#selected-price-label");
 const selectedLastRunLabel = document.querySelector("#selected-last-run-label");
+const liveMarketPanel = document.querySelector(".live-market-panel");
+const liveMarketHeading = document.querySelector("#live-market-heading");
+const liveMarketHelp = document.querySelector("#live-market-help");
+const liveMarketForm = document.querySelector("#live-market-form");
+const liveMarketSymbolLabel = document.querySelector("#live-market-symbol-label");
+const liveMarketSymbol = document.querySelector("#live-market-symbol");
+const liveMarketAdd = document.querySelector("#live-market-add");
+const liveMarketRefresh = document.querySelector("#live-market-refresh");
+const liveMarketAutoRefresh = document.querySelector("#live-market-auto-refresh");
+const liveMarketAutoRefreshLabel = document.querySelector("#live-market-auto-refresh-label");
+const liveMarketMessageEl = document.querySelector("#live-market-message");
+const liveMarketWatchlist = document.querySelector("#live-market-watchlist");
 const botSettingsPanel = document.querySelector(".bot-settings-panel");
 const botSettingsHeading = document.querySelector("#bot-settings-heading");
 const botSettingsContent = document.querySelector("#bot-settings-content");
@@ -1409,6 +1487,53 @@ const priceSubmit = document.querySelector("#price-submit");
 const binancePriceFetch = document.querySelector("#binance-price-fetch");
 const priceMessageEl = document.querySelector("#price-message");
 
+function normalizeMarketSymbol(value) {
+  return String(value || "")
+    .trim()
+    .toUpperCase();
+}
+
+function liveMarketSymbolItem(symbol) {
+  return {
+    symbol,
+    price: null,
+    previousPrice: null,
+    updatedAt: null,
+    isLoading: false,
+    error: "",
+  };
+}
+
+function getStoredLiveMarketSymbols() {
+  try {
+    const stored = JSON.parse(window.localStorage.getItem(LIVE_MARKET_STORAGE_KEY) || "null");
+    const symbols = Array.isArray(stored)
+      ? stored.map(normalizeMarketSymbol).filter(Boolean)
+      : DEFAULT_LIVE_MARKET_SYMBOLS;
+    return [...new Set(symbols)].map(liveMarketSymbolItem);
+  } catch (error) {
+    return DEFAULT_LIVE_MARKET_SYMBOLS.map(liveMarketSymbolItem);
+  }
+}
+
+function getStoredLiveMarketAutoRefresh() {
+  return window.localStorage.getItem(LIVE_MARKET_AUTO_REFRESH_STORAGE_KEY) === "true";
+}
+
+function persistLiveMarketSymbols() {
+  window.localStorage.setItem(
+    LIVE_MARKET_STORAGE_KEY,
+    JSON.stringify(liveMarketSymbols.map((item) => item.symbol)),
+  );
+}
+
+function persistLiveMarketAutoRefresh() {
+  window.localStorage.setItem(
+    LIVE_MARKET_AUTO_REFRESH_STORAGE_KEY,
+    String(liveMarketAutoRefreshEnabled),
+  );
+}
+
 function getStoredLanguage() {
   const storedLanguage = window.localStorage.getItem(LANGUAGE_STORAGE_KEY);
   return SUPPORTED_LANGUAGES.has(storedLanguage) ? storedLanguage : DEFAULT_LANGUAGE;
@@ -1510,6 +1635,16 @@ function applyStaticTranslations() {
   selectedCooldownLabel.textContent = t("selected_cooldown_label");
   selectedPriceLabel.textContent = t("selected_price_label");
   selectedLastRunLabel.textContent = t("selected_last_run_label");
+  liveMarketPanel?.setAttribute("aria-label", t("live_market_aria"));
+  liveMarketHeading.textContent = t("live_market");
+  liveMarketHelp.textContent = t("live_market_help");
+  liveMarketForm.setAttribute("aria-label", t("live_market_add_symbol_aria"));
+  liveMarketSymbolLabel.textContent = t("live_market_symbol_label");
+  liveMarketAdd.textContent = t("live_market_add_symbol");
+  liveMarketRefresh.textContent = isRefreshingLiveMarket
+    ? t("live_market_refreshing")
+    : t("live_market_refresh");
+  liveMarketAutoRefreshLabel.textContent = t("live_market_auto_refresh");
   botSettingsHeading.textContent = t("bot_settings");
   botSettingsPanel?.setAttribute("aria-label", t("bot_settings_aria"));
   executionSettingsHeading.textContent = t("execution_settings");
@@ -5346,6 +5481,150 @@ function binancePriceErrorMessage(error) {
   return requestErrorMessage(error, t("could_not_fetch_binance_price"));
 }
 
+function liveMarketPriceErrorMessage(error) {
+  const message = binancePriceErrorMessage(error);
+  return message === t("could_not_fetch_binance_price") ? t("live_market_price_error") : message;
+}
+
+function liveMarketDirection(item) {
+  const price = comparableNumber(item.price);
+  const previousPrice = comparableNumber(item.previousPrice);
+  if (price === null || previousPrice === null || price === previousPrice) return "flat";
+  return price > previousPrice ? "up" : "down";
+}
+
+function formatSignedDecimal(value) {
+  const parsed = comparableNumber(value);
+  if (parsed === null) return "—";
+  const prefix = parsed > 0 ? "+" : "";
+  return `${prefix}${formatDecimal(parsed)}`;
+}
+
+function liveMarketChange(item) {
+  const price = comparableNumber(item.price);
+  const previousPrice = comparableNumber(item.previousPrice);
+  if (price === null || previousPrice === null) return null;
+  return price - previousPrice;
+}
+
+function liveMarketPercentChange(item) {
+  const change = liveMarketChange(item);
+  const previousPrice = comparableNumber(item.previousPrice);
+  if (change === null || previousPrice === null || previousPrice === 0) return null;
+  return (change / previousPrice) * 100;
+}
+
+function formatSignedPercent(value) {
+  const parsed = comparableNumber(value);
+  if (parsed === null) return "—";
+  const prefix = parsed > 0 ? "+" : "";
+  return `${prefix}${formatPercent(parsed)}`;
+}
+
+function liveMarketDirectionLabel(direction) {
+  if (direction === "up") return t("live_market_direction_up");
+  if (direction === "down") return t("live_market_direction_down");
+  return t("live_market_direction_flat");
+}
+
+async function fetchLiveMarketPrice(symbol) {
+  return fetchJson("/api/v1/market/binance/price", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ symbol }),
+  });
+}
+
+function updateLiveMarketAutoRefresh() {
+  if (liveMarketTimer) {
+    clearInterval(liveMarketTimer);
+    liveMarketTimer = null;
+  }
+
+  if (!liveMarketAutoRefreshEnabled) return;
+  liveMarketTimer = setInterval(() => {
+    if (!document.hidden) {
+      refreshLiveMarket();
+    }
+  }, LIVE_MARKET_REFRESH_MS);
+}
+
+async function refreshLiveMarket() {
+  if (isRefreshingLiveMarket || liveMarketSymbols.length === 0) return;
+  isRefreshingLiveMarket = true;
+  liveMarketSymbols = liveMarketSymbols.map((item) => ({ ...item, isLoading: true, error: "" }));
+  render();
+
+  await Promise.all(
+    liveMarketSymbols.map(async (item) => {
+      try {
+        const result = await fetchLiveMarketPrice(item.symbol);
+        const symbol = normalizeMarketSymbol(result.symbol || item.symbol);
+        const price = result.price ?? null;
+        liveMarketSymbols = liveMarketSymbols.map((candidate) =>
+          candidate.symbol === item.symbol
+            ? {
+                ...candidate,
+                symbol,
+                previousPrice: candidate.price,
+                price,
+                updatedAt: new Date(),
+                isLoading: false,
+                error: "",
+              }
+            : candidate,
+        );
+      } catch (error) {
+        liveMarketSymbols = liveMarketSymbols.map((candidate) =>
+          candidate.symbol === item.symbol
+            ? {
+                ...candidate,
+                isLoading: false,
+                error: liveMarketPriceErrorMessage(error),
+              }
+            : candidate,
+        );
+      }
+    }),
+  );
+
+  isRefreshingLiveMarket = false;
+  render();
+}
+
+function addLiveMarketSymbol(event) {
+  event.preventDefault();
+  const symbol = normalizeMarketSymbol(liveMarketSymbol.value);
+  if (!symbol) {
+    liveMarketMessage = t("live_market_symbol_required");
+    liveMarketMessageType = "error";
+    render();
+    return;
+  }
+  if (liveMarketSymbols.some((item) => item.symbol === symbol)) {
+    liveMarketMessage = t("live_market_duplicate_symbol", { symbol });
+    liveMarketMessageType = "error";
+    render();
+    return;
+  }
+
+  liveMarketSymbols = [...liveMarketSymbols, liveMarketSymbolItem(symbol)];
+  persistLiveMarketSymbols();
+  liveMarketSymbol.value = "";
+  liveMarketMessage = t("live_market_added_symbol", { symbol });
+  liveMarketMessageType = "success";
+  render();
+  refreshLiveMarket();
+}
+
+function removeLiveMarketSymbol(symbol) {
+  liveMarketSymbols = liveMarketSymbols.filter((item) => item.symbol !== symbol);
+  persistLiveMarketSymbols();
+  liveMarketMessage = t("live_market_removed_symbol", { symbol });
+  liveMarketMessageType = "note";
+  render();
+}
+
 function validateCreateBotForm() {
   if (!createBotName.value.trim()) {
     return t("enter_bot_name");
@@ -6442,6 +6721,86 @@ function renderBotSettings(bot) {
   botSettingsContent.append(grid);
 }
 
+function renderLiveMarket() {
+  liveMarketAutoRefresh.checked = liveMarketAutoRefreshEnabled;
+  liveMarketRefresh.textContent = isRefreshingLiveMarket
+    ? t("live_market_refreshing")
+    : t("live_market_refresh");
+  liveMarketRefresh.disabled = isRefreshingLiveMarket || liveMarketSymbols.length === 0;
+  liveMarketAdd.textContent = t("live_market_add_symbol");
+  liveMarketMessageEl.textContent = liveMarketMessage;
+  liveMarketMessageEl.className = liveMarketMessageType
+    ? `form-message ${liveMarketMessageType}`
+    : "form-message";
+  liveMarketWatchlist.innerHTML = "";
+
+  if (liveMarketSymbols.length === 0) {
+    liveMarketWatchlist.className = "live-market-watchlist empty";
+    const title = document.createElement("strong");
+    const hint = document.createElement("span");
+    title.textContent = t("live_market_empty");
+    hint.textContent = t("live_market_empty_hint");
+    liveMarketWatchlist.append(title, hint);
+    return;
+  }
+
+  liveMarketWatchlist.className = "live-market-watchlist";
+  liveMarketSymbols.forEach((item) => {
+    const direction = liveMarketDirection(item);
+    const change = liveMarketChange(item);
+    const percentChange = liveMarketPercentChange(item);
+    const card = document.createElement("article");
+    card.className = `live-market-card ${direction}`;
+
+    const header = document.createElement("div");
+    header.className = "live-market-card-header";
+    const titleGroup = document.createElement("div");
+    const symbol = document.createElement("strong");
+    const state = document.createElement("span");
+    symbol.textContent = item.symbol;
+    state.className = `live-market-direction ${direction}`;
+    state.textContent = item.isLoading ? t("live_market_loading") : liveMarketDirectionLabel(direction);
+    titleGroup.append(symbol, state);
+
+    const removeButton = document.createElement("button");
+    removeButton.type = "button";
+    removeButton.className = "secondary-button live-market-remove";
+    removeButton.textContent = "×";
+    removeButton.title = t("live_market_remove_symbol", { symbol: item.symbol });
+    removeButton.setAttribute("aria-label", t("live_market_remove_symbol", { symbol: item.symbol }));
+    removeButton.addEventListener("click", () => removeLiveMarketSymbol(item.symbol));
+    header.append(titleGroup, removeButton);
+
+    const metrics = document.createElement("dl");
+    metrics.className = "live-market-metrics";
+    [
+      { label: t("live_market_latest_price"), value: formatDecimal(item.price) },
+      { label: t("live_market_previous_price"), value: formatDecimal(item.previousPrice) },
+      { label: t("live_market_absolute_change"), value: formatSignedDecimal(change), className: `pnl-${direction === "up" ? "positive" : direction === "down" ? "negative" : "neutral"}` },
+      { label: t("live_market_percent_change"), value: formatSignedPercent(percentChange), className: `pnl-${direction === "up" ? "positive" : direction === "down" ? "negative" : "neutral"}` },
+      { label: t("live_market_last_updated"), value: formatDateTime(item.updatedAt) },
+    ].forEach((metric) => {
+      const group = document.createElement("div");
+      const label = document.createElement("dt");
+      const value = document.createElement("dd");
+      label.textContent = metric.label;
+      value.textContent = metric.value;
+      if (metric.className) value.className = metric.className;
+      group.append(label, value);
+      metrics.append(group);
+    });
+
+    card.append(header, metrics);
+    if (item.error) {
+      const error = document.createElement("p");
+      error.className = "live-market-error";
+      error.textContent = item.error;
+      card.append(error);
+    }
+    liveMarketWatchlist.append(card);
+  });
+}
+
 function renderSummary() {
   const listBot = bots.find((bot) => botIdsEqual(bot.id, selectedBotId));
   const bot = selectedSummary || listBot;
@@ -6721,6 +7080,7 @@ function render() {
   renderCreateStrategyForm();
   renderBotList();
   renderSummary();
+  renderLiveMarket();
   renderDecisionExplanation();
   renderStrategyParametersForm();
   renderBacktestPanel();
@@ -6775,7 +7135,11 @@ botSearch.addEventListener("input", () => {
   renderBotList();
 });
 document.addEventListener("visibilitychange", updateAutoRefresh);
-window.addEventListener("beforeunload", stopAutoRefresh);
+document.addEventListener("visibilitychange", updateLiveMarketAutoRefresh);
+window.addEventListener("beforeunload", () => {
+  stopAutoRefresh();
+  if (liveMarketTimer) clearInterval(liveMarketTimer);
+});
 pauseResume.addEventListener("click", togglePauseResume);
 runNow.addEventListener("click", runSelectedBotNow);
 editBot.addEventListener("click", openEditBotForm);
@@ -6820,6 +7184,14 @@ backtestHistoryScopeAll.addEventListener("click", () => {
 });
 priceForm.addEventListener("submit", updateMarketPrice);
 binancePriceFetch.addEventListener("click", fetchBinancePriceForSelectedBot);
+liveMarketForm.addEventListener("submit", addLiveMarketSymbol);
+liveMarketRefresh.addEventListener("click", refreshLiveMarket);
+liveMarketAutoRefresh.addEventListener("change", () => {
+  liveMarketAutoRefreshEnabled = liveMarketAutoRefresh.checked;
+  persistLiveMarketAutoRefresh();
+  updateLiveMarketAutoRefresh();
+  renderLiveMarket();
+});
 priceSymbol.addEventListener("input", () => {
   symbolTouched = true;
 });
@@ -6854,5 +7226,7 @@ optimizationRequireClosedPosition.addEventListener("change", () => {
 document.documentElement.lang = currentLanguage === "am" ? "hy" : "en";
 renderLanguageSwitcher();
 applyStaticTranslations();
+updateLiveMarketAutoRefresh();
+refreshLiveMarket();
 loadBots();
 loadStrategies();

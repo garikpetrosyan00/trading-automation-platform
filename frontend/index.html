@@ -4,7 +4,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Dashboard</title>
-    <link rel="stylesheet" href="/static/styles.css?v=frontend-consistency-polish" />
+    <link rel="stylesheet" href="/static/styles.css?v=live-market-watchlist" />
   </head>
   <body>
     <main class="dashboard-shell">
@@ -177,6 +177,31 @@
               <dd id="selected-last-run"></dd>
             </div>
           </dl>
+
+          <section class="live-market-panel" aria-label="Live Market">
+            <div class="panel-heading compact-heading live-market-heading">
+              <h2 id="live-market-heading">Live Market</h2>
+              <div class="live-market-controls">
+                <label class="live-market-auto-refresh">
+                  <input id="live-market-auto-refresh" type="checkbox" />
+                  <span id="live-market-auto-refresh-label">Auto-refresh</span>
+                </label>
+                <button id="live-market-refresh" type="button" class="secondary-button">Refresh market</button>
+              </div>
+            </div>
+            <p id="live-market-help" class="live-market-help">
+              Track public Binance prices locally. Simulated dashboard only; no orders are placed.
+            </p>
+            <form id="live-market-form" class="live-market-form" aria-label="Add market symbol">
+              <label>
+                <span id="live-market-symbol-label">Symbol</span>
+                <input id="live-market-symbol" value="BTCUSDT" placeholder="BTCUSDT" autocomplete="off" />
+              </label>
+              <button id="live-market-add" type="submit">Add symbol</button>
+              <span id="live-market-message" class="form-message" role="status"></span>
+            </form>
+            <div id="live-market-watchlist" class="live-market-watchlist"></div>
+          </section>
 
           <section class="bot-settings-panel" aria-label="Bot settings">
             <div class="panel-heading compact-heading">
@@ -541,6 +566,6 @@
       </section>
     </main>
 
-    <script src="/static/app.js?v=recent-backtests-visible-summary"></script>
+    <script src="/static/app.js?v=live-market-watchlist"></script>
   </body>
 </html>

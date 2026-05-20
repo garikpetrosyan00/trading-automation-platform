@@ -805,6 +805,199 @@ dd {
   overflow-wrap: break-word;
 }
 
+.live-market-panel {
+  margin: 0 0 18px;
+}
+
+.live-market-heading {
+  border-bottom: 0;
+  padding: 0;
+}
+
+.live-market-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.live-market-auto-refresh {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 34px;
+  width: fit-content;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--ink);
+  padding: 0 9px;
+  font-size: 0.8rem;
+  font-weight: 850;
+}
+
+.live-market-auto-refresh input {
+  width: 15px;
+  min-height: 15px;
+  margin: 0;
+  accent-color: var(--ink);
+}
+
+.live-market-help {
+  margin: -2px 0 10px;
+  color: var(--muted);
+  font-size: 0.84rem;
+  font-weight: 800;
+  line-height: 1.4;
+}
+
+.live-market-form {
+  display: grid;
+  grid-template-columns: minmax(180px, 1fr) auto;
+  gap: 8px 10px;
+  align-items: end;
+  margin-bottom: 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fbfcfa;
+  padding: 12px;
+}
+
+.live-market-form .form-message {
+  grid-column: 1 / -1;
+}
+
+.live-market-watchlist {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 10px;
+}
+
+.live-market-watchlist.empty {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fbfcfa;
+  color: var(--muted);
+  padding: 12px;
+}
+
+.live-market-watchlist.empty strong,
+.live-market-watchlist.empty span {
+  display: block;
+}
+
+.live-market-watchlist.empty strong {
+  color: var(--ink);
+}
+
+.live-market-watchlist.empty span {
+  margin-top: 4px;
+  font-size: 0.82rem;
+  line-height: 1.35;
+}
+
+.live-market-card {
+  display: grid;
+  gap: 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fbfcfa;
+  padding: 12px;
+}
+
+.live-market-card.up {
+  border-color: rgba(31, 122, 77, 0.35);
+}
+
+.live-market-card.down {
+  border-color: rgba(162, 61, 61, 0.35);
+}
+
+.live-market-card-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.live-market-card-header div {
+  display: grid;
+  gap: 5px;
+  min-width: 0;
+}
+
+.live-market-card-header strong {
+  overflow-wrap: anywhere;
+  font-size: 0.98rem;
+}
+
+.live-market-direction {
+  justify-self: start;
+  border-radius: 999px;
+  padding: 5px 9px;
+  font-size: 0.72rem;
+  font-weight: 900;
+}
+
+.live-market-direction.up {
+  background: var(--green-soft);
+  color: var(--green);
+}
+
+.live-market-direction.down {
+  background: var(--danger-soft);
+  color: var(--danger);
+}
+
+.live-market-direction.flat {
+  background: var(--surface-muted);
+  color: var(--muted);
+}
+
+.live-market-remove {
+  flex: 0 0 auto;
+  min-width: 32px;
+  min-height: 32px;
+  padding: 0 9px;
+  font-size: 1rem;
+}
+
+.live-market-metrics {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  margin: 0;
+}
+
+.live-market-metrics div {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.live-market-metrics dt {
+  color: var(--muted);
+  font-size: 0.72rem;
+  font-weight: 800;
+}
+
+.live-market-metrics dd {
+  overflow-wrap: anywhere;
+  font-size: 0.9rem;
+}
+
+.live-market-error {
+  margin: 0;
+  border-radius: 8px;
+  background: var(--danger-soft);
+  color: var(--danger);
+  padding: 7px 9px;
+  font-size: 0.78rem;
+  font-weight: 850;
+  line-height: 1.35;
+}
+
 .bot-settings-panel,
 .execution-settings-panel,
 .strategy-parameters-panel,
@@ -2095,6 +2288,7 @@ dd {
   .strategy-parameters-form,
   .create-strategy-form,
   .risk-settings-form,
+  .live-market-form,
   .backtest-optimization-form,
   .backtest-form,
   .backtest-import {
@@ -2139,6 +2333,8 @@ dd {
   .strategy-parameters-form,
   .create-strategy-form,
   .risk-settings-form,
+  .live-market-form,
+  .live-market-metrics,
   .backtest-optimization-form,
   .backtest-result-grid,
   .backtest-visible-summary,
@@ -2168,6 +2364,10 @@ dd {
   .panel-heading,
   .activity-list li {
     align-items: start;
+  }
+
+  .live-market-controls {
+    justify-content: flex-start;
   }
 
   .backtest-history-heading-actions {
