@@ -1959,7 +1959,7 @@ dd {
 }
 
 .backtest-trade-reason {
-  color: var(--text);
+  color: var(--ink);
   font-weight: 700;
 }
 
