@@ -927,6 +927,20 @@ dd {
   min-width: 0;
 }
 
+.live-market-card-actions {
+  display: flex;
+  flex: 0 0 auto;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 6px;
+}
+
+.live-market-chart-action {
+  min-height: 32px;
+  padding: 0 10px;
+  font-size: 0.78rem;
+}
+
 .live-market-card-header strong {
   overflow-wrap: anywhere;
   font-size: 0.98rem;
@@ -996,6 +1010,139 @@ dd {
   font-size: 0.78rem;
   font-weight: 850;
   line-height: 1.35;
+}
+
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 20;
+  display: grid;
+  align-items: center;
+  justify-items: center;
+  background: rgba(23, 33, 28, 0.42);
+  padding: 20px;
+}
+
+.modal-backdrop[hidden] {
+  display: none;
+}
+
+.candle-modal {
+  display: grid;
+  gap: 12px;
+  width: min(860px, 100%);
+  max-height: min(90vh, 760px);
+  overflow: auto;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface);
+  box-shadow: var(--shadow);
+  padding: 16px;
+}
+
+.candle-modal-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.candle-modal-header h2 {
+  margin: 0;
+  font-size: 1.18rem;
+}
+
+.candle-modal-controls {
+  display: grid;
+  grid-template-columns: minmax(120px, 0.6fr) minmax(120px, 0.6fr) auto;
+  gap: 10px;
+  align-items: end;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fbfcfa;
+  padding: 12px;
+}
+
+.candle-modal-message {
+  min-height: 20px;
+  color: var(--muted);
+  font-size: 0.84rem;
+  font-weight: 800;
+}
+
+.candle-modal-message.error {
+  border-radius: 8px;
+  background: var(--danger-soft);
+  color: var(--danger);
+  padding: 7px 9px;
+}
+
+.candle-modal-message.loading {
+  color: var(--muted);
+}
+
+.candle-chart {
+  min-height: 280px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fbfcfa;
+  padding: 10px;
+}
+
+.candle-chart:empty {
+  display: none;
+}
+
+.candle-chart-svg {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+
+.candle-wick.up,
+.candle-body.up {
+  stroke: var(--green);
+  fill: var(--green-soft);
+}
+
+.candle-wick.down,
+.candle-body.down {
+  stroke: var(--danger);
+  fill: var(--danger-soft);
+}
+
+.candle-wick {
+  stroke-width: 1.5;
+}
+
+.candle-body {
+  stroke-width: 1.2;
+}
+
+.candle-summary {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+  margin: 0;
+}
+
+.candle-summary:empty {
+  display: none;
+}
+
+.candle-summary div {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fbfcfa;
+  padding: 9px;
+}
+
+.candle-summary dd {
+  overflow-wrap: anywhere;
+  font-size: 0.9rem;
 }
 
 .bot-settings-panel,
@@ -2278,6 +2425,7 @@ dd {
   .bot-settings-grid,
   .strategy-parameters-grid,
   .backtest-result-grid,
+  .candle-summary,
   .backtest-visible-summary,
   .backtest-history-metrics,
   .backtest-history-details-grid {
@@ -2289,6 +2437,7 @@ dd {
   .create-strategy-form,
   .risk-settings-form,
   .live-market-form,
+  .candle-modal-controls,
   .backtest-optimization-form,
   .backtest-form,
   .backtest-import {
@@ -2335,6 +2484,8 @@ dd {
   .risk-settings-form,
   .live-market-form,
   .live-market-metrics,
+  .candle-modal-controls,
+  .candle-summary,
   .backtest-optimization-form,
   .backtest-result-grid,
   .backtest-visible-summary,
@@ -2368,6 +2519,15 @@ dd {
 
   .live-market-controls {
     justify-content: flex-start;
+  }
+
+  .candle-modal {
+    max-height: 94vh;
+    padding: 12px;
+  }
+
+  .candle-modal-header {
+    align-items: flex-start;
   }
 
   .backtest-history-heading-actions {

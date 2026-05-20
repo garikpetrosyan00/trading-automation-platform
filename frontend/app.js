@@ -82,6 +82,17 @@ let liveMarketAutoRefreshEnabled = getStoredLiveMarketAutoRefresh();
 let liveMarketTimer = null;
 let liveMarketMessage = "";
 let liveMarketMessageType = "";
+let candleModal = {
+  isOpen: false,
+  symbol: "",
+  timeframe: "1m",
+  limit: 50,
+  candles: [],
+  isLoading: false,
+  error: "",
+  requestId: 0,
+};
+let candleModalPreviousFocus = null;
 let refreshMessage = "";
 let refreshMessageType = "";
 let botSearchQuery = "";
@@ -274,6 +285,24 @@ const translations = {
     live_market_direction_down: "Down",
     live_market_direction_flat: "Flat",
     live_market_remove_symbol: "Remove {symbol}",
+    live_market_chart: "Chart",
+    live_market_chart_aria: "Open candle chart for {symbol}",
+    candle_modal_eyebrow: "Live Market",
+    candle_modal_title: "{symbol} candles",
+    candle_timeframe_label: "Timeframe",
+    candle_limit_label: "Candles",
+    candle_refresh: "Refresh candles",
+    candle_refreshing: "Loading…",
+    candle_loading: "Loading candles…",
+    candle_empty: "No candle data returned for this symbol.",
+    candle_error: "Could not load Binance candles.",
+    candle_open_label: "Open",
+    candle_high_label: "High",
+    candle_low_label: "Low",
+    candle_close_label: "Close",
+    candle_volume_label: "Volume",
+    candle_time_label: "Candle time",
+    candle_chart_label: "Candlestick chart",
     backtest: "Backtest",
     backtest_aria: "Run backtest",
     backtest_overview:
@@ -849,6 +878,24 @@ const translations = {
     live_market_direction_down: "Ներքև",
     live_market_direction_flat: "Կայուն",
     live_market_remove_symbol: "Հեռացնել {symbol}",
+    live_market_chart: "Գրաֆիկ",
+    live_market_chart_aria: "Բացել {symbol}-ի candle գրաֆիկը",
+    candle_modal_eyebrow: "Live Market",
+    candle_modal_title: "{symbol} candle-ներ",
+    candle_timeframe_label: "Timeframe",
+    candle_limit_label: "Candle-ներ",
+    candle_refresh: "Թարմացնել candle-ները",
+    candle_refreshing: "Բեռնվում է…",
+    candle_loading: "Candle-ները բեռնվում են…",
+    candle_empty: "Այս symbol-ի համար candle տվյալներ չվերադարձան։",
+    candle_error: "Չհաջողվեց բեռնել Binance candle-ները։",
+    candle_open_label: "Open",
+    candle_high_label: "High",
+    candle_low_label: "Low",
+    candle_close_label: "Close",
+    candle_volume_label: "Volume",
+    candle_time_label: "Candle-ի ժամանակ",
+    candle_chart_label: "Candlestick chart",
     backtest: "Backtest",
     backtest_aria: "Գործարկել backtest",
     backtest_overview:
@@ -1347,6 +1394,18 @@ const liveMarketAutoRefresh = document.querySelector("#live-market-auto-refresh"
 const liveMarketAutoRefreshLabel = document.querySelector("#live-market-auto-refresh-label");
 const liveMarketMessageEl = document.querySelector("#live-market-message");
 const liveMarketWatchlist = document.querySelector("#live-market-watchlist");
+const candleModalEl = document.querySelector("#live-market-candle-modal");
+const candleModalEyebrow = document.querySelector("#candle-modal-eyebrow");
+const candleModalTitle = document.querySelector("#candle-modal-title");
+const candleModalClose = document.querySelector("#candle-modal-close");
+const candleTimeframeLabel = document.querySelector("#candle-timeframe-label");
+const candleTimeframe = document.querySelector("#candle-timeframe");
+const candleLimitLabel = document.querySelector("#candle-limit-label");
+const candleLimit = document.querySelector("#candle-limit");
+const candleRefresh = document.querySelector("#candle-refresh");
+const candleModalMessage = document.querySelector("#candle-modal-message");
+const candleChart = document.querySelector("#candle-chart");
+const candleSummary = document.querySelector("#candle-summary");
 const botSettingsPanel = document.querySelector(".bot-settings-panel");
 const botSettingsHeading = document.querySelector("#bot-settings-heading");
 const botSettingsContent = document.querySelector("#bot-settings-content");
@@ -1657,6 +1716,10 @@ function applyStaticTranslations() {
     ? t("live_market_refreshing")
     : t("live_market_refresh");
   liveMarketAutoRefreshLabel.textContent = t("live_market_auto_refresh");
+  candleModalEyebrow.textContent = t("candle_modal_eyebrow");
+  candleModalClose.textContent = t("close");
+  candleTimeframeLabel.textContent = t("candle_timeframe_label");
+  candleLimitLabel.textContent = t("candle_limit_label");
   botSettingsHeading.textContent = t("bot_settings");
   botSettingsPanel?.setAttribute("aria-label", t("bot_settings_aria"));
   executionSettingsHeading.textContent = t("execution_settings");
@@ -5637,6 +5700,223 @@ function removeLiveMarketSymbol(symbol) {
   render();
 }
 
+function candleNumber(...values) {
+  for (const value of values) {
+    const parsed = Number(value);
+    if (Number.isFinite(parsed)) return parsed;
+  }
+  return null;
+}
+
+function normalizeCandle(rawCandle) {
+  const source = Array.isArray(rawCandle)
+    ? {
+        openTime: rawCandle[0],
+        open: rawCandle[1],
+        high: rawCandle[2],
+        low: rawCandle[3],
+        close: rawCandle[4],
+        volume: rawCandle[5],
+        closeTime: rawCandle[6],
+      }
+    : rawCandle && typeof rawCandle === "object"
+      ? rawCandle
+      : {};
+  const open = candleNumber(source.open, source.open_price, source.o);
+  const high = candleNumber(source.high, source.high_price, source.h);
+  const low = candleNumber(source.low, source.low_price, source.l);
+  const close = candleNumber(source.close, source.close_price, source.c);
+  if ([open, high, low, close].some((value) => value === null)) return null;
+
+  return {
+    open,
+    high: Math.max(high, open, close, low),
+    low: Math.min(low, open, close, high),
+    close,
+    volume: candleNumber(source.volume, source.v),
+    time: firstAvailable(
+      source.open_time,
+      source.openTime,
+      source.opened_at,
+      source.timestamp,
+      source.time,
+      source.close_time,
+      source.closeTime,
+      null,
+    ),
+  };
+}
+
+function normalizeCandleResponse(data) {
+  const rawCandles = Array.isArray(data)
+    ? data
+    : Array.isArray(data?.candles)
+      ? data.candles
+      : Array.isArray(data?.items)
+        ? data.items
+        : [];
+  return rawCandles.map(normalizeCandle).filter(Boolean);
+}
+
+function candleRequestPayload() {
+  return {
+    symbol: candleModal.symbol,
+    timeframe: candleModal.timeframe,
+    limit: candleModal.limit,
+  };
+}
+
+async function fetchLiveMarketCandles() {
+  return fetchJson("/api/v1/market/binance/candles", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(candleRequestPayload()),
+  });
+}
+
+function candleErrorMessage(error) {
+  const message = friendlyCandleImportErrorMessage(error);
+  return message === t("candle_import_failed") ? t("candle_error") : message;
+}
+
+async function refreshCandleModal() {
+  if (!candleModal.isOpen || candleModal.isLoading || !candleModal.symbol) return;
+  const requestId = candleModal.requestId + 1;
+  candleModal = {
+    ...candleModal,
+    isLoading: true,
+    error: "",
+    requestId,
+  };
+  renderCandleModal();
+
+  try {
+    const result = await fetchLiveMarketCandles();
+    if (candleModal.requestId !== requestId) return;
+    candleModal = {
+      ...candleModal,
+      candles: normalizeCandleResponse(result),
+      isLoading: false,
+      error: "",
+    };
+  } catch (error) {
+    if (candleModal.requestId !== requestId) return;
+    candleModal = {
+      ...candleModal,
+      candles: [],
+      isLoading: false,
+      error: candleErrorMessage(error),
+    };
+  }
+  renderCandleModal();
+}
+
+function openCandleModal(symbol) {
+  candleModalPreviousFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+  candleModal = {
+    ...candleModal,
+    isOpen: true,
+    symbol,
+    candles: [],
+    error: "",
+    isLoading: false,
+  };
+  renderCandleModal();
+  candleModalClose.focus();
+  refreshCandleModal();
+}
+
+function closeCandleModal() {
+  if (!candleModal.isOpen) return;
+  candleModal = {
+    ...candleModal,
+    isOpen: false,
+    isLoading: false,
+    error: "",
+    requestId: candleModal.requestId + 1,
+  };
+  renderCandleModal();
+  if (candleModalPreviousFocus?.focus) {
+    candleModalPreviousFocus.focus();
+  }
+  candleModalPreviousFocus = null;
+}
+
+function candleYScale(value, minimum, maximum, height, padding) {
+  const range = Math.max(maximum - minimum, Math.abs(maximum) * 0.0001, 1);
+  return padding + ((maximum - value) / range) * (height - padding * 2);
+}
+
+function renderCandleChart(candles) {
+  candleChart.innerHTML = "";
+  if (candles.length === 0) return;
+
+  const width = 640;
+  const height = 260;
+  const padding = 18;
+  const highs = candles.map((item) => item.high);
+  const lows = candles.map((item) => item.low);
+  const maximum = Math.max(...highs);
+  const minimum = Math.min(...lows);
+  const step = (width - padding * 2) / Math.max(candles.length, 1);
+  const bodyWidth = Math.max(3, Math.min(10, step * 0.58));
+  const namespace = "http://www.w3.org/2000/svg";
+  const svg = document.createElementNS(namespace, "svg");
+  svg.setAttribute("viewBox", `0 0 ${width} ${height}`);
+  svg.setAttribute("role", "img");
+  svg.setAttribute("aria-label", t("candle_chart_label"));
+  svg.classList.add("candle-chart-svg");
+
+  candles.forEach((candle, index) => {
+    const x = padding + step * index + step / 2;
+    const highY = candleYScale(candle.high, minimum, maximum, height, padding);
+    const lowY = candleYScale(candle.low, minimum, maximum, height, padding);
+    const openY = candleYScale(candle.open, minimum, maximum, height, padding);
+    const closeY = candleYScale(candle.close, minimum, maximum, height, padding);
+    const isUp = candle.close >= candle.open;
+
+    const wick = document.createElementNS(namespace, "line");
+    wick.setAttribute("x1", String(x));
+    wick.setAttribute("x2", String(x));
+    wick.setAttribute("y1", String(highY));
+    wick.setAttribute("y2", String(lowY));
+    wick.classList.add("candle-wick", isUp ? "up" : "down");
+    svg.append(wick);
+
+    const body = document.createElementNS(namespace, "rect");
+    body.setAttribute("x", String(x - bodyWidth / 2));
+    body.setAttribute("y", String(Math.min(openY, closeY)));
+    body.setAttribute("width", String(bodyWidth));
+    body.setAttribute("height", String(Math.max(Math.abs(closeY - openY), 2)));
+    body.classList.add("candle-body", isUp ? "up" : "down");
+    svg.append(body);
+  });
+
+  candleChart.append(svg);
+}
+
+function renderCandleSummary(candles) {
+  candleSummary.innerHTML = "";
+  if (candles.length === 0) return;
+  const latest = candles[candles.length - 1];
+  [
+    { label: t("candle_open_label"), value: formatDecimal(latest.open) },
+    { label: t("candle_high_label"), value: formatDecimal(latest.high) },
+    { label: t("candle_low_label"), value: formatDecimal(latest.low) },
+    { label: t("candle_close_label"), value: formatDecimal(latest.close) },
+    { label: t("candle_volume_label"), value: formatDecimal(latest.volume) },
+    { label: t("candle_time_label"), value: formatDateTime(latest.time) },
+  ].forEach((item) => {
+    const group = document.createElement("div");
+    const label = document.createElement("dt");
+    const value = document.createElement("dd");
+    label.textContent = item.label;
+    value.textContent = item.value;
+    group.append(label, value);
+    candleSummary.append(group);
+  });
+}
+
 function validateCreateBotForm() {
   if (!createBotName.value.trim()) {
     return t("enter_bot_name");
@@ -6781,7 +7061,16 @@ function renderLiveMarket() {
     removeButton.title = t("live_market_remove_symbol", { symbol: item.symbol });
     removeButton.setAttribute("aria-label", t("live_market_remove_symbol", { symbol: item.symbol }));
     removeButton.addEventListener("click", () => removeLiveMarketSymbol(item.symbol));
-    header.append(titleGroup, removeButton);
+    const actions = document.createElement("div");
+    actions.className = "live-market-card-actions";
+    const chartButton = document.createElement("button");
+    chartButton.type = "button";
+    chartButton.className = "secondary-button live-market-chart-action";
+    chartButton.textContent = t("live_market_chart");
+    chartButton.setAttribute("aria-label", t("live_market_chart_aria", { symbol: item.symbol }));
+    chartButton.addEventListener("click", () => openCandleModal(item.symbol));
+    actions.append(chartButton, removeButton);
+    header.append(titleGroup, actions);
 
     const metrics = document.createElement("dl");
     metrics.className = "live-market-metrics";
@@ -6811,6 +7100,34 @@ function renderLiveMarket() {
     }
     liveMarketWatchlist.append(card);
   });
+}
+
+function renderCandleModal() {
+  candleModalEl.hidden = !candleModal.isOpen;
+  if (!candleModal.isOpen) return;
+
+  candleModalTitle.textContent = t("candle_modal_title", { symbol: candleModal.symbol });
+  candleTimeframe.value = candleModal.timeframe;
+  candleLimit.value = String(candleModal.limit);
+  candleRefresh.textContent = candleModal.isLoading ? t("candle_refreshing") : t("candle_refresh");
+  candleRefresh.disabled = candleModal.isLoading;
+  candleTimeframe.disabled = candleModal.isLoading;
+  candleLimit.disabled = candleModal.isLoading;
+  candleModalMessage.className = candleModal.error
+    ? "candle-modal-message error"
+    : candleModal.isLoading
+      ? "candle-modal-message loading"
+      : "candle-modal-message";
+  candleModalMessage.textContent = candleModal.error
+    ? candleModal.error
+    : candleModal.isLoading
+      ? t("candle_loading")
+      : candleModal.candles.length === 0
+        ? t("candle_empty")
+        : "";
+
+  renderCandleChart(candleModal.candles);
+  renderCandleSummary(candleModal.candles);
 }
 
 function renderSummary() {
@@ -7100,6 +7417,7 @@ function render() {
   renderBacktestHistory();
   renderEditBotForm();
   renderActivity();
+  renderCandleModal();
 }
 
 langEn.addEventListener("click", () => setLanguage("en"));
@@ -7203,6 +7521,36 @@ liveMarketAutoRefresh.addEventListener("change", () => {
   persistLiveMarketAutoRefresh();
   updateLiveMarketAutoRefresh();
   renderLiveMarket();
+});
+candleModalClose.addEventListener("click", closeCandleModal);
+candleModalEl.addEventListener("click", (event) => {
+  if (event.target === candleModalEl) closeCandleModal();
+});
+candleRefresh.addEventListener("click", refreshCandleModal);
+candleTimeframe.addEventListener("change", () => {
+  candleModal = {
+    ...candleModal,
+    timeframe: candleTimeframe.value,
+    candles: [],
+    error: "",
+  };
+  renderCandleModal();
+  refreshCandleModal();
+});
+candleLimit.addEventListener("change", () => {
+  candleModal = {
+    ...candleModal,
+    limit: Number(candleLimit.value) || 50,
+    candles: [],
+    error: "",
+  };
+  renderCandleModal();
+  refreshCandleModal();
+});
+document.addEventListener("keydown", (event) => {
+  if (event.key === "Escape" && candleModal.isOpen) {
+    closeCandleModal();
+  }
 });
 priceSymbol.addEventListener("input", () => {
   symbolTouched = true;

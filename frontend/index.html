@@ -4,7 +4,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Dashboard</title>
-    <link rel="stylesheet" href="/static/styles.css?v=live-market-watchlist" />
+    <link rel="stylesheet" href="/static/styles.css?v=live-market-candle-modal" />
   </head>
   <body>
     <main class="dashboard-shell">
@@ -566,6 +566,45 @@
       </section>
     </main>
 
-    <script src="/static/app.js?v=live-market-watchlist"></script>
+    <div id="live-market-candle-modal" class="modal-backdrop candle-modal-backdrop" hidden>
+      <section
+        class="candle-modal"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="candle-modal-title"
+      >
+        <div class="candle-modal-header">
+          <div>
+            <p id="candle-modal-eyebrow" class="eyebrow">Live Market</p>
+            <h2 id="candle-modal-title">Candles</h2>
+          </div>
+          <button id="candle-modal-close" type="button" class="secondary-button">Close</button>
+        </div>
+        <div class="candle-modal-controls">
+          <label>
+            <span id="candle-timeframe-label">Timeframe</span>
+            <select id="candle-timeframe">
+              <option value="1m">1m</option>
+              <option value="5m">5m</option>
+              <option value="15m">15m</option>
+              <option value="1h">1h</option>
+            </select>
+          </label>
+          <label>
+            <span id="candle-limit-label">Candles</span>
+            <select id="candle-limit">
+              <option value="50">50</option>
+              <option value="100">100</option>
+            </select>
+          </label>
+          <button id="candle-refresh" type="button" class="secondary-button">Refresh candles</button>
+        </div>
+        <div id="candle-modal-message" class="candle-modal-message" role="status"></div>
+        <div id="candle-chart" class="candle-chart"></div>
+        <dl id="candle-summary" class="candle-summary"></dl>
+      </section>
+    </div>
+
+    <script src="/static/app.js?v=live-market-candle-modal"></script>
   </body>
 </html>
