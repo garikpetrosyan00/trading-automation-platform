@@ -84,6 +84,23 @@ def configure_moving_average_strategy(strategy, *, short_window: str = "2", long
     }
 
 
+def configure_macd_crossover_strategy(
+    strategy,
+    *,
+    fast_period: str = "2",
+    slow_period: str = "3",
+    signal_period: str = "2",
+    quantity: str = "0.1",
+) -> None:
+    strategy.strategy_type = "macd_crossover"
+    strategy.parameters = {
+        "fast_period": fast_period,
+        "slow_period": slow_period,
+        "signal_period": signal_period,
+        "quantity": quantity,
+    }
+
+
 def test_bot_start_and_stop(db_session, db_session_factory, stub_market_data_service, bot_stack_factory, funded_account) -> None:
     funded_account(db_session)
     _, bot, _ = bot_stack_factory(db_session)
@@ -862,6 +879,192 @@ def test_moving_average_cross_invalid_parameters_skip_safely(
     assert PortfolioRepository(db_session).list_orders() == []
     skipped_event = next(event for event in events if event.message == "evaluation_skipped")
     assert skipped_event.payload["parameter"] == "short_window"
+
+
+def test_macd_crossover_buy_crossover_creates_buy_paper_order(
+    db_session,
+    db_session_factory,
+    stub_market_data_service,
+    bot_stack_factory,
+    funded_account,
+) -> None:
+    funded_account(db_session)
+    strategy, bot, _ = bot_stack_factory(db_session)
+    configure_macd_crossover_strategy(strategy)
+    db_session.add(strategy)
+    db_session.commit()
+    add_candles(db_session, closes=["1", "1", "1", "1", "2"])
+
+    runner = build_runner(db_session_factory, stub_market_data_service)
+    runner.start_bot(bot.id)
+    stub_market_data_service.set_price("BTCUSDT", "2")
+
+    response = asyncio.run(run_bot_once_endpoint(bot.id, runner))
+    repository = PortfolioRepository(db_session)
+    events = RunEventRepository(db_session).list_for_bot(bot.id)
+
+    assert response.action == "bought"
+    assert response.message == "buy_filled"
+    assert response.decision_explanation is not None
+    assert response.decision_explanation.decision == "buy"
+    assert response.decision_explanation.reason == "macd crossed above signal line"
+    assert response.decision_explanation.candles_used == 5
+    orders = repository.list_orders()
+    assert len(orders) == 1
+    assert orders[0].side == "buy"
+    assert orders[0].quantity == Decimal("0.10000000")
+    assert repository.get_position_by_symbol("BTCUSDT") is not None
+
+    buy_signal = next(event for event in events if event.message == "buy_signal")
+    assert buy_signal.payload["strategy_type"] == "macd_crossover"
+    assert buy_signal.payload["fast_period"] == 2
+    assert buy_signal.payload["slow_period"] == 3
+    assert buy_signal.payload["signal_period"] == 2
+    assert buy_signal.payload["macd"] == "0.16666667"
+    assert buy_signal.payload["signal"] == "0.11111111"
+    assert buy_signal.payload["histogram"] == "0.05555556"
+
+
+def test_macd_crossover_sell_crossover_sells_existing_position(
+    db_session,
+    db_session_factory,
+    stub_market_data_service,
+    bot_stack_factory,
+    funded_account,
+) -> None:
+    funded_account(db_session)
+    strategy, bot, _ = bot_stack_factory(db_session)
+    configure_macd_crossover_strategy(strategy)
+    db_session.add(strategy)
+    db_session.add(
+        Position(
+            symbol="BTCUSDT",
+            quantity=Decimal("0.1"),
+            average_entry_price=Decimal("2"),
+            realized_pnl=Decimal("0"),
+        )
+    )
+    db_session.commit()
+    add_candles(db_session, closes=["1", "1", "1", "2", "1"])
+
+    runner = build_runner(db_session_factory, stub_market_data_service)
+    runner.start_bot(bot.id)
+    stub_market_data_service.set_price("BTCUSDT", "1")
+
+    response = asyncio.run(run_bot_once_endpoint(bot.id, runner))
+    repository = PortfolioRepository(db_session)
+    events = RunEventRepository(db_session).list_for_bot(bot.id)
+
+    assert response.action == "sold"
+    assert response.message == "sell_filled"
+    assert response.decision_explanation is not None
+    assert response.decision_explanation.decision == "sell"
+    assert response.decision_explanation.reason == "macd crossed below signal line"
+    assert response.decision_explanation.candles_used == 5
+    orders = repository.list_orders()
+    assert len(orders) == 1
+    assert orders[0].side == "sell"
+    assert orders[0].quantity == Decimal("0.10000000")
+    assert repository.get_position_by_symbol("BTCUSDT").quantity == Decimal("0E-8")
+
+    sell_signal = next(event for event in events if event.message == "sell_signal")
+    assert sell_signal.payload["strategy_type"] == "macd_crossover"
+    assert sell_signal.payload["macd"] == "-0.02777778"
+    assert sell_signal.payload["signal"] == "0.00925926"
+    assert sell_signal.payload["histogram"] == "-0.03703704"
+
+
+def test_macd_crossover_insufficient_candles_skips_safely(
+    db_session,
+    db_session_factory,
+    stub_market_data_service,
+    bot_stack_factory,
+    funded_account,
+) -> None:
+    funded_account(db_session)
+    strategy, bot, _ = bot_stack_factory(db_session)
+    configure_macd_crossover_strategy(strategy)
+    db_session.add(strategy)
+    db_session.commit()
+    add_candles(db_session, closes=["1", "1", "2", "3"])
+
+    runner = build_runner(db_session_factory, stub_market_data_service)
+    runner.start_bot(bot.id)
+    stub_market_data_service.set_price("BTCUSDT", "3")
+
+    response = asyncio.run(run_bot_once_endpoint(bot.id, runner))
+    events = RunEventRepository(db_session).list_for_bot(bot.id)
+
+    assert response.action == "skipped"
+    assert response.message == "evaluation_skipped"
+    assert response.decision_explanation is not None
+    assert response.decision_explanation.decision == "skipped"
+    assert response.decision_explanation.reason == "insufficient_candles"
+    assert response.decision_explanation.candles_used == 4
+    assert PortfolioRepository(db_session).list_orders() == []
+    skipped_event = next(event for event in events if event.message == "evaluation_skipped")
+    assert skipped_event.payload["strategy_type"] == "macd_crossover"
+    assert skipped_event.payload["candles_used"] == 4
+
+
+def test_macd_crossover_invalid_parameters_skip_safely(
+    db_session,
+    db_session_factory,
+    stub_market_data_service,
+    bot_stack_factory,
+    funded_account,
+) -> None:
+    funded_account(db_session)
+    strategy, bot, _ = bot_stack_factory(db_session)
+    configure_macd_crossover_strategy(strategy, fast_period="2.5")
+    db_session.add(strategy)
+    db_session.commit()
+    add_candles(db_session, closes=["1", "1", "1", "1", "2"])
+
+    runner = build_runner(db_session_factory, stub_market_data_service)
+    runner.start_bot(bot.id)
+    stub_market_data_service.set_price("BTCUSDT", "2")
+
+    response = asyncio.run(run_bot_once_endpoint(bot.id, runner))
+    events = RunEventRepository(db_session).list_for_bot(bot.id)
+
+    assert response.action == "skipped"
+    assert response.message == "evaluation_skipped"
+    assert response.decision_explanation is not None
+    assert response.decision_explanation.decision == "skipped"
+    assert response.decision_explanation.reason == "strategy parameter fast_period must be a positive integer"
+    assert PortfolioRepository(db_session).list_orders() == []
+    skipped_event = next(event for event in events if event.message == "evaluation_skipped")
+    assert skipped_event.payload["strategy_type"] == "macd_crossover"
+    assert skipped_event.payload["parameter"] == "fast_period"
+
+
+def test_macd_crossover_missing_quantity_uses_execution_profile_quantity(
+    db_session,
+    db_session_factory,
+    stub_market_data_service,
+    bot_stack_factory,
+    funded_account,
+) -> None:
+    funded_account(db_session)
+    strategy, bot, profile = bot_stack_factory(db_session)
+    assert profile is not None
+    configure_macd_crossover_strategy(strategy)
+    strategy.parameters.pop("quantity")
+    db_session.add(strategy)
+    db_session.commit()
+    add_candles(db_session, closes=["1", "1", "1", "1", "2"])
+
+    runner = build_runner(db_session_factory, stub_market_data_service)
+    runner.start_bot(bot.id)
+    stub_market_data_service.set_price("BTCUSDT", "2")
+
+    response = asyncio.run(run_bot_once_endpoint(bot.id, runner))
+    orders = PortfolioRepository(db_session).list_orders()
+
+    assert response.action == "bought"
+    assert len(orders) == 1
+    assert orders[0].quantity == profile.order_quantity
 
 
 def test_live_mode_bot_does_not_use_simulated_execution_for_buy_or_sell(
