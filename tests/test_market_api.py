@@ -162,6 +162,50 @@ def test_binance_price_fetch_non_2xx_returns_clean_api_error(
     assert response.json()["detail"] == "Binance market data request failed with status 451"
 
 
+def test_binance_price_fetch_rate_limit_returns_clear_api_error(
+    stub_market_data_service,
+    noop_bot_runner,
+    configure_app_state,
+) -> None:
+    configure_app_state(market_data_service=stub_market_data_service, bot_runner=noop_bot_runner)
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(429, json={"msg": "Too many requests"})
+
+    override_binance_client(handler)
+    try:
+        with TestClient(app) as client:
+            response = client.post("/api/v1/market/binance/price", json={"symbol": "BTCUSDT"})
+    finally:
+        clear_binance_client_override()
+
+    assert response.status_code == 502
+    assert response.json()["error_code"] == "binance_market_data_error"
+    assert response.json()["detail"] == "Binance market data request was rate limited"
+
+
+def test_binance_price_fetch_invalid_json_returns_clean_api_error(
+    stub_market_data_service,
+    noop_bot_runner,
+    configure_app_state,
+) -> None:
+    configure_app_state(market_data_service=stub_market_data_service, bot_runner=noop_bot_runner)
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, content=b"{", headers={"content-type": "application/json"})
+
+    override_binance_client(handler)
+    try:
+        with TestClient(app) as client:
+            response = client.post("/api/v1/market/binance/price", json={"symbol": "BTCUSDT"})
+    finally:
+        clear_binance_client_override()
+
+    assert response.status_code == 502
+    assert response.json()["error_code"] == "binance_market_data_error"
+    assert response.json()["detail"] == "Binance market data returned invalid JSON"
+
+
 def test_binance_price_fetch_invalid_price_returns_clean_api_error(
     stub_market_data_service,
     noop_bot_runner,
@@ -273,6 +317,63 @@ def test_binance_candle_fetch_normalizes_lowercase_symbol(
     assert requested_symbols == ["BTCUSDT"]
 
 
+def test_binance_candle_fetch_preserves_supported_month_interval(
+    stub_market_data_service,
+    noop_bot_runner,
+    configure_app_state,
+) -> None:
+    configure_app_state(market_data_service=stub_market_data_service, bot_runner=noop_bot_runner)
+    requested_intervals: list[str] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        requested_intervals.append(request.url.params["interval"])
+        return httpx.Response(200, json=[kline()])
+
+    override_binance_client(handler)
+    try:
+        with TestClient(app) as client:
+            response = client.post(
+                "/api/v1/market/binance/candles",
+                json={"symbol": "BTCUSDT", "timeframe": "1M", "limit": 1},
+            )
+    finally:
+        clear_binance_client_override()
+
+    assert response.status_code == 200
+    assert response.json()["timeframe"] == "1M"
+    assert response.json()["candles"][0]["timeframe"] == "1M"
+    assert requested_intervals == ["1M"]
+
+
+def test_binance_candle_fetch_rejects_unsupported_interval_before_network_call(
+    stub_market_data_service,
+    noop_bot_runner,
+    configure_app_state,
+) -> None:
+    configure_app_state(market_data_service=stub_market_data_service, bot_runner=noop_bot_runner)
+    requested_urls: list[str] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        requested_urls.append(str(request.url))
+        return httpx.Response(200, json=[kline()])
+
+    override_binance_client(handler)
+    try:
+        with TestClient(app) as client:
+            response = client.post(
+                "/api/v1/market/binance/candles",
+                json={"symbol": "BTCUSDT", "timeframe": "2x", "limit": 1},
+            )
+    finally:
+        clear_binance_client_override()
+
+    assert response.status_code == 422
+    body = response.json()
+    assert body["detail"] == "Request validation failed"
+    assert "Unsupported Binance interval" in str(body["errors"])
+    assert requested_urls == []
+
+
 def test_binance_candle_fetch_upserts_duplicate_candles(
     stub_market_data_service,
     noop_bot_runner,
@@ -377,6 +478,31 @@ def test_binance_candle_fetch_malformed_payload_returns_clean_api_error(
     assert response.json()["detail"] == "Binance market data returned invalid candle data"
 
 
+def test_binance_candle_fetch_invalid_json_returns_clean_api_error(
+    stub_market_data_service,
+    noop_bot_runner,
+    configure_app_state,
+) -> None:
+    configure_app_state(market_data_service=stub_market_data_service, bot_runner=noop_bot_runner)
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, content=b"{", headers={"content-type": "application/json"})
+
+    override_binance_client(handler)
+    try:
+        with TestClient(app) as client:
+            response = client.post(
+                "/api/v1/market/binance/candles",
+                json={"symbol": "BTCUSDT", "timeframe": "1m", "limit": 1},
+            )
+    finally:
+        clear_binance_client_override()
+
+    assert response.status_code == 502
+    assert response.json()["error_code"] == "binance_market_data_error"
+    assert response.json()["detail"] == "Binance market data returned invalid JSON"
+
+
 def test_binance_candle_fetch_non_2xx_returns_clean_api_error(
     stub_market_data_service,
     noop_bot_runner,
@@ -400,6 +526,31 @@ def test_binance_candle_fetch_non_2xx_returns_clean_api_error(
     assert response.status_code == 502
     assert response.json()["error_code"] == "binance_market_data_error"
     assert response.json()["detail"] == "Binance market data request failed with status 451"
+
+
+def test_binance_candle_fetch_rate_limit_returns_clear_api_error(
+    stub_market_data_service,
+    noop_bot_runner,
+    configure_app_state,
+) -> None:
+    configure_app_state(market_data_service=stub_market_data_service, bot_runner=noop_bot_runner)
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(429, json={"msg": "Too many requests"})
+
+    override_binance_client(handler)
+    try:
+        with TestClient(app) as client:
+            response = client.post(
+                "/api/v1/market/binance/candles",
+                json={"symbol": "BTCUSDT", "timeframe": "1m", "limit": 1},
+            )
+    finally:
+        clear_binance_client_override()
+
+    assert response.status_code == 502
+    assert response.json()["error_code"] == "binance_market_data_error"
+    assert response.json()["detail"] == "Binance market data request was rate limited"
 
 
 def test_binance_candle_fetch_limit_validation_fails_cleanly(

@@ -5,7 +5,7 @@ import httpx
 from pydantic import ValidationError
 
 from app.core.errors import AppError
-from app.schemas.market import MarketCandleCreate
+from app.schemas.market import BINANCE_KLINE_INTERVALS, MarketCandleCreate
 
 
 class BinanceMarketDataError(AppError):
@@ -39,10 +39,7 @@ class BinanceMarketDataClient:
         except (httpx.TimeoutException, httpx.RequestError) as exc:
             raise BinanceMarketDataError("Could not reach Binance market data") from exc
 
-        if response.status_code < 200 or response.status_code >= 300:
-            raise BinanceMarketDataError(
-                f"Binance market data request failed with status {response.status_code}",
-            )
+        self._raise_for_binance_status(response)
 
         try:
             payload = response.json()
@@ -67,6 +64,12 @@ class BinanceMarketDataClient:
             raise BinanceMarketDataError("Symbol must not be empty", status_code=422, error_code="invalid_symbol")
         if not normalized_timeframe:
             raise BinanceMarketDataError("Timeframe must not be empty", status_code=422, error_code="invalid_timeframe")
+        if normalized_timeframe not in BINANCE_KLINE_INTERVALS:
+            raise BinanceMarketDataError(
+                "Unsupported Binance interval",
+                status_code=422,
+                error_code="invalid_timeframe",
+            )
         if limit < 1 or limit > 500:
             raise BinanceMarketDataError("Limit must be between 1 and 500", status_code=422, error_code="invalid_limit")
 
@@ -83,10 +86,7 @@ class BinanceMarketDataClient:
         except (httpx.TimeoutException, httpx.RequestError) as exc:
             raise BinanceMarketDataError("Could not reach Binance market data") from exc
 
-        if response.status_code < 200 or response.status_code >= 300:
-            raise BinanceMarketDataError(
-                f"Binance market data request failed with status {response.status_code}",
-            )
+        self._raise_for_binance_status(response)
 
         try:
             payload = response.json()
@@ -100,6 +100,16 @@ class BinanceMarketDataClient:
             self._parse_kline(normalized_symbol, normalized_timeframe, item)
             for item in payload
         ]
+
+    @staticmethod
+    def _raise_for_binance_status(response: httpx.Response) -> None:
+        if 200 <= response.status_code < 300:
+            return
+        if response.status_code == 429:
+            raise BinanceMarketDataError("Binance market data request was rate limited")
+        raise BinanceMarketDataError(
+            f"Binance market data request failed with status {response.status_code}",
+        )
 
     @staticmethod
     def _parse_kline(symbol: str, timeframe: str, item) -> MarketCandleCreate:
