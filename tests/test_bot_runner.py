@@ -101,6 +101,38 @@ def configure_macd_crossover_strategy(
     }
 
 
+def configure_rsi_threshold_strategy(
+    strategy,
+    *,
+    period: str = "2",
+    oversold: str = "30",
+    overbought: str = "70",
+    quantity: str = "0.1",
+) -> None:
+    strategy.strategy_type = "rsi_threshold"
+    strategy.parameters = {
+        "period": period,
+        "oversold": oversold,
+        "overbought": overbought,
+        "quantity": quantity,
+    }
+
+
+def configure_bollinger_bands_strategy(
+    strategy,
+    *,
+    period: str = "3",
+    stddev_multiplier: str = "0.5",
+    quantity: str = "0.1",
+) -> None:
+    strategy.strategy_type = "bollinger_bands"
+    strategy.parameters = {
+        "period": period,
+        "stddev_multiplier": stddev_multiplier,
+        "quantity": quantity,
+    }
+
+
 def test_bot_start_and_stop(db_session, db_session_factory, stub_market_data_service, bot_stack_factory, funded_account) -> None:
     funded_account(db_session)
     _, bot, _ = bot_stack_factory(db_session)
@@ -1058,6 +1090,371 @@ def test_macd_crossover_missing_quantity_uses_execution_profile_quantity(
     runner = build_runner(db_session_factory, stub_market_data_service)
     runner.start_bot(bot.id)
     stub_market_data_service.set_price("BTCUSDT", "2")
+
+    response = asyncio.run(run_bot_once_endpoint(bot.id, runner))
+    orders = PortfolioRepository(db_session).list_orders()
+
+    assert response.action == "bought"
+    assert len(orders) == 1
+    assert orders[0].quantity == profile.order_quantity
+
+
+def test_rsi_threshold_buy_signal_creates_buy_paper_order(
+    db_session,
+    db_session_factory,
+    stub_market_data_service,
+    bot_stack_factory,
+    funded_account,
+) -> None:
+    funded_account(db_session)
+    strategy, bot, _ = bot_stack_factory(db_session)
+    configure_rsi_threshold_strategy(strategy)
+    db_session.add(strategy)
+    db_session.commit()
+    add_candles(db_session, closes=["12", "11", "10"])
+
+    runner = build_runner(db_session_factory, stub_market_data_service)
+    runner.start_bot(bot.id)
+    stub_market_data_service.set_price("BTCUSDT", "10")
+
+    response = asyncio.run(run_bot_once_endpoint(bot.id, runner))
+    repository = PortfolioRepository(db_session)
+    events = RunEventRepository(db_session).list_for_bot(bot.id)
+
+    assert response.action == "bought"
+    assert response.message == "buy_filled"
+    assert response.decision_explanation is not None
+    assert response.decision_explanation.decision == "buy"
+    assert response.decision_explanation.reason == "rsi is at or below oversold threshold"
+    assert response.decision_explanation.candles_used == 3
+    orders = repository.list_orders()
+    assert len(orders) == 1
+    assert orders[0].side == "buy"
+    assert orders[0].quantity == Decimal("0.10000000")
+    assert repository.get_position_by_symbol("BTCUSDT") is not None
+
+    buy_signal = next(event for event in events if event.message == "buy_signal")
+    assert buy_signal.payload["strategy_type"] == "rsi_threshold"
+    assert buy_signal.payload["period"] == 2
+    assert buy_signal.payload["oversold"] == "30"
+    assert buy_signal.payload["overbought"] == "70"
+    assert buy_signal.payload["rsi"] == "0.00000000"
+
+
+def test_rsi_threshold_sell_signal_sells_existing_position(
+    db_session,
+    db_session_factory,
+    stub_market_data_service,
+    bot_stack_factory,
+    funded_account,
+) -> None:
+    funded_account(db_session)
+    strategy, bot, _ = bot_stack_factory(db_session)
+    configure_rsi_threshold_strategy(strategy)
+    db_session.add(strategy)
+    db_session.add(
+        Position(
+            symbol="BTCUSDT",
+            quantity=Decimal("0.1"),
+            average_entry_price=Decimal("10"),
+            realized_pnl=Decimal("0"),
+        )
+    )
+    db_session.commit()
+    add_candles(db_session, closes=["10", "11", "12"])
+
+    runner = build_runner(db_session_factory, stub_market_data_service)
+    runner.start_bot(bot.id)
+    stub_market_data_service.set_price("BTCUSDT", "12")
+
+    response = asyncio.run(run_bot_once_endpoint(bot.id, runner))
+    repository = PortfolioRepository(db_session)
+    events = RunEventRepository(db_session).list_for_bot(bot.id)
+
+    assert response.action == "sold"
+    assert response.message == "sell_filled"
+    assert response.decision_explanation is not None
+    assert response.decision_explanation.decision == "sell"
+    assert response.decision_explanation.reason == "rsi is at or above overbought threshold"
+    assert response.decision_explanation.candles_used == 3
+    orders = repository.list_orders()
+    assert len(orders) == 1
+    assert orders[0].side == "sell"
+    assert orders[0].quantity == Decimal("0.10000000")
+    assert repository.get_position_by_symbol("BTCUSDT").quantity == Decimal("0E-8")
+
+    sell_signal = next(event for event in events if event.message == "sell_signal")
+    assert sell_signal.payload["strategy_type"] == "rsi_threshold"
+    assert sell_signal.payload["rsi"] == "100.00000000"
+
+
+def test_rsi_threshold_insufficient_candles_skips_safely(
+    db_session,
+    db_session_factory,
+    stub_market_data_service,
+    bot_stack_factory,
+    funded_account,
+) -> None:
+    funded_account(db_session)
+    strategy, bot, _ = bot_stack_factory(db_session)
+    configure_rsi_threshold_strategy(strategy)
+    db_session.add(strategy)
+    db_session.commit()
+    add_candles(db_session, closes=["12", "11"])
+
+    runner = build_runner(db_session_factory, stub_market_data_service)
+    runner.start_bot(bot.id)
+    stub_market_data_service.set_price("BTCUSDT", "11")
+
+    response = asyncio.run(run_bot_once_endpoint(bot.id, runner))
+    events = RunEventRepository(db_session).list_for_bot(bot.id)
+
+    assert response.action == "skipped"
+    assert response.message == "evaluation_skipped"
+    assert response.decision_explanation is not None
+    assert response.decision_explanation.decision == "skipped"
+    assert response.decision_explanation.reason == "insufficient_candles"
+    assert response.decision_explanation.candles_used == 2
+    assert PortfolioRepository(db_session).list_orders() == []
+    skipped_event = next(event for event in events if event.message == "evaluation_skipped")
+    assert skipped_event.payload["strategy_type"] == "rsi_threshold"
+    assert skipped_event.payload["candles_used"] == 2
+
+
+def test_rsi_threshold_invalid_parameters_skip_safely(
+    db_session,
+    db_session_factory,
+    stub_market_data_service,
+    bot_stack_factory,
+    funded_account,
+) -> None:
+    funded_account(db_session)
+    strategy, bot, _ = bot_stack_factory(db_session)
+    configure_rsi_threshold_strategy(strategy, oversold="70", overbought="70")
+    db_session.add(strategy)
+    db_session.commit()
+    add_candles(db_session, closes=["12", "11", "10"])
+
+    runner = build_runner(db_session_factory, stub_market_data_service)
+    runner.start_bot(bot.id)
+    stub_market_data_service.set_price("BTCUSDT", "10")
+
+    response = asyncio.run(run_bot_once_endpoint(bot.id, runner))
+    events = RunEventRepository(db_session).list_for_bot(bot.id)
+
+    assert response.action == "skipped"
+    assert response.message == "evaluation_skipped"
+    assert response.decision_explanation is not None
+    assert response.decision_explanation.decision == "skipped"
+    assert response.decision_explanation.reason == "rsi_threshold oversold must be less than overbought"
+    assert PortfolioRepository(db_session).list_orders() == []
+    skipped_event = next(event for event in events if event.message == "evaluation_skipped")
+    assert skipped_event.payload["strategy_type"] == "rsi_threshold"
+    assert skipped_event.payload["parameter"] == "oversold"
+
+
+def test_rsi_threshold_missing_quantity_uses_execution_profile_quantity(
+    db_session,
+    db_session_factory,
+    stub_market_data_service,
+    bot_stack_factory,
+    funded_account,
+) -> None:
+    funded_account(db_session)
+    strategy, bot, profile = bot_stack_factory(db_session)
+    assert profile is not None
+    configure_rsi_threshold_strategy(strategy)
+    strategy.parameters.pop("quantity")
+    db_session.add(strategy)
+    db_session.commit()
+    add_candles(db_session, closes=["12", "11", "10"])
+
+    runner = build_runner(db_session_factory, stub_market_data_service)
+    runner.start_bot(bot.id)
+    stub_market_data_service.set_price("BTCUSDT", "10")
+
+    response = asyncio.run(run_bot_once_endpoint(bot.id, runner))
+    orders = PortfolioRepository(db_session).list_orders()
+
+    assert response.action == "bought"
+    assert len(orders) == 1
+    assert orders[0].quantity == profile.order_quantity
+
+
+def test_bollinger_bands_buy_signal_creates_buy_paper_order(
+    db_session,
+    db_session_factory,
+    stub_market_data_service,
+    bot_stack_factory,
+    funded_account,
+) -> None:
+    funded_account(db_session)
+    strategy, bot, _ = bot_stack_factory(db_session)
+    configure_bollinger_bands_strategy(strategy)
+    db_session.add(strategy)
+    db_session.commit()
+    add_candles(db_session, closes=["10", "10", "1"])
+
+    runner = build_runner(db_session_factory, stub_market_data_service)
+    runner.start_bot(bot.id)
+    stub_market_data_service.set_price("BTCUSDT", "1")
+
+    response = asyncio.run(run_bot_once_endpoint(bot.id, runner))
+    repository = PortfolioRepository(db_session)
+    events = RunEventRepository(db_session).list_for_bot(bot.id)
+
+    assert response.action == "bought"
+    assert response.message == "buy_filled"
+    assert response.decision_explanation is not None
+    assert response.decision_explanation.decision == "buy"
+    assert response.decision_explanation.reason == "price is at or below lower bollinger band"
+    assert response.decision_explanation.candles_used == 3
+    orders = repository.list_orders()
+    assert len(orders) == 1
+    assert orders[0].side == "buy"
+    assert orders[0].quantity == Decimal("0.10000000")
+    assert repository.get_position_by_symbol("BTCUSDT") is not None
+
+    buy_signal = next(event for event in events if event.message == "buy_signal")
+    assert buy_signal.payload["strategy_type"] == "bollinger_bands"
+    assert buy_signal.payload["period"] == 3
+    assert buy_signal.payload["stddev_multiplier"] == "0.5"
+    assert buy_signal.payload["sma"] == "7.00000000"
+    assert buy_signal.payload["lower_band"] == "4.87867966"
+
+
+def test_bollinger_bands_sell_signal_sells_existing_position(
+    db_session,
+    db_session_factory,
+    stub_market_data_service,
+    bot_stack_factory,
+    funded_account,
+) -> None:
+    funded_account(db_session)
+    strategy, bot, _ = bot_stack_factory(db_session)
+    configure_bollinger_bands_strategy(strategy)
+    db_session.add(strategy)
+    db_session.add(
+        Position(
+            symbol="BTCUSDT",
+            quantity=Decimal("0.1"),
+            average_entry_price=Decimal("1"),
+            realized_pnl=Decimal("0"),
+        )
+    )
+    db_session.commit()
+    add_candles(db_session, closes=["1", "1", "10"])
+
+    runner = build_runner(db_session_factory, stub_market_data_service)
+    runner.start_bot(bot.id)
+    stub_market_data_service.set_price("BTCUSDT", "10")
+
+    response = asyncio.run(run_bot_once_endpoint(bot.id, runner))
+    repository = PortfolioRepository(db_session)
+    events = RunEventRepository(db_session).list_for_bot(bot.id)
+
+    assert response.action == "sold"
+    assert response.message == "sell_filled"
+    assert response.decision_explanation is not None
+    assert response.decision_explanation.decision == "sell"
+    assert response.decision_explanation.reason == "price is at or above upper bollinger band"
+    assert response.decision_explanation.candles_used == 3
+    orders = repository.list_orders()
+    assert len(orders) == 1
+    assert orders[0].side == "sell"
+    assert orders[0].quantity == Decimal("0.10000000")
+    assert repository.get_position_by_symbol("BTCUSDT").quantity == Decimal("0E-8")
+
+    sell_signal = next(event for event in events if event.message == "sell_signal")
+    assert sell_signal.payload["strategy_type"] == "bollinger_bands"
+    assert sell_signal.payload["sma"] == "4.00000000"
+    assert sell_signal.payload["upper_band"] == "6.12132034"
+
+
+def test_bollinger_bands_insufficient_candles_skips_safely(
+    db_session,
+    db_session_factory,
+    stub_market_data_service,
+    bot_stack_factory,
+    funded_account,
+) -> None:
+    funded_account(db_session)
+    strategy, bot, _ = bot_stack_factory(db_session)
+    configure_bollinger_bands_strategy(strategy)
+    db_session.add(strategy)
+    db_session.commit()
+    add_candles(db_session, closes=["10", "10"])
+
+    runner = build_runner(db_session_factory, stub_market_data_service)
+    runner.start_bot(bot.id)
+    stub_market_data_service.set_price("BTCUSDT", "10")
+
+    response = asyncio.run(run_bot_once_endpoint(bot.id, runner))
+    events = RunEventRepository(db_session).list_for_bot(bot.id)
+
+    assert response.action == "skipped"
+    assert response.message == "evaluation_skipped"
+    assert response.decision_explanation is not None
+    assert response.decision_explanation.decision == "skipped"
+    assert response.decision_explanation.reason == "insufficient_candles"
+    assert response.decision_explanation.candles_used == 2
+    assert PortfolioRepository(db_session).list_orders() == []
+    skipped_event = next(event for event in events if event.message == "evaluation_skipped")
+    assert skipped_event.payload["strategy_type"] == "bollinger_bands"
+    assert skipped_event.payload["candles_used"] == 2
+
+
+def test_bollinger_bands_invalid_parameters_skip_safely(
+    db_session,
+    db_session_factory,
+    stub_market_data_service,
+    bot_stack_factory,
+    funded_account,
+) -> None:
+    funded_account(db_session)
+    strategy, bot, _ = bot_stack_factory(db_session)
+    configure_bollinger_bands_strategy(strategy, period="1")
+    db_session.add(strategy)
+    db_session.commit()
+    add_candles(db_session, closes=["10", "10", "1"])
+
+    runner = build_runner(db_session_factory, stub_market_data_service)
+    runner.start_bot(bot.id)
+    stub_market_data_service.set_price("BTCUSDT", "1")
+
+    response = asyncio.run(run_bot_once_endpoint(bot.id, runner))
+    events = RunEventRepository(db_session).list_for_bot(bot.id)
+
+    assert response.action == "skipped"
+    assert response.message == "evaluation_skipped"
+    assert response.decision_explanation is not None
+    assert response.decision_explanation.decision == "skipped"
+    assert response.decision_explanation.reason == "bollinger_bands parameter period must be at least 2"
+    assert PortfolioRepository(db_session).list_orders() == []
+    skipped_event = next(event for event in events if event.message == "evaluation_skipped")
+    assert skipped_event.payload["strategy_type"] == "bollinger_bands"
+    assert skipped_event.payload["parameter"] == "period"
+
+
+def test_bollinger_bands_missing_quantity_uses_execution_profile_quantity(
+    db_session,
+    db_session_factory,
+    stub_market_data_service,
+    bot_stack_factory,
+    funded_account,
+) -> None:
+    funded_account(db_session)
+    strategy, bot, profile = bot_stack_factory(db_session)
+    assert profile is not None
+    configure_bollinger_bands_strategy(strategy)
+    strategy.parameters.pop("quantity")
+    db_session.add(strategy)
+    db_session.commit()
+    add_candles(db_session, closes=["10", "10", "1"])
+
+    runner = build_runner(db_session_factory, stub_market_data_service)
+    runner.start_bot(bot.id)
+    stub_market_data_service.set_price("BTCUSDT", "1")
 
     response = asyncio.run(run_bot_once_endpoint(bot.id, runner))
     orders = PortfolioRepository(db_session).list_orders()

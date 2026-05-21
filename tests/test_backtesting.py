@@ -68,6 +68,37 @@ def macd_crossover_strategy(**parameter_overrides):
     )
 
 
+def rsi_threshold_strategy(**parameter_overrides):
+    parameters = {
+        "period": "2",
+        "oversold": "30",
+        "overbought": "70",
+        "quantity": "1",
+    }
+    parameters.update(parameter_overrides)
+    return SimpleNamespace(
+        symbol="BTCUSDT",
+        timeframe="1m",
+        strategy_type="rsi_threshold",
+        parameters=parameters,
+    )
+
+
+def bollinger_bands_strategy(**parameter_overrides):
+    parameters = {
+        "period": "3",
+        "stddev_multiplier": "0.5",
+        "quantity": "1",
+    }
+    parameters.update(parameter_overrides)
+    return SimpleNamespace(
+        symbol="BTCUSDT",
+        timeframe="1m",
+        strategy_type="bollinger_bands",
+        parameters=parameters,
+    )
+
+
 def price_threshold_strategy(**parameter_overrides):
     parameters = {
         "buy_below": "11",
@@ -226,6 +257,90 @@ def test_backtest_macd_crossover_opens_position_and_marks_to_last_close(db_sessi
     assert result.cash_balance == Decimal("80.00000000")
     assert result.unrealized_pnl == Decimal("5.00000000")
     assert result.final_balance == Decimal("105.00000000")
+
+
+def test_backtest_rsi_threshold_opens_and_closes_profitable_position(db_session) -> None:
+    add_candles(db_session, closes=["12", "11", "10", "11", "12"])
+
+    result = run_backtest(db_session, rsi_threshold_strategy())
+
+    assert result.strategy_type == "rsi_threshold"
+    assert result.candles_processed == 5
+    assert result.number_of_trades == 2
+    assert result.closed_trades == 1
+    assert result.open_position is False
+    assert [trade.side for trade in result.trades] == ["buy", "sell"]
+    assert [trade.decision_reason for trade in result.trades] == [
+        "rsi is at or below oversold threshold",
+        "rsi is at or above overbought threshold",
+    ]
+    assert result.trades[0].price == Decimal("10.00000000")
+    assert result.trades[1].price == Decimal("12.00000000")
+    assert result.trades[1].realized_pnl == Decimal("2.00000000")
+    assert result.final_balance == Decimal("102.00000000")
+    assert result.realized_pnl == Decimal("2.00000000")
+    assert result.total_return == Decimal("2.00000000")
+    assert result.total_return_percent == Decimal("2.00000000")
+    assert result.win_rate == Decimal("100.00000000")
+
+
+def test_backtest_rsi_threshold_opens_position_and_marks_to_last_close(db_session) -> None:
+    add_candles(db_session, closes=["12", "11", "10", "11"])
+
+    result = run_backtest(db_session, rsi_threshold_strategy())
+
+    assert result.number_of_trades == 1
+    assert result.closed_trades == 0
+    assert result.open_position is True
+    assert result.trades[0].side == "buy"
+    assert result.trades[0].decision_reason == "rsi is at or below oversold threshold"
+    assert result.entry_price == Decimal("10.00000000")
+    assert result.position_quantity == Decimal("1")
+    assert result.cash_balance == Decimal("90.00000000")
+    assert result.unrealized_pnl == Decimal("1.00000000")
+    assert result.final_balance == Decimal("101.00000000")
+
+
+def test_backtest_bollinger_bands_opens_and_closes_profitable_position(db_session) -> None:
+    add_candles(db_session, closes=["10", "10", "1", "1", "10"])
+
+    result = run_backtest(db_session, bollinger_bands_strategy())
+
+    assert result.strategy_type == "bollinger_bands"
+    assert result.candles_processed == 5
+    assert result.number_of_trades == 2
+    assert result.closed_trades == 1
+    assert result.open_position is False
+    assert [trade.side for trade in result.trades] == ["buy", "sell"]
+    assert [trade.decision_reason for trade in result.trades] == [
+        "price is at or below lower bollinger band",
+        "price is at or above upper bollinger band",
+    ]
+    assert result.trades[0].price == Decimal("1.00000000")
+    assert result.trades[1].price == Decimal("10.00000000")
+    assert result.trades[1].realized_pnl == Decimal("9.00000000")
+    assert result.final_balance == Decimal("109.00000000")
+    assert result.realized_pnl == Decimal("9.00000000")
+    assert result.total_return == Decimal("9.00000000")
+    assert result.total_return_percent == Decimal("9.00000000")
+    assert result.win_rate == Decimal("100.00000000")
+
+
+def test_backtest_bollinger_bands_opens_position_and_marks_to_last_close(db_session) -> None:
+    add_candles(db_session, closes=["10", "10", "1", "5"])
+
+    result = run_backtest(db_session, bollinger_bands_strategy())
+
+    assert result.number_of_trades == 1
+    assert result.closed_trades == 0
+    assert result.open_position is True
+    assert result.trades[0].side == "buy"
+    assert result.trades[0].decision_reason == "price is at or below lower bollinger band"
+    assert result.entry_price == Decimal("1.00000000")
+    assert result.position_quantity == Decimal("1")
+    assert result.cash_balance == Decimal("99.00000000")
+    assert result.unrealized_pnl == Decimal("4.00000000")
+    assert result.final_balance == Decimal("104.00000000")
 
 
 def test_backtest_invalid_moving_average_parameters_return_safe_no_trade_result(db_session) -> None:

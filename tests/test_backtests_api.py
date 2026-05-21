@@ -76,7 +76,7 @@ def create_bollinger_bands_strategy(session) -> Strategy:
         strategy_type="bollinger_bands",
         parameters={
             "period": "3",
-            "stddev_multiplier": "2",
+            "stddev_multiplier": "0.5",
             "quantity": "1",
         },
         is_active=True,
@@ -334,6 +334,88 @@ def test_run_macd_crossover_backtest_persists_metrics_through_api(
     assert body["trades"][1]["price"] == "30.00000000"
     assert body["trades"][1]["realized_pnl"] == "10.00000000"
     assert body["trades"][1]["decision_reason"] == "macd crossed below signal line"
+
+
+def test_run_rsi_threshold_backtest_persists_metrics_through_api(
+    db_session,
+    stub_market_data_service,
+    noop_bot_runner,
+    configure_app_state,
+) -> None:
+    configure_app_state(market_data_service=stub_market_data_service, bot_runner=noop_bot_runner)
+    strategy = create_rsi_threshold_strategy(db_session)
+    add_candles(db_session, closes=["12", "11", "10", "11", "12"])
+
+    with TestClient(app) as client:
+        response = client.post(
+            "/api/v1/backtests",
+            json={"strategy_id": strategy.id, "initial_balance": "100", "source": "manual"},
+        )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["strategy_id"] == strategy.id
+    assert body["strategy_type"] == "rsi_threshold"
+    assert body["source"] == "manual"
+    assert body["candles_processed"] == 5
+    assert body["final_balance"] == "102.00000000"
+    assert body["realized_pnl"] == "2.00000000"
+    assert body["total_return"] == "2.00000000"
+    assert body["total_return_percent"] == "2.00000000"
+    assert body["number_of_trades"] == 2
+    assert body["closed_trades"] == 1
+    assert body["open_position"] is False
+    assert body["winning_trades"] == 1
+    assert body["losing_trades"] == 0
+    assert body["win_rate"] == "100"
+    assert body["average_trade_pnl"] == "2.00000000"
+    assert [trade["side"] for trade in body["trades"]] == ["buy", "sell"]
+    assert body["trades"][0]["price"] == "10.00000000"
+    assert body["trades"][0]["decision_reason"] == "rsi is at or below oversold threshold"
+    assert body["trades"][1]["price"] == "12.00000000"
+    assert body["trades"][1]["realized_pnl"] == "2.00000000"
+    assert body["trades"][1]["decision_reason"] == "rsi is at or above overbought threshold"
+
+
+def test_run_bollinger_bands_backtest_persists_metrics_through_api(
+    db_session,
+    stub_market_data_service,
+    noop_bot_runner,
+    configure_app_state,
+) -> None:
+    configure_app_state(market_data_service=stub_market_data_service, bot_runner=noop_bot_runner)
+    strategy = create_bollinger_bands_strategy(db_session)
+    add_candles(db_session, closes=["10", "10", "1", "1", "10"])
+
+    with TestClient(app) as client:
+        response = client.post(
+            "/api/v1/backtests",
+            json={"strategy_id": strategy.id, "initial_balance": "100", "source": "manual"},
+        )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["strategy_id"] == strategy.id
+    assert body["strategy_type"] == "bollinger_bands"
+    assert body["source"] == "manual"
+    assert body["candles_processed"] == 5
+    assert body["final_balance"] == "109.00000000"
+    assert body["realized_pnl"] == "9.00000000"
+    assert body["total_return"] == "9.00000000"
+    assert body["total_return_percent"] == "9.00000000"
+    assert body["number_of_trades"] == 2
+    assert body["closed_trades"] == 1
+    assert body["open_position"] is False
+    assert body["winning_trades"] == 1
+    assert body["losing_trades"] == 0
+    assert body["win_rate"] == "100"
+    assert body["average_trade_pnl"] == "9.00000000"
+    assert [trade["side"] for trade in body["trades"]] == ["buy", "sell"]
+    assert body["trades"][0]["price"] == "1.00000000"
+    assert body["trades"][0]["decision_reason"] == "price is at or below lower bollinger band"
+    assert body["trades"][1]["price"] == "10.00000000"
+    assert body["trades"][1]["realized_pnl"] == "9.00000000"
+    assert body["trades"][1]["decision_reason"] == "price is at or above upper bollinger band"
 
 
 def test_run_moving_average_cross_backtest_with_source_through_api(
