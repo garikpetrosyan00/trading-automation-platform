@@ -414,6 +414,60 @@ def test_backtest_does_not_look_ahead_when_evaluating_each_candle(db_session, mo
     ]
 
 
+def test_backtest_processes_out_of_order_inserted_candles_oldest_first(db_session, monkeypatch) -> None:
+    start = datetime(2026, 4, 28, 12, 0, tzinfo=timezone.utc)
+    candles_by_index = {
+        0: "10",
+        1: "10",
+        2: "10",
+        3: "20",
+        4: "25",
+    }
+    for index in (3, 0, 4, 1, 2):
+        close_price = Decimal(candles_by_index[index])
+        open_time = start + timedelta(minutes=index)
+        db_session.add(
+            MarketCandle(
+                symbol="BTCUSDT",
+                timeframe="1m",
+                open_time=open_time,
+                close_time=open_time + timedelta(minutes=1),
+                open_price=close_price,
+                high_price=close_price,
+                low_price=close_price,
+                close_price=close_price,
+                volume=Decimal("1"),
+                source="manual",
+            )
+        )
+    db_session.commit()
+    original_evaluate = StrategyEngine.evaluate
+    seen_lengths: list[int] = []
+    seen_last_prices: list[Decimal] = []
+
+    def spy_evaluate(**kwargs):
+        candles = kwargs["candles"]
+        seen_lengths.append(len(candles))
+        seen_last_prices.append(candles[-1].close_price)
+        return original_evaluate(**kwargs)
+
+    monkeypatch.setattr(StrategyEngine, "evaluate", spy_evaluate)
+
+    result = run_backtest(db_session, moving_average_strategy())
+
+    assert result.candles_processed == 5
+    assert seen_lengths == [1, 2, 3, 4, 5]
+    assert seen_last_prices == [
+        Decimal("10.00000000"),
+        Decimal("10.00000000"),
+        Decimal("10.00000000"),
+        Decimal("20.00000000"),
+        Decimal("25.00000000"),
+    ]
+    assert result.number_of_trades == 1
+    assert result.trades[0].price == Decimal("20.00000000")
+
+
 def test_backtest_uses_configured_candle_source(db_session) -> None:
     add_candles(db_session, closes=["10", "11", "12", "13"], source="manual")
     add_candles(db_session, closes=["10", "10", "10", "20"], source="binance")

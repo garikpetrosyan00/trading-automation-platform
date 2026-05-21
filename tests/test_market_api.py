@@ -313,6 +313,45 @@ def test_binance_candle_fetch_upserts_duplicate_candles(
     assert list_response.json()[0]["close_price"] == "65090.00000000"
 
 
+def test_binance_candle_fetch_upserts_duplicate_klines_in_same_response(
+    stub_market_data_service,
+    noop_bot_runner,
+    configure_app_state,
+) -> None:
+    configure_app_state(market_data_service=stub_market_data_service, bot_runner=noop_bot_runner)
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json=[kline(close="65050.00"), kline(close="65090.00")])
+
+    override_binance_client(handler)
+    try:
+        with TestClient(app) as client:
+            response = client.post(
+                "/api/v1/market/binance/candles",
+                json={"symbol": "BTCUSDT", "timeframe": "1m", "limit": 2},
+            )
+            list_response = client.get(
+                "/api/v1/market/candles",
+                params={"symbol": "BTCUSDT", "timeframe": "1m", "limit": 10},
+            )
+    finally:
+        clear_binance_client_override()
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["requested_limit"] == 2
+    assert body["stored_count"] == 2
+    assert len(body["candles"]) == 2
+    assert body["candles"][0]["id"] == body["candles"][1]["id"]
+    assert [candle["close_price"] for candle in body["candles"]] == [
+        "65090.00000000",
+        "65090.00000000",
+    ]
+    assert list_response.status_code == 200
+    assert len(list_response.json()) == 1
+    assert list_response.json()[0]["close_price"] == "65090.00000000"
+
+
 def test_binance_candle_fetch_malformed_payload_returns_clean_api_error(
     stub_market_data_service,
     noop_bot_runner,

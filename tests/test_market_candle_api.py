@@ -88,6 +88,42 @@ def test_list_market_candles_returns_recent_limit_oldest_first(
     assert candles[0]["open_time"] < candles[1]["open_time"]
 
 
+def test_list_market_candles_returns_out_of_order_inserts_oldest_first(
+    stub_market_data_service,
+    noop_bot_runner,
+    configure_app_state,
+) -> None:
+    configure_app_state(market_data_service=stub_market_data_service, bot_runner=noop_bot_runner)
+    start = datetime(2026, 4, 28, 12, 0, tzinfo=timezone.utc)
+
+    with TestClient(app) as client:
+        for index in (2, 0, 1):
+            open_time = start + timedelta(minutes=index)
+            response = client.post(
+                "/api/v1/market/candles",
+                json=candle_payload(
+                    open_time=open_time.isoformat(),
+                    close_time=(open_time + timedelta(minutes=1)).isoformat(),
+                    close_price=str(65050 + index),
+                ),
+            )
+            assert response.status_code == 201
+
+        list_response = client.get(
+            "/api/v1/market/candles",
+            params={"symbol": "BTCUSDT", "timeframe": "1m", "limit": 3},
+        )
+
+    assert list_response.status_code == 200
+    candles = list_response.json()
+    assert [candle["close_price"] for candle in candles] == [
+        "65050.00000000",
+        "65051.00000000",
+        "65052.00000000",
+    ]
+    assert [candle["open_time"] for candle in candles] == sorted(candle["open_time"] for candle in candles)
+
+
 def test_duplicate_market_candle_updates_existing_row(
     stub_market_data_service,
     noop_bot_runner,
@@ -119,6 +155,41 @@ def test_create_market_candle_with_invalid_price_relationship_fails_cleanly(
 
     with TestClient(app) as client:
         response = client.post("/api/v1/market/candles", json=candle_payload(high_price="64900.00"))
+
+    assert response.status_code == 422
+    assert response.json()["detail"] == "Request validation failed"
+
+
+def test_create_market_candle_with_invalid_low_relationship_fails_cleanly(
+    stub_market_data_service,
+    noop_bot_runner,
+    configure_app_state,
+) -> None:
+    configure_app_state(market_data_service=stub_market_data_service, bot_runner=noop_bot_runner)
+
+    with TestClient(app) as client:
+        response = client.post("/api/v1/market/candles", json=candle_payload(low_price="65200.00"))
+
+    assert response.status_code == 422
+    assert response.json()["detail"] == "Request validation failed"
+
+
+def test_create_market_candle_with_close_time_before_open_time_fails_cleanly(
+    stub_market_data_service,
+    noop_bot_runner,
+    configure_app_state,
+) -> None:
+    configure_app_state(market_data_service=stub_market_data_service, bot_runner=noop_bot_runner)
+    open_time = datetime(2026, 4, 28, 12, 0, tzinfo=timezone.utc)
+
+    with TestClient(app) as client:
+        response = client.post(
+            "/api/v1/market/candles",
+            json=candle_payload(
+                open_time=open_time.isoformat(),
+                close_time=(open_time - timedelta(minutes=1)).isoformat(),
+            ),
+        )
 
     assert response.status_code == 422
     assert response.json()["detail"] == "Request validation failed"

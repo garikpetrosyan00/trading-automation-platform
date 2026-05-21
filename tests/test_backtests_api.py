@@ -451,6 +451,96 @@ def test_run_moving_average_cross_backtest_with_source_through_api(
     assert body["trades"][0]["side"] == "buy"
 
 
+def test_run_rsi_threshold_backtest_with_source_through_api(
+    db_session,
+    stub_market_data_service,
+    noop_bot_runner,
+    configure_app_state,
+) -> None:
+    configure_app_state(market_data_service=stub_market_data_service, bot_runner=noop_bot_runner)
+    strategy = create_rsi_threshold_strategy(db_session)
+    add_candles(db_session, closes=["10", "11", "12", "13", "14"], source="manual")
+    add_candles(db_session, closes=["12", "11", "10", "11", "12"], source="binance")
+
+    with TestClient(app) as client:
+        response = client.post(
+            "/api/v1/backtests",
+            json={"strategy_id": strategy.id, "initial_balance": "100", "source": "binance"},
+        )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["strategy_type"] == "rsi_threshold"
+    assert body["source"] == "binance"
+    assert body["number_of_trades"] == 2
+    assert body["closed_trades"] == 1
+    assert body["final_balance"] == "102.00000000"
+    assert [trade["decision_reason"] for trade in body["trades"]] == [
+        "rsi is at or below oversold threshold",
+        "rsi is at or above overbought threshold",
+    ]
+
+
+def test_run_bollinger_bands_backtest_with_source_through_api(
+    db_session,
+    stub_market_data_service,
+    noop_bot_runner,
+    configure_app_state,
+) -> None:
+    configure_app_state(market_data_service=stub_market_data_service, bot_runner=noop_bot_runner)
+    strategy = create_bollinger_bands_strategy(db_session)
+    add_candles(db_session, closes=["9", "10", "11", "12", "13"], source="manual")
+    add_candles(db_session, closes=["10", "10", "1", "1", "10"], source="binance")
+
+    with TestClient(app) as client:
+        response = client.post(
+            "/api/v1/backtests",
+            json={"strategy_id": strategy.id, "initial_balance": "100", "source": "binance"},
+        )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["strategy_type"] == "bollinger_bands"
+    assert body["source"] == "binance"
+    assert body["number_of_trades"] == 2
+    assert body["closed_trades"] == 1
+    assert body["final_balance"] == "109.00000000"
+    assert [trade["decision_reason"] for trade in body["trades"]] == [
+        "price is at or below lower bollinger band",
+        "price is at or above upper bollinger band",
+    ]
+
+
+def test_run_macd_crossover_backtest_with_source_through_api(
+    db_session,
+    stub_market_data_service,
+    noop_bot_runner,
+    configure_app_state,
+) -> None:
+    configure_app_state(market_data_service=stub_market_data_service, bot_runner=noop_bot_runner)
+    strategy = create_macd_crossover_strategy(db_session)
+    add_candles(db_session, closes=["1", "1", "1", "1", "1", "1", "1", "1"], source="manual")
+    add_candles(db_session, closes=["10", "10", "10", "10", "20", "30", "30", "20"], source="binance")
+
+    with TestClient(app) as client:
+        response = client.post(
+            "/api/v1/backtests",
+            json={"strategy_id": strategy.id, "initial_balance": "100", "source": "binance"},
+        )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["strategy_type"] == "macd_crossover"
+    assert body["source"] == "binance"
+    assert body["number_of_trades"] == 2
+    assert body["closed_trades"] == 1
+    assert body["final_balance"] == "110.00000000"
+    assert [trade["decision_reason"] for trade in body["trades"]] == [
+        "macd crossed above signal line",
+        "macd crossed below signal line",
+    ]
+
+
 def test_run_backtest_with_invalid_moving_average_parameters_is_safe_through_api(
     db_session,
     stub_market_data_service,

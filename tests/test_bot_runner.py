@@ -957,6 +957,37 @@ def test_macd_crossover_buy_crossover_creates_buy_paper_order(
     assert buy_signal.payload["histogram"] == "0.05555556"
 
 
+def test_macd_crossover_uses_configured_candle_source(
+    db_session,
+    db_session_factory,
+    stub_market_data_service,
+    bot_stack_factory,
+    funded_account,
+) -> None:
+    funded_account(db_session)
+    strategy, bot, _ = bot_stack_factory(db_session)
+    configure_macd_crossover_strategy(strategy)
+    strategy.parameters["candle_source"] = "binance"
+    db_session.add(strategy)
+    db_session.commit()
+    add_candles(db_session, closes=["1", "1", "1", "1", "1"], source="manual")
+    add_candles(db_session, closes=["1", "1", "1", "1", "2"], source="binance")
+
+    runner = build_runner(db_session_factory, stub_market_data_service)
+    runner.start_bot(bot.id)
+    stub_market_data_service.set_price("BTCUSDT", "2")
+
+    response = asyncio.run(run_bot_once_endpoint(bot.id, runner))
+    events = RunEventRepository(db_session).list_for_bot(bot.id)
+
+    assert response.action == "bought"
+    buy_signal = next(event for event in events if event.message == "buy_signal")
+    assert buy_signal.payload["strategy_type"] == "macd_crossover"
+    assert buy_signal.payload["candle_source"] == "binance"
+    assert buy_signal.payload["macd"] == "0.16666667"
+    assert buy_signal.payload["signal"] == "0.11111111"
+
+
 def test_macd_crossover_sell_crossover_sells_existing_position(
     db_session,
     db_session_factory,
