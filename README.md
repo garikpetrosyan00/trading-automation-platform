@@ -132,6 +132,10 @@ Then open `http://127.0.0.1:8000/dashboard`.
 
 Important local note: app startup depends on the configured database being available. With the default settings this means PostgreSQL must be running; if PostgreSQL is unavailable, `uvicorn app.main:app --reload` will fail during startup.
 
+## Manual demo guide
+
+For a concise portfolio/demo walkthrough covering local startup, tests, `/health`, `/dashboard`, Binance price and candle smoke tests, and a sample backtest, see [docs/manual-demo-guide.md](docs/manual-demo-guide.md).
+
 ## Docker run instructions
 
 ```bash
