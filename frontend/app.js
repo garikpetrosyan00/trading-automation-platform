@@ -1,6 +1,16 @@
 const API_BASE_URL = "";
 const AUTO_REFRESH_MS = 10000;
 const LIVE_MARKET_REFRESH_MS = 10000;
+const CANDLE_CHART_WIDTH = 720;
+const CANDLE_CHART_HEIGHT = 300;
+const CANDLE_CHART_PLOT = {
+  left: 44,
+  right: 82,
+  top: 16,
+  bottom: 40,
+};
+CANDLE_CHART_PLOT.width = CANDLE_CHART_WIDTH - CANDLE_CHART_PLOT.left - CANDLE_CHART_PLOT.right;
+CANDLE_CHART_PLOT.height = CANDLE_CHART_HEIGHT - CANDLE_CHART_PLOT.top - CANDLE_CHART_PLOT.bottom;
 const LANGUAGE_STORAGE_KEY = "dashboard.language";
 const LIVE_MARKET_STORAGE_KEY = "dashboard.liveMarketSymbols";
 const LIVE_MARKET_AUTO_REFRESH_STORAGE_KEY = "dashboard.liveMarketAutoRefresh";
@@ -6237,22 +6247,101 @@ function finishCandleDrag(pointerId = null) {
   if (pointerId !== null && candleDragState.pointerId !== pointerId) return;
   candleDragState = null;
   candleChart.classList.remove("is-panning");
+  hideCandleHover();
+}
+
+function hideCandleHover() {
+  candleChart.querySelector(".candle-hover-tooltip")?.remove();
+  candleChart.querySelector(".candle-hover-guide")?.remove();
+}
+
+function candleTooltipRows(candle) {
+  return [
+    { label: t("candle_time_label"), value: formatDateTime(candle.time) },
+    { label: t("candle_open_label"), value: formatDecimal(candle.open) },
+    { label: t("candle_high_label"), value: formatDecimal(candle.high) },
+    { label: t("candle_low_label"), value: formatDecimal(candle.low) },
+    { label: t("candle_close_label"), value: formatDecimal(candle.close) },
+    { label: t("candle_volume_label"), value: formatDecimal(candle.volume) },
+  ];
+}
+
+function showCandleHover(event) {
+  if (candleDragState || candleModal.isLoading || candleModal.isLoadingOlder) {
+    hideCandleHover();
+    return;
+  }
+
+  const svg = candleChart.querySelector(".candle-chart-svg");
+  const candles = visibleCandleSet();
+  if (!svg || candles.length === 0) {
+    hideCandleHover();
+    return;
+  }
+
+  const svgRect = svg.getBoundingClientRect();
+  const chartRect = candleChart.getBoundingClientRect();
+  const scaleX = CANDLE_CHART_WIDTH / Math.max(svgRect.width, 1);
+  const svgX = (event.clientX - svgRect.left) * scaleX;
+  if (
+    svgX < CANDLE_CHART_PLOT.left ||
+    svgX > CANDLE_CHART_WIDTH - CANDLE_CHART_PLOT.right ||
+    event.clientY < svgRect.top ||
+    event.clientY > svgRect.bottom
+  ) {
+    hideCandleHover();
+    return;
+  }
+
+  const step = CANDLE_CHART_PLOT.width / Math.max(candles.length, 1);
+  const index = Math.min(
+    Math.max(Math.floor((svgX - CANDLE_CHART_PLOT.left) / step), 0),
+    candles.length - 1,
+  );
+  const candle = candles[index];
+  const candleX = CANDLE_CHART_PLOT.left + step * index + step / 2;
+  const guideLeft = svgRect.left - chartRect.left + (candleX / CANDLE_CHART_WIDTH) * svgRect.width;
+  const guideTop = svgRect.top - chartRect.top + (CANDLE_CHART_PLOT.top / CANDLE_CHART_HEIGHT) * svgRect.height;
+  const guideHeight = (CANDLE_CHART_PLOT.height / CANDLE_CHART_HEIGHT) * svgRect.height;
+
+  let guide = candleChart.querySelector(".candle-hover-guide");
+  if (!guide) {
+    guide = document.createElement("span");
+    guide.className = "candle-hover-guide";
+    candleChart.append(guide);
+  }
+  guide.style.left = `${guideLeft}px`;
+  guide.style.top = `${guideTop}px`;
+  guide.style.height = `${guideHeight}px`;
+
+  let tooltip = candleChart.querySelector(".candle-hover-tooltip");
+  if (!tooltip) {
+    tooltip = document.createElement("div");
+    tooltip.className = "candle-hover-tooltip";
+    candleChart.append(tooltip);
+  }
+  tooltip.innerHTML = candleTooltipRows(candle)
+    .map((row) => `<span>${row.label}</span><strong>${row.value}</strong>`)
+    .join("");
+
+  const preferredLeft = event.clientX - chartRect.left + 12;
+  const preferredTop = event.clientY - chartRect.top + 12;
+  const tooltipWidth = tooltip.offsetWidth || 180;
+  const tooltipHeight = tooltip.offsetHeight || 150;
+  const left = Math.min(Math.max(preferredLeft, 8), Math.max(chartRect.width - tooltipWidth - 8, 8));
+  const top = Math.min(Math.max(preferredTop, 8), Math.max(chartRect.height - tooltipHeight - 8, 8));
+  tooltip.style.left = `${left}px`;
+  tooltip.style.top = `${top}px`;
 }
 
 function renderCandleChart(candles) {
+  hideCandleHover();
   candleChart.innerHTML = "";
   if (candles.length === 0) return;
 
-  const width = 720;
-  const height = 300;
-  const plot = {
-    left: 44,
-    right: 82,
-    top: 16,
-    bottom: 40,
-  };
-  plot.width = width - plot.left - plot.right;
-  plot.height = height - plot.top - plot.bottom;
+  const width = CANDLE_CHART_WIDTH;
+  const height = CANDLE_CHART_HEIGHT;
+  const plot = CANDLE_CHART_PLOT;
   const range = candlePriceRange(candles);
   const { minimum, maximum } = range;
   const step = plot.width / Math.max(candles.length, 1);
@@ -8075,6 +8164,7 @@ candleChart.addEventListener("wheel", (event) => {
 candleChart.addEventListener("pointerdown", (event) => {
   if (!candleModal.isOpen || candleModal.isLoading || candleModal.isLoadingOlder || !canPanCandleWindow()) return;
   event.preventDefault();
+  hideCandleHover();
   const window = candleVisibleWindow();
   candleDragState = {
     pointerId: event.pointerId,
@@ -8086,12 +8176,11 @@ candleChart.addEventListener("pointerdown", (event) => {
   candleChart.setPointerCapture?.(event.pointerId);
 });
 candleChart.addEventListener("pointermove", (event) => {
-  if (
-    !candleDragState ||
-    candleDragState.pointerId !== event.pointerId ||
-    candleModal.isLoadingOlder ||
-    !canPanCandleWindow()
-  ) {
+  if (!candleDragState) {
+    showCandleHover(event);
+    return;
+  }
+  if (candleDragState.pointerId !== event.pointerId || candleModal.isLoadingOlder || !canPanCandleWindow()) {
     return;
   }
   event.preventDefault();
@@ -8107,6 +8196,7 @@ candleChart.addEventListener("pointermove", (event) => {
 candleChart.addEventListener("pointerup", (event) => finishCandleDrag(event.pointerId));
 candleChart.addEventListener("pointercancel", (event) => finishCandleDrag(event.pointerId));
 candleChart.addEventListener("lostpointercapture", () => finishCandleDrag());
+candleChart.addEventListener("pointerleave", hideCandleHover);
 candleLoadOlder.addEventListener("click", loadOlderCandles);
 candleWindowPrev.addEventListener("click", () => panCandleWindow(-1));
 candleWindowNext.addEventListener("click", () => panCandleWindow(1));

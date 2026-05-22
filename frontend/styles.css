@@ -1082,10 +1082,10 @@ dd {
 }
 
 .candle-chart-toolbar {
-  display: flex;
+  display: grid;
+  grid-template-columns: minmax(180px, 1fr) auto;
+  gap: 4px 12px;
   align-items: center;
-  justify-content: space-between;
-  gap: 10px;
 }
 
 .candle-chart-toolbar p {
@@ -1094,6 +1094,7 @@ dd {
   font-size: 0.78rem;
   font-weight: 800;
   line-height: 1.35;
+  max-width: 34ch;
 }
 
 .candle-window-controls {
@@ -1101,10 +1102,11 @@ dd {
   flex-wrap: wrap;
   justify-content: flex-end;
   gap: 6px;
+  min-width: 0;
 }
 
 .candle-older-message {
-  flex-basis: 100%;
+  grid-column: 2;
   min-height: 16px;
   color: var(--muted);
   font-size: 0.74rem;
@@ -1113,6 +1115,7 @@ dd {
 }
 
 .candle-chart {
+  position: relative;
   display: grid;
   gap: 10px;
   min-height: 280px;
@@ -1127,6 +1130,42 @@ dd {
 
 .candle-chart.is-panning {
   cursor: grabbing;
+}
+
+.candle-hover-guide {
+  position: absolute;
+  z-index: 2;
+  width: 1px;
+  pointer-events: none;
+  background: rgba(102, 115, 109, 0.42);
+}
+
+.candle-hover-tooltip {
+  position: absolute;
+  z-index: 3;
+  display: grid;
+  grid-template-columns: auto auto;
+  gap: 4px 10px;
+  min-width: 176px;
+  border: 1px solid rgba(219, 226, 221, 0.95);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.96);
+  box-shadow: 0 10px 26px rgba(23, 33, 28, 0.16);
+  color: var(--text);
+  padding: 8px 9px;
+  pointer-events: none;
+}
+
+.candle-hover-tooltip span {
+  color: var(--muted);
+  font-size: 0.7rem;
+  font-weight: 800;
+}
+
+.candle-hover-tooltip strong {
+  justify-self: end;
+  font-size: 0.74rem;
+  font-weight: 900;
 }
 
 .candle-chart:empty {
@@ -2595,7 +2634,7 @@ dd {
 
   .candle-chart-toolbar {
     align-items: flex-start;
-    flex-direction: column;
+    grid-template-columns: 1fr;
   }
 
   .candle-window-controls {
@@ -2603,6 +2642,7 @@ dd {
   }
 
   .candle-older-message {
+    grid-column: 1;
     text-align: left;
   }
 }
