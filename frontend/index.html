@@ -4,7 +4,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Dashboard</title>
-    <link rel="stylesheet" href="/static/styles.css?v=live-market-candle-modal" />
+    <link rel="stylesheet" href="/static/styles.css?v=candle-chart-axis" />
   </head>
   <body>
     <main class="dashboard-shell">
@@ -597,14 +597,29 @@
               <option value="100">100</option>
             </select>
           </label>
+          <label>
+            <span id="candle-date-label">Date</span>
+            <input id="candle-date" type="date" />
+          </label>
+          <button id="candle-date-clear" type="button" class="secondary-button">Latest candles</button>
           <button id="candle-refresh" type="button" class="secondary-button">Refresh candles</button>
         </div>
         <div id="candle-modal-message" class="candle-modal-message" role="status"></div>
+        <div class="candle-chart-toolbar">
+          <p id="candle-chart-help">Wheel to zoom. Drag or Shift+wheel to move through time.</p>
+          <div class="candle-window-controls">
+            <button id="candle-load-older" type="button" class="secondary-button">Load older</button>
+            <button id="candle-window-prev" type="button" class="secondary-button">Previous</button>
+            <button id="candle-window-reset" type="button" class="secondary-button">Reset zoom</button>
+            <button id="candle-window-next" type="button" class="secondary-button">Next</button>
+          </div>
+          <span id="candle-older-message" class="candle-older-message" role="status"></span>
+        </div>
         <div id="candle-chart" class="candle-chart"></div>
         <dl id="candle-summary" class="candle-summary"></dl>
       </section>
     </div>
 
-    <script src="/static/app.js?v=live-market-candle-modal"></script>
+    <script src="/static/app.js?v=candle-chart-axis"></script>
   </body>
 </html>

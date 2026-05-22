@@ -84,7 +84,13 @@ async def fetch_binance_market_candles(
     db: DbSession,
     binance_client: BinanceMarketDataClient = Depends(get_binance_market_data_client),
 ) -> BinanceMarketCandlesRead:
-    fetched_candles = await binance_client.fetch_candles(payload.symbol, payload.timeframe, payload.limit)
+    fetched_candles = await binance_client.fetch_candles(
+        payload.symbol,
+        payload.timeframe,
+        payload.limit,
+        start_time=payload.start_time,
+        end_time=payload.end_time,
+    )
     service = get_market_candle_service(db)
     stored_candles = service.upsert_many(fetched_candles)
     return BinanceMarketCandlesRead(

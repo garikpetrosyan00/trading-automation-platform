@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, timezone
 from decimal import Decimal
 from typing import Annotated
 
@@ -65,6 +65,8 @@ class BinanceMarketCandlesRequest(BaseModel):
     symbol: str
     timeframe: str
     limit: int = Field(default=100, ge=1, le=500)
+    start_time: datetime | None = None
+    end_time: datetime | None = None
 
     @field_validator("symbol")
     @classmethod
@@ -84,6 +86,29 @@ class BinanceMarketCandlesRequest(BaseModel):
             supported = ", ".join(sorted(BINANCE_KLINE_INTERVALS))
             raise ValueError(f"Unsupported Binance interval. Supported intervals: {supported}")
         return normalized
+
+    @model_validator(mode="after")
+    def validate_time_range(self) -> "BinanceMarketCandlesRequest":
+        if self.start_time is None and self.end_time is None:
+            return self
+        if self.start_time is None:
+            self.end_time = self._normalize_datetime(self.end_time)
+            return self
+        if self.end_time is None:
+            raise ValueError("end_time is required when start_time is provided")
+
+        self.start_time = self._normalize_datetime(self.start_time)
+        self.end_time = self._normalize_datetime(self.end_time)
+
+        if self.end_time <= self.start_time:
+            raise ValueError("end_time must be greater than start_time")
+        return self
+
+    @staticmethod
+    def _normalize_datetime(value: datetime) -> datetime:
+        if value.tzinfo is None:
+            return value.replace(tzinfo=timezone.utc)
+        return value.astimezone(timezone.utc)
 
 
 class MarketCandleBase(BaseModel):

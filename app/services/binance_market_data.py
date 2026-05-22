@@ -57,7 +57,14 @@ class BinanceMarketDataClient:
 
         return price
 
-    async def fetch_candles(self, symbol: str, timeframe: str, limit: int) -> list[MarketCandleCreate]:
+    async def fetch_candles(
+        self,
+        symbol: str,
+        timeframe: str,
+        limit: int,
+        start_time: datetime | None = None,
+        end_time: datetime | None = None,
+    ) -> list[MarketCandleCreate]:
         normalized_symbol = symbol.strip().upper()
         normalized_timeframe = timeframe.strip()
         if not normalized_symbol:
@@ -72,6 +79,14 @@ class BinanceMarketDataClient:
             )
         if limit < 1 or limit > 500:
             raise BinanceMarketDataError("Limit must be between 1 and 500", status_code=422, error_code="invalid_limit")
+        if start_time is not None and end_time is not None and end_time <= start_time:
+            raise BinanceMarketDataError("end_time must be greater than start_time", status_code=422, error_code="invalid_time_range")
+
+        params: dict[str, str | int] = {"symbol": normalized_symbol, "interval": normalized_timeframe, "limit": limit}
+        if start_time is not None:
+            params["startTime"] = self._datetime_to_milliseconds(start_time)
+        if end_time is not None:
+            params["endTime"] = self._datetime_to_milliseconds(end_time)
 
         try:
             async with httpx.AsyncClient(
@@ -81,7 +96,7 @@ class BinanceMarketDataClient:
             ) as client:
                 response = await client.get(
                     "/api/v3/klines",
-                    params={"symbol": normalized_symbol, "interval": normalized_timeframe, "limit": limit},
+                    params=params,
                 )
         except (httpx.TimeoutException, httpx.RequestError) as exc:
             raise BinanceMarketDataError("Could not reach Binance market data") from exc
@@ -135,6 +150,14 @@ class BinanceMarketDataClient:
             raise BinanceMarketDataError("Binance market data returned invalid candle data") from exc
 
         return candle
+
+    @staticmethod
+    def _datetime_to_milliseconds(value: datetime) -> int:
+        if value.tzinfo is None:
+            value = value.replace(tzinfo=timezone.utc)
+        else:
+            value = value.astimezone(timezone.utc)
+        return int(value.timestamp() * 1000)
 
 
 async def fetch_latest_price(symbol: str, base_url: str) -> Decimal:

@@ -87,12 +87,19 @@ let candleModal = {
   symbol: "",
   timeframe: "1m",
   limit: 50,
+  candleDate: "",
   candles: [],
+  visibleStart: 0,
+  visibleCount: null,
+  isLoadingOlder: false,
+  olderMessage: "",
   isLoading: false,
   error: "",
   requestId: 0,
 };
 let candleModalPreviousFocus = null;
+let candleDragState = null;
+let candleWheelPanRemainder = 0;
 let refreshMessage = "";
 let refreshMessageType = "";
 let botSearchQuery = "";
@@ -291,11 +298,22 @@ const translations = {
     candle_modal_title: "{symbol} candles",
     candle_timeframe_label: "Timeframe",
     candle_limit_label: "Candles",
+    candle_date_label: "Date",
+    candle_latest_candles: "Latest candles",
     candle_refresh: "Refresh candles",
     candle_refreshing: "Loading…",
     candle_loading: "Loading candles…",
     candle_empty: "No candle data returned for this symbol.",
     candle_error: "Could not load Binance candles.",
+    candle_chart_help: "Wheel to zoom. Drag or Shift+wheel to move through time.",
+    candle_load_older: "Load older",
+    candle_loading_older: "Loading older candles…",
+    candle_no_older_loaded: "No older candles loaded.",
+    candle_older_loaded: "Loaded {count} older candles.",
+    candle_older_error: "Could not load older candles.",
+    candle_window_previous: "Previous",
+    candle_window_next: "Next",
+    candle_window_reset: "Reset zoom",
     candle_open_label: "Open",
     candle_high_label: "High",
     candle_low_label: "Low",
@@ -303,6 +321,12 @@ const translations = {
     candle_volume_label: "Volume",
     candle_time_label: "Candle time",
     candle_chart_label: "Candlestick chart",
+    candle_range_high_label: "Range high",
+    candle_range_low_label: "Range low",
+    candle_first_open_label: "First open",
+    candle_last_close_label: "Last close",
+    candle_net_change_label: "Net change",
+    candle_net_change_percent_label: "Net change %",
     backtest: "Backtest",
     backtest_aria: "Run backtest",
     backtest_overview:
@@ -884,11 +908,22 @@ const translations = {
     candle_modal_title: "{symbol} candle-ներ",
     candle_timeframe_label: "Timeframe",
     candle_limit_label: "Candle-ներ",
+    candle_date_label: "Date",
+    candle_latest_candles: "Latest candles",
     candle_refresh: "Թարմացնել candle-ները",
     candle_refreshing: "Բեռնվում է…",
     candle_loading: "Candle-ները բեռնվում են…",
     candle_empty: "Այս symbol-ի համար candle տվյալներ չվերադարձան։",
     candle_error: "Չհաջողվեց բեռնել Binance candle-ները։",
+    candle_chart_help: "Wheel to zoom. Drag or Shift+wheel to move through time.",
+    candle_load_older: "Բեռնել հները",
+    candle_loading_older: "Հին candle-ները բեռնվում են…",
+    candle_no_older_loaded: "Հին candle-ներ չբեռնվեցին։",
+    candle_older_loaded: "Բեռնվեց {count} հին candle։",
+    candle_older_error: "Չհաջողվեց բեռնել հին candle-ները։",
+    candle_window_previous: "Previous",
+    candle_window_next: "Next",
+    candle_window_reset: "Reset zoom",
     candle_open_label: "Open",
     candle_high_label: "High",
     candle_low_label: "Low",
@@ -896,6 +931,12 @@ const translations = {
     candle_volume_label: "Volume",
     candle_time_label: "Candle-ի ժամանակ",
     candle_chart_label: "Candlestick chart",
+    candle_range_high_label: "Range high",
+    candle_range_low_label: "Range low",
+    candle_first_open_label: "First open",
+    candle_last_close_label: "Last close",
+    candle_net_change_label: "Net change",
+    candle_net_change_percent_label: "Net change %",
     backtest: "Backtest",
     backtest_aria: "Գործարկել backtest",
     backtest_overview:
@@ -1402,8 +1443,17 @@ const candleTimeframeLabel = document.querySelector("#candle-timeframe-label");
 const candleTimeframe = document.querySelector("#candle-timeframe");
 const candleLimitLabel = document.querySelector("#candle-limit-label");
 const candleLimit = document.querySelector("#candle-limit");
+const candleDateLabel = document.querySelector("#candle-date-label");
+const candleDate = document.querySelector("#candle-date");
+const candleDateClear = document.querySelector("#candle-date-clear");
 const candleRefresh = document.querySelector("#candle-refresh");
 const candleModalMessage = document.querySelector("#candle-modal-message");
+const candleChartHelp = document.querySelector("#candle-chart-help");
+const candleLoadOlder = document.querySelector("#candle-load-older");
+const candleOlderMessage = document.querySelector("#candle-older-message");
+const candleWindowPrev = document.querySelector("#candle-window-prev");
+const candleWindowReset = document.querySelector("#candle-window-reset");
+const candleWindowNext = document.querySelector("#candle-window-next");
 const candleChart = document.querySelector("#candle-chart");
 const candleSummary = document.querySelector("#candle-summary");
 const botSettingsPanel = document.querySelector(".bot-settings-panel");
@@ -1720,6 +1770,13 @@ function applyStaticTranslations() {
   candleModalClose.textContent = t("close");
   candleTimeframeLabel.textContent = t("candle_timeframe_label");
   candleLimitLabel.textContent = t("candle_limit_label");
+  candleDateLabel.textContent = t("candle_date_label");
+  candleDateClear.textContent = t("candle_latest_candles");
+  candleChartHelp.textContent = t("candle_chart_help");
+  candleLoadOlder.textContent = candleModal.isLoadingOlder ? t("candle_loading_older") : t("candle_load_older");
+  candleWindowPrev.textContent = t("candle_window_previous");
+  candleWindowReset.textContent = t("candle_window_reset");
+  candleWindowNext.textContent = t("candle_window_next");
   botSettingsHeading.textContent = t("bot_settings");
   botSettingsPanel?.setAttribute("aria-label", t("bot_settings_aria"));
   executionSettingsHeading.textContent = t("execution_settings");
@@ -5758,20 +5815,77 @@ function normalizeCandleResponse(data) {
   return rawCandles.map(normalizeCandle).filter(Boolean);
 }
 
-function candleRequestPayload() {
+function candleDateRange(value) {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value || "");
+  if (!match) return null;
+  const year = Number(match[1]);
+  const month = Number(match[2]) - 1;
+  const day = Number(match[3]);
+  const start = new Date(Date.UTC(year, month, day));
+  const end = new Date(Date.UTC(year, month, day + 1));
+  if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) return null;
   return {
+    start_time: start.toISOString(),
+    end_time: end.toISOString(),
+  };
+}
+
+function candleRequestPayload() {
+  const payload = {
     symbol: candleModal.symbol,
     timeframe: candleModal.timeframe,
     limit: candleModal.limit,
   };
+  const range = candleDateRange(candleModal.candleDate);
+  return range ? { ...payload, ...range } : payload;
 }
 
-async function fetchLiveMarketCandles() {
+async function fetchLiveMarketCandles(payload = candleRequestPayload()) {
   return fetchJson("/api/v1/market/binance/candles", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(candleRequestPayload()),
+    body: JSON.stringify(payload),
   });
+}
+
+function candleTimestamp(candle) {
+  const parsed = new Date(candle?.time);
+  return Number.isNaN(parsed.getTime()) ? null : parsed.getTime();
+}
+
+function candleIdentity(candle) {
+  const timestamp = candleTimestamp(candle);
+  return timestamp === null ? "" : String(timestamp);
+}
+
+function sortCandlesOldestFirst(candles) {
+  return [...candles].sort((left, right) => (candleTimestamp(left) ?? 0) - (candleTimestamp(right) ?? 0));
+}
+
+function mergeCandleSets(existingCandles, incomingCandles) {
+  const byTime = new Map();
+  [...existingCandles, ...incomingCandles].forEach((candle) => {
+    const key = candleIdentity(candle);
+    if (!key) return;
+    byTime.set(key, candle);
+  });
+  return sortCandlesOldestFirst([...byTime.values()]);
+}
+
+function oldestLoadedCandle() {
+  return candleModal.candles[0] ?? null;
+}
+
+function olderCandlesPayload() {
+  const oldest = oldestLoadedCandle();
+  const timestamp = candleTimestamp(oldest);
+  if (timestamp === null) return null;
+  return {
+    symbol: candleModal.symbol,
+    timeframe: candleModal.timeframe,
+    limit: Math.min(Math.max(Number(candleModal.limit) || 100, 100), 500),
+    end_time: new Date(Math.max(timestamp - 1, 0)).toISOString(),
+  };
 }
 
 function candleErrorMessage(error) {
@@ -5785,7 +5899,9 @@ async function refreshCandleModal() {
   candleModal = {
     ...candleModal,
     isLoading: true,
+    isLoadingOlder: false,
     error: "",
+    olderMessage: "",
     requestId,
   };
   renderCandleModal();
@@ -5793,21 +5909,83 @@ async function refreshCandleModal() {
   try {
     const result = await fetchLiveMarketCandles();
     if (candleModal.requestId !== requestId) return;
+    const candles = normalizeCandleResponse(result);
+    const defaultWindow = defaultCandleWindow(candles.length);
     candleModal = {
       ...candleModal,
-      candles: normalizeCandleResponse(result),
+      candles,
+      visibleStart: defaultWindow.start,
+      visibleCount: defaultWindow.count || null,
       isLoading: false,
       error: "",
     };
+    candleWheelPanRemainder = 0;
   } catch (error) {
     if (candleModal.requestId !== requestId) return;
     candleModal = {
       ...candleModal,
       candles: [],
+      visibleStart: 0,
+      visibleCount: null,
       isLoading: false,
       error: candleErrorMessage(error),
     };
+    candleWheelPanRemainder = 0;
   }
+  renderCandleModal();
+}
+
+async function loadOlderCandles() {
+  if (
+    !candleModal.isOpen ||
+    candleModal.isLoading ||
+    candleModal.isLoadingOlder ||
+    candleModal.candles.length === 0 ||
+    !candleModal.symbol
+  ) {
+    return;
+  }
+
+  const payload = olderCandlesPayload();
+  if (!payload) return;
+  const visibleWindow = candleVisibleWindow();
+  const visibleFirstKey = candleIdentity(candleModal.candles[visibleWindow.start]);
+  candleModal = {
+    ...candleModal,
+    isLoadingOlder: true,
+    olderMessage: t("candle_loading_older"),
+  };
+  renderCandleModal();
+
+  try {
+    const result = await fetchLiveMarketCandles(payload);
+    const incomingCandles = normalizeCandleResponse(result);
+    const previousCount = candleModal.candles.length;
+    const mergedCandles = mergeCandleSets(candleModal.candles, incomingCandles);
+    const loadedCount = Math.max(mergedCandles.length - previousCount, 0);
+    const anchoredStart = Math.max(
+      mergedCandles.findIndex((candle) => candleIdentity(candle) === visibleFirstKey),
+      0,
+    );
+    candleModal = {
+      ...candleModal,
+      candles: mergedCandles,
+      visibleStart: anchoredStart,
+      visibleCount: visibleWindow.count,
+      isLoadingOlder: false,
+      olderMessage: loadedCount > 0
+        ? t("candle_older_loaded", { count: loadedCount })
+        : t("candle_no_older_loaded"),
+    };
+    candleWheelPanRemainder = 0;
+  } catch (error) {
+    candleModal = {
+      ...candleModal,
+      isLoadingOlder: false,
+      olderMessage: candleErrorMessage(error) || t("candle_older_error"),
+    };
+  }
+
   renderCandleModal();
 }
 
@@ -5818,8 +5996,12 @@ function openCandleModal(symbol) {
     isOpen: true,
     symbol,
     candles: [],
+    visibleStart: 0,
+    visibleCount: null,
     error: "",
+    olderMessage: "",
     isLoading: false,
+    isLoadingOlder: false,
   };
   renderCandleModal();
   candleModalClose.focus();
@@ -5842,23 +6024,238 @@ function closeCandleModal() {
   candleModalPreviousFocus = null;
 }
 
-function candleYScale(value, minimum, maximum, height, padding) {
+function candlePriceRange(candles) {
+  const highs = candles.map((item) => item.high);
+  const lows = candles.map((item) => item.low);
+  const rawMaximum = Math.max(...highs);
+  const rawMinimum = Math.min(...lows);
+  const rawRange = Math.max(rawMaximum - rawMinimum, Math.abs(rawMaximum) * 0.0001, 1);
+  const padding = rawRange * 0.04;
+  return {
+    maximum: rawMaximum + padding,
+    minimum: rawMinimum - padding,
+    rangeHigh: rawMaximum,
+    rangeLow: rawMinimum,
+  };
+}
+
+function candleYScale(value, minimum, maximum, plot) {
   const range = Math.max(maximum - minimum, Math.abs(maximum) * 0.0001, 1);
-  return padding + ((maximum - value) / range) * (height - padding * 2);
+  return plot.top + ((maximum - value) / range) * plot.height;
+}
+
+function candleTicks(minimum, maximum, count = 6) {
+  const range = Math.max(maximum - minimum, Math.abs(maximum) * 0.0001, 1);
+  return Array.from({ length: count }, (_, index) => maximum - (range * index) / (count - 1));
+}
+
+function candleTimeLabel(value, timeframe) {
+  if (!value) return "";
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return "";
+  if (timeframe === "1h") {
+    const parts = new Intl.DateTimeFormat([], {
+      month: "2-digit",
+      day: "2-digit",
+      hour: "2-digit",
+      hour12: false,
+    }).formatToParts(parsed);
+    const byType = Object.fromEntries(parts.map((part) => [part.type, part.value]));
+    return `${byType.month}-${byType.day} ${byType.hour}:00`;
+  }
+  return formatTime(value);
+}
+
+function candleTimeTickIndexes(candles, count = 5) {
+  if (candles.length <= 1) return [0];
+  const tickCount = Math.min(count, candles.length);
+  const indexes = new Set();
+  for (let index = 0; index < tickCount; index += 1) {
+    indexes.add(Math.round((index * (candles.length - 1)) / (tickCount - 1)));
+  }
+  return [...indexes].sort((left, right) => left - right);
+}
+
+function candleNetChangeClass(value) {
+  if (value > 0) return "pnl-positive";
+  if (value < 0) return "pnl-negative";
+  return "pnl-neutral";
+}
+
+function renderCandleRangeSummary(candles, range) {
+  const first = candles[0];
+  const latest = candles[candles.length - 1];
+  const netChange = latest.close - first.open;
+  const netChangePercent = first.open ? (netChange / first.open) * 100 : null;
+  const summary = document.createElement("dl");
+  summary.className = "candle-range-summary";
+  [
+    { label: t("candle_range_high_label"), value: formatDecimal(range.rangeHigh) },
+    { label: t("candle_range_low_label"), value: formatDecimal(range.rangeLow) },
+    { label: t("candle_first_open_label"), value: formatDecimal(first.open) },
+    { label: t("candle_last_close_label"), value: formatDecimal(latest.close) },
+    {
+      label: t("candle_net_change_label"),
+      value: formatSignedDecimal(netChange),
+      className: candleNetChangeClass(netChange),
+    },
+    {
+      label: t("candle_net_change_percent_label"),
+      value: formatSignedPercent(netChangePercent),
+      className: candleNetChangeClass(netChange),
+    },
+  ].forEach((item) => {
+    const group = document.createElement("div");
+    const label = document.createElement("dt");
+    const value = document.createElement("dd");
+    label.textContent = item.label;
+    value.textContent = item.value;
+    if (item.className) value.classList.add(item.className);
+    group.append(label, value);
+    summary.append(group);
+  });
+  candleChart.append(summary);
+}
+
+function candleMinimumVisibleCount(total) {
+  return Math.min(10, total);
+}
+
+function defaultCandleVisibleCount(total) {
+  if (total <= 0) return 0;
+  if (total <= 35) return total;
+  if (total <= 60) return Math.min(total, 34);
+  return Math.min(total, Math.max(candleMinimumVisibleCount(total), Math.round(total * 0.58)));
+}
+
+function defaultCandleWindow(total) {
+  const count = defaultCandleVisibleCount(total);
+  return {
+    start: Math.max(total - count, 0),
+    count,
+  };
+}
+
+function normalizedCandleWindow(total, start = candleModal.visibleStart, count = candleModal.visibleCount) {
+  if (total <= 0) return { start: 0, count: 0 };
+  const safeCount = Math.min(total, Math.max(candleMinimumVisibleCount(total), Number(count) || total));
+  const safeStart = Math.min(Math.max(Number(start) || 0, 0), Math.max(total - safeCount, 0));
+  return { start: safeStart, count: safeCount };
+}
+
+function candleVisibleWindow() {
+  const total = candleModal.candles.length;
+  return normalizedCandleWindow(total);
+}
+
+function visibleCandleSet() {
+  const window = candleVisibleWindow();
+  return candleModal.candles.slice(window.start, window.start + window.count);
+}
+
+function setCandleWindow(start, count) {
+  const window = normalizedCandleWindow(candleModal.candles.length, start, count);
+  candleModal = {
+    ...candleModal,
+    visibleStart: window.start,
+    visibleCount: window.count || null,
+  };
+}
+
+function resetCandleWindow() {
+  const window = defaultCandleWindow(candleModal.candles.length);
+  candleWheelPanRemainder = 0;
+  setCandleWindow(window.start, window.count);
+}
+
+function panCandleWindowByCandles(deltaCandles) {
+  const window = candleVisibleWindow();
+  if (!canPanCandleWindow()) return false;
+  const nextStart = window.start + deltaCandles;
+  if (nextStart < 0 && window.start === 0) {
+    loadOlderCandles();
+    return false;
+  }
+  setCandleWindow(nextStart, window.count);
+  return candleModal.visibleStart !== window.start;
+}
+
+function panCandleWindow(direction) {
+  const total = candleModal.candles.length;
+  const window = candleVisibleWindow();
+  if (!total || window.count >= total) return;
+  const shift = Math.max(1, Math.round(window.count * 0.5));
+  if (panCandleWindowByCandles(direction * shift)) {
+    renderCandleModal();
+  }
+}
+
+function canPanCandleWindow() {
+  const window = candleVisibleWindow();
+  return candleModal.candles.length > 0 && window.count < candleModal.candles.length;
+}
+
+function zoomCandleWindow(delta) {
+  const total = candleModal.candles.length;
+  if (!total) return;
+  const window = candleVisibleWindow();
+  const nextCount = delta < 0
+    ? Math.max(candleMinimumVisibleCount(total), Math.round(window.count * 0.78))
+    : Math.min(total, Math.round(window.count / 0.78));
+  if (nextCount === window.count) return;
+  const center = window.start + window.count / 2;
+  candleWheelPanRemainder = 0;
+  setCandleWindow(Math.round(center - nextCount / 2), nextCount);
+  renderCandleModal();
+}
+
+function candleChartInteractionWidth() {
+  return Math.max(candleChart.getBoundingClientRect().width, 240);
+}
+
+function candlePanDistanceToShift(pixelDelta, visibleCount = candleVisibleWindow().count) {
+  const width = candleChartInteractionWidth();
+  const candleWidth = width / Math.max(visibleCount, 1);
+  const rawShift = pixelDelta / Math.max(candleWidth, 10);
+  if (Math.abs(rawShift) < 0.5) return 0;
+  return Math.trunc(rawShift);
+}
+
+function panCandleWindowByWheel(delta) {
+  const window = candleVisibleWindow();
+  const width = candleChartInteractionWidth();
+  const candleWidth = width / Math.max(window.count, 1);
+  candleWheelPanRemainder += delta / Math.max(candleWidth, 10);
+  const shift = Math.trunc(candleWheelPanRemainder);
+  if (!shift) return false;
+  candleWheelPanRemainder -= shift;
+  return panCandleWindowByCandles(shift);
+}
+
+function finishCandleDrag(pointerId = null) {
+  if (!candleDragState) return;
+  if (pointerId !== null && candleDragState.pointerId !== pointerId) return;
+  candleDragState = null;
+  candleChart.classList.remove("is-panning");
 }
 
 function renderCandleChart(candles) {
   candleChart.innerHTML = "";
   if (candles.length === 0) return;
 
-  const width = 640;
-  const height = 260;
-  const padding = 18;
-  const highs = candles.map((item) => item.high);
-  const lows = candles.map((item) => item.low);
-  const maximum = Math.max(...highs);
-  const minimum = Math.min(...lows);
-  const step = (width - padding * 2) / Math.max(candles.length, 1);
+  const width = 720;
+  const height = 300;
+  const plot = {
+    left: 44,
+    right: 82,
+    top: 16,
+    bottom: 40,
+  };
+  plot.width = width - plot.left - plot.right;
+  plot.height = height - plot.top - plot.bottom;
+  const range = candlePriceRange(candles);
+  const { minimum, maximum } = range;
+  const step = plot.width / Math.max(candles.length, 1);
   const bodyWidth = Math.max(3, Math.min(10, step * 0.58));
   const namespace = "http://www.w3.org/2000/svg";
   const svg = document.createElementNS(namespace, "svg");
@@ -5867,12 +6264,71 @@ function renderCandleChart(candles) {
   svg.setAttribute("aria-label", t("candle_chart_label"));
   svg.classList.add("candle-chart-svg");
 
+  renderCandleRangeSummary(candles, range);
+
+  candleTicks(range.rangeLow, range.rangeHigh).forEach((tick) => {
+    const y = candleYScale(tick, minimum, maximum, plot);
+    const line = document.createElementNS(namespace, "line");
+    line.setAttribute("x1", String(plot.left));
+    line.setAttribute("x2", String(width - plot.right));
+    line.setAttribute("y1", String(y));
+    line.setAttribute("y2", String(y));
+    line.classList.add("candle-grid-line");
+    svg.append(line);
+
+    const label = document.createElementNS(namespace, "text");
+    label.setAttribute("x", String(width - plot.right + 9));
+    label.setAttribute("y", String(y));
+    label.setAttribute("dominant-baseline", "middle");
+    label.classList.add("candle-axis-label", "candle-y-axis-label");
+    label.textContent = formatDecimal(tick);
+    svg.append(label);
+  });
+
+  const yAxis = document.createElementNS(namespace, "line");
+  yAxis.setAttribute("x1", String(width - plot.right));
+  yAxis.setAttribute("x2", String(width - plot.right));
+  yAxis.setAttribute("y1", String(plot.top));
+  yAxis.setAttribute("y2", String(plot.top + plot.height));
+  yAxis.classList.add("candle-axis-line");
+  svg.append(yAxis);
+
+  const xAxis = document.createElementNS(namespace, "line");
+  xAxis.setAttribute("x1", String(plot.left));
+  xAxis.setAttribute("x2", String(width - plot.right));
+  xAxis.setAttribute("y1", String(plot.top + plot.height));
+  xAxis.setAttribute("y2", String(plot.top + plot.height));
+  xAxis.classList.add("candle-axis-line");
+  svg.append(xAxis);
+
+  candleTimeTickIndexes(candles).forEach((index) => {
+    const candle = candles[index];
+    const labelText = candleTimeLabel(candle.time, candleModal.timeframe);
+    if (!labelText) return;
+    const x = plot.left + step * index + step / 2;
+    const tick = document.createElementNS(namespace, "line");
+    tick.setAttribute("x1", String(x));
+    tick.setAttribute("x2", String(x));
+    tick.setAttribute("y1", String(plot.top + plot.height));
+    tick.setAttribute("y2", String(plot.top + plot.height + 5));
+    tick.classList.add("candle-axis-line");
+    svg.append(tick);
+
+    const label = document.createElementNS(namespace, "text");
+    label.setAttribute("x", String(x));
+    label.setAttribute("y", String(plot.top + plot.height + 22));
+    label.setAttribute("text-anchor", "middle");
+    label.classList.add("candle-axis-label", "candle-x-axis-label");
+    label.textContent = labelText;
+    svg.append(label);
+  });
+
   candles.forEach((candle, index) => {
-    const x = padding + step * index + step / 2;
-    const highY = candleYScale(candle.high, minimum, maximum, height, padding);
-    const lowY = candleYScale(candle.low, minimum, maximum, height, padding);
-    const openY = candleYScale(candle.open, minimum, maximum, height, padding);
-    const closeY = candleYScale(candle.close, minimum, maximum, height, padding);
+    const x = plot.left + step * index + step / 2;
+    const highY = candleYScale(candle.high, minimum, maximum, plot);
+    const lowY = candleYScale(candle.low, minimum, maximum, plot);
+    const openY = candleYScale(candle.open, minimum, maximum, plot);
+    const closeY = candleYScale(candle.close, minimum, maximum, plot);
     const isUp = candle.close >= candle.open;
 
     const wick = document.createElementNS(namespace, "line");
@@ -7109,10 +7565,31 @@ function renderCandleModal() {
   candleModalTitle.textContent = t("candle_modal_title", { symbol: candleModal.symbol });
   candleTimeframe.value = candleModal.timeframe;
   candleLimit.value = String(candleModal.limit);
+  candleDate.value = candleModal.candleDate;
+  const isCandleBusy = candleModal.isLoading || candleModal.isLoadingOlder;
   candleRefresh.textContent = candleModal.isLoading ? t("candle_refreshing") : t("candle_refresh");
-  candleRefresh.disabled = candleModal.isLoading;
-  candleTimeframe.disabled = candleModal.isLoading;
-  candleLimit.disabled = candleModal.isLoading;
+  candleLoadOlder.textContent = candleModal.isLoadingOlder ? t("candle_loading_older") : t("candle_load_older");
+  candleRefresh.disabled = isCandleBusy;
+  candleTimeframe.disabled = isCandleBusy;
+  candleLimit.disabled = isCandleBusy;
+  candleDate.disabled = isCandleBusy;
+  candleDateClear.disabled = isCandleBusy || !candleModal.candleDate;
+  const window = candleVisibleWindow();
+  const defaultWindow = defaultCandleWindow(candleModal.candles.length);
+  const canPan = candleModal.candles.length > 0 && window.count < candleModal.candles.length;
+  candleLoadOlder.disabled = isCandleBusy || candleModal.candles.length === 0;
+  candleOlderMessage.textContent = candleModal.olderMessage;
+  candleWindowPrev.disabled = isCandleBusy || !canPan || window.start <= 0;
+  candleWindowNext.disabled = (
+    isCandleBusy ||
+    !canPan ||
+    window.start + window.count >= candleModal.candles.length
+  );
+  candleWindowReset.disabled = (
+    isCandleBusy ||
+    candleModal.candles.length === 0 ||
+    (window.start === defaultWindow.start && window.count === defaultWindow.count)
+  );
   candleModalMessage.className = candleModal.error
     ? "candle-modal-message error"
     : candleModal.isLoading
@@ -7126,7 +7603,8 @@ function renderCandleModal() {
         ? t("candle_empty")
         : "";
 
-  renderCandleChart(candleModal.candles);
+  const visibleCandles = visibleCandleSet();
+  renderCandleChart(visibleCandles);
   renderCandleSummary(candleModal.candles);
 }
 
@@ -7532,7 +8010,10 @@ candleTimeframe.addEventListener("change", () => {
     ...candleModal,
     timeframe: candleTimeframe.value,
     candles: [],
+    visibleStart: 0,
+    visibleCount: null,
     error: "",
+    olderMessage: "",
   };
   renderCandleModal();
   refreshCandleModal();
@@ -7542,10 +8023,96 @@ candleLimit.addEventListener("change", () => {
     ...candleModal,
     limit: Number(candleLimit.value) || 50,
     candles: [],
+    visibleStart: 0,
+    visibleCount: null,
     error: "",
+    olderMessage: "",
   };
   renderCandleModal();
   refreshCandleModal();
+});
+candleDate.addEventListener("change", () => {
+  candleModal = {
+    ...candleModal,
+    candleDate: candleDate.value,
+    candles: [],
+    visibleStart: 0,
+    visibleCount: null,
+    error: "",
+    olderMessage: "",
+  };
+  renderCandleModal();
+  refreshCandleModal();
+});
+candleDateClear.addEventListener("click", () => {
+  candleModal = {
+    ...candleModal,
+    candleDate: "",
+    candles: [],
+    visibleStart: 0,
+    visibleCount: null,
+    error: "",
+    olderMessage: "",
+  };
+  renderCandleModal();
+  refreshCandleModal();
+});
+candleChart.addEventListener("wheel", (event) => {
+  if (!candleModal.isOpen || candleModal.isLoading || candleModal.isLoadingOlder || candleModal.candles.length === 0) return;
+  const horizontalDelta = Math.abs(event.deltaX) > 0 ? event.deltaX : null;
+  const shiftWheelDelta = event.shiftKey && Math.abs(event.deltaY) > 0 ? event.deltaY : null;
+  const panDelta = horizontalDelta ?? shiftWheelDelta;
+  if (panDelta !== null) {
+    event.preventDefault();
+    if (panCandleWindowByWheel(panDelta)) {
+      renderCandleModal();
+    }
+    return;
+  }
+  event.preventDefault();
+  zoomCandleWindow(event.deltaY);
+}, { passive: false });
+candleChart.addEventListener("pointerdown", (event) => {
+  if (!candleModal.isOpen || candleModal.isLoading || candleModal.isLoadingOlder || !canPanCandleWindow()) return;
+  event.preventDefault();
+  const window = candleVisibleWindow();
+  candleDragState = {
+    pointerId: event.pointerId,
+    startX: event.clientX,
+    initialStart: window.start,
+    visibleCount: window.count,
+  };
+  candleChart.classList.add("is-panning");
+  candleChart.setPointerCapture?.(event.pointerId);
+});
+candleChart.addEventListener("pointermove", (event) => {
+  if (
+    !candleDragState ||
+    candleDragState.pointerId !== event.pointerId ||
+    candleModal.isLoadingOlder ||
+    !canPanCandleWindow()
+  ) {
+    return;
+  }
+  event.preventDefault();
+  const dragDelta = event.clientX - candleDragState.startX;
+  const shift = candlePanDistanceToShift(-dragDelta, candleDragState.visibleCount);
+  const nextStart = candleDragState.initialStart + shift;
+  const previousStart = candleModal.visibleStart;
+  setCandleWindow(nextStart, candleDragState.visibleCount);
+  if (candleModal.visibleStart !== previousStart) {
+    renderCandleModal();
+  }
+});
+candleChart.addEventListener("pointerup", (event) => finishCandleDrag(event.pointerId));
+candleChart.addEventListener("pointercancel", (event) => finishCandleDrag(event.pointerId));
+candleChart.addEventListener("lostpointercapture", () => finishCandleDrag());
+candleLoadOlder.addEventListener("click", loadOlderCandles);
+candleWindowPrev.addEventListener("click", () => panCandleWindow(-1));
+candleWindowNext.addEventListener("click", () => panCandleWindow(1));
+candleWindowReset.addEventListener("click", () => {
+  resetCandleWindow();
+  renderCandleModal();
 });
 document.addEventListener("keydown", (event) => {
   if (event.key === "Escape" && candleModal.isOpen) {

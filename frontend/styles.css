@@ -1054,7 +1054,7 @@ dd {
 
 .candle-modal-controls {
   display: grid;
-  grid-template-columns: minmax(120px, 0.6fr) minmax(120px, 0.6fr) auto;
+  grid-template-columns: minmax(110px, 0.6fr) minmax(110px, 0.6fr) minmax(140px, 0.8fr) auto auto;
   gap: 10px;
   align-items: end;
   border: 1px solid var(--line);
@@ -1081,12 +1081,52 @@ dd {
   color: var(--muted);
 }
 
+.candle-chart-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.candle-chart-toolbar p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.78rem;
+  font-weight: 800;
+  line-height: 1.35;
+}
+
+.candle-window-controls {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 6px;
+}
+
+.candle-older-message {
+  flex-basis: 100%;
+  min-height: 16px;
+  color: var(--muted);
+  font-size: 0.74rem;
+  font-weight: 800;
+  text-align: right;
+}
+
 .candle-chart {
+  display: grid;
+  gap: 10px;
   min-height: 280px;
   border: 1px solid var(--line);
   border-radius: 8px;
   background: #fbfcfa;
   padding: 10px;
+  touch-action: pan-y;
+  user-select: none;
+  cursor: grab;
+}
+
+.candle-chart.is-panning {
+  cursor: grabbing;
 }
 
 .candle-chart:empty {
@@ -1097,6 +1137,57 @@ dd {
   display: block;
   width: 100%;
   height: auto;
+}
+
+.candle-grid-line {
+  stroke: rgba(102, 115, 109, 0.18);
+  stroke-width: 1;
+}
+
+.candle-axis-line {
+  stroke: rgba(102, 115, 109, 0.34);
+  stroke-width: 1;
+}
+
+.candle-axis-label {
+  fill: var(--muted);
+  font-size: 10px;
+  font-weight: 750;
+}
+
+.candle-y-axis-label {
+  text-anchor: start;
+}
+
+.candle-range-summary {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: 6px;
+  margin: 0;
+}
+
+.candle-range-summary div {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+  border: 1px solid rgba(219, 226, 221, 0.86);
+  border-radius: 8px;
+  background: var(--surface);
+  padding: 7px 8px;
+}
+
+.candle-range-summary dt {
+  color: var(--muted);
+  font-size: 0.68rem;
+  font-weight: 850;
+  line-height: 1.2;
+}
+
+.candle-range-summary dd {
+  overflow-wrap: anywhere;
+  font-size: 0.82rem;
+  font-weight: 900;
+  line-height: 1.2;
 }
 
 .candle-wick.up,
@@ -2425,6 +2516,7 @@ dd {
   .bot-settings-grid,
   .strategy-parameters-grid,
   .backtest-result-grid,
+  .candle-range-summary,
   .candle-summary,
   .backtest-visible-summary,
   .backtest-history-metrics,
@@ -2485,6 +2577,7 @@ dd {
   .live-market-form,
   .live-market-metrics,
   .candle-modal-controls,
+  .candle-range-summary,
   .candle-summary,
   .backtest-optimization-form,
   .backtest-result-grid,
@@ -2498,6 +2591,19 @@ dd {
 
   .decision-grid .decision-reason-cell {
     grid-column: 1;
+  }
+
+  .candle-chart-toolbar {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .candle-window-controls {
+    justify-content: flex-start;
+  }
+
+  .candle-older-message {
+    text-align: left;
   }
 }
 

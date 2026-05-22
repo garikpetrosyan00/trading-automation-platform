@@ -1,4 +1,5 @@
 from decimal import Decimal
+from datetime import datetime, timezone
 
 import httpx
 from fastapi.testclient import TestClient
@@ -287,6 +288,117 @@ def test_binance_candle_fetch_stores_candles(
     ]
     assert list_response.status_code == 200
     assert len(list_response.json()) == 2
+
+
+def test_binance_candle_fetch_with_time_range_sends_binance_start_and_end_time(
+    stub_market_data_service,
+    noop_bot_runner,
+    configure_app_state,
+) -> None:
+    configure_app_state(market_data_service=stub_market_data_service, bot_runner=noop_bot_runner)
+    start_time = datetime(2026, 5, 1, tzinfo=timezone.utc)
+    end_time = datetime(2026, 5, 2, tzinfo=timezone.utc)
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert request.url.params["symbol"] == "BTCUSDT"
+        assert request.url.params["interval"] == "1m"
+        assert request.url.params["limit"] == "2"
+        assert request.url.params["startTime"] == str(int(start_time.timestamp() * 1000))
+        assert request.url.params["endTime"] == str(int(end_time.timestamp() * 1000))
+        return httpx.Response(200, json=[kline(1770000000000), kline(1770000060000, close="65075.00")])
+
+    override_binance_client(handler)
+    try:
+        with TestClient(app) as client:
+            response = client.post(
+                "/api/v1/market/binance/candles",
+                json={
+                    "symbol": "BTCUSDT",
+                    "timeframe": "1m",
+                    "limit": 2,
+                    "start_time": "2026-05-01T00:00:00Z",
+                    "end_time": "2026-05-02T00:00:00Z",
+                },
+            )
+    finally:
+        clear_binance_client_override()
+
+    assert response.status_code == 200
+    assert response.json()["symbol"] == "BTCUSDT"
+    assert response.json()["requested_limit"] == 2
+    assert response.json()["stored_count"] == 2
+
+
+def test_binance_candle_fetch_with_end_time_only_sends_binance_end_time(
+    stub_market_data_service,
+    noop_bot_runner,
+    configure_app_state,
+) -> None:
+    configure_app_state(market_data_service=stub_market_data_service, bot_runner=noop_bot_runner)
+    end_time = datetime(2026, 5, 1, tzinfo=timezone.utc)
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert request.url.params["symbol"] == "BTCUSDT"
+        assert request.url.params["interval"] == "1m"
+        assert request.url.params["limit"] == "2"
+        assert "startTime" not in request.url.params
+        assert request.url.params["endTime"] == str(int(end_time.timestamp() * 1000))
+        return httpx.Response(200, json=[kline(1770000000000), kline(1770000060000, close="65075.00")])
+
+    override_binance_client(handler)
+    try:
+        with TestClient(app) as client:
+            response = client.post(
+                "/api/v1/market/binance/candles",
+                json={
+                    "symbol": "BTCUSDT",
+                    "timeframe": "1m",
+                    "limit": 2,
+                    "end_time": "2026-05-01T00:00:00Z",
+                },
+            )
+    finally:
+        clear_binance_client_override()
+
+    assert response.status_code == 200
+    assert response.json()["symbol"] == "BTCUSDT"
+    assert response.json()["requested_limit"] == 2
+    assert response.json()["stored_count"] == 2
+
+
+def test_binance_candle_fetch_rejects_invalid_time_range_before_network_call(
+    stub_market_data_service,
+    noop_bot_runner,
+    configure_app_state,
+) -> None:
+    configure_app_state(market_data_service=stub_market_data_service, bot_runner=noop_bot_runner)
+    requested_urls: list[str] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        requested_urls.append(str(request.url))
+        return httpx.Response(200, json=[kline()])
+
+    override_binance_client(handler)
+    try:
+        with TestClient(app) as client:
+            response = client.post(
+                "/api/v1/market/binance/candles",
+                json={
+                    "symbol": "BTCUSDT",
+                    "timeframe": "1m",
+                    "limit": 1,
+                    "start_time": "2026-05-02T00:00:00Z",
+                    "end_time": "2026-05-01T00:00:00Z",
+                },
+            )
+    finally:
+        clear_binance_client_override()
+
+    assert response.status_code == 422
+    body = response.json()
+    assert body["detail"] == "Request validation failed"
+    assert "end_time must be greater than start_time" in str(body["errors"])
+    assert requested_urls == []
 
 
 def test_binance_candle_fetch_normalizes_lowercase_symbol(
