@@ -1,12 +1,14 @@
 from fastapi import APIRouter, Response, status
 
-from app.api.dependencies import BotRunnerDep, DbSession
+from app.api.dependencies import BotRunnerDep, DbSession, MarketDataServiceDep
 from app.repositories.bot import BotRepository
 from app.repositories.strategy import StrategyRepository
 from app.schemas.bot import BotCreate, BotRead, BotUpdate
 from app.schemas.bot_dashboard import BotDashboardRead
+from app.schemas.bot_performance import BotPerformanceRead
 from app.schemas.bot_summary import BotSummaryRead
 from app.services.bot import BotService
+from app.services.bot_performance import BotPerformanceService
 
 router = APIRouter()
 
@@ -32,6 +34,15 @@ async def list_bots(
 @router.get("/{bot_id}/summary", response_model=BotSummaryRead)
 async def get_bot_summary(bot_id: int, bot_runner: BotRunnerDep) -> BotSummaryRead:
     return bot_runner.get_bot_summary(bot_id)
+
+
+@router.get("/{bot_id}/performance", response_model=BotPerformanceRead)
+async def get_bot_performance(
+    bot_id: int,
+    db: DbSession,
+    market_data_service: MarketDataServiceDep,
+) -> BotPerformanceRead:
+    return BotPerformanceService(db, market_data_service).get_performance(bot_id)
 
 
 @router.get("/{bot_id}", response_model=BotRead)

@@ -1,4 +1,5 @@
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
+from decimal import Decimal
 
 from fastapi.testclient import TestClient
 from sqlalchemy import select
@@ -8,6 +9,7 @@ from app.models.alert_event import AlertEvent
 from app.models.alert_rule import AlertRule
 from app.models.bot_run import BotRun
 from app.models.execution_profile import ExecutionProfile
+from app.models.position import Position
 from app.models.run_event import RunEvent
 from app.models.strategy import Strategy
 
@@ -24,6 +26,279 @@ def create_strategy(session, *, name: str = "API Strategy", symbol: str = "BTCUS
     session.commit()
     session.refresh(strategy)
     return strategy
+
+
+def create_run_event(
+    session,
+    *,
+    bot_id: int,
+    message: str,
+    payload: dict | None = None,
+    created_at: datetime,
+    level: str = "info",
+) -> RunEvent:
+    bot_run = BotRun(
+        bot_id=bot_id,
+        trigger_type="manual",
+        status="running",
+        summary="Test run",
+    )
+    session.add(bot_run)
+    session.commit()
+    session.refresh(bot_run)
+
+    event = RunEvent(
+        bot_run_id=bot_run.id,
+        event_type="log",
+        level=level,
+        message=message,
+        payload=payload,
+        created_at=created_at,
+    )
+    session.add(event)
+    session.commit()
+    session.refresh(event)
+    return event
+
+
+def test_bot_performance_missing_bot_returns_404(
+    stub_market_data_service,
+    noop_bot_runner,
+    configure_app_state,
+) -> None:
+    configure_app_state(
+        market_data_service=stub_market_data_service,
+        bot_runner=noop_bot_runner,
+    )
+
+    with TestClient(app) as client:
+        response = client.get("/api/v1/bots/999999/performance")
+
+    assert response.status_code == 404
+    assert response.json()["error_code"] == "bot_not_found"
+
+
+def test_bot_performance_no_activity_returns_safe_summary(
+    db_session_factory,
+    stub_market_data_service,
+    noop_bot_runner,
+    bot_stack_factory,
+    configure_app_state,
+) -> None:
+    with db_session_factory() as session:
+        strategy, bot, _ = bot_stack_factory(session, name="Quiet Bot", status="active")
+        bot_id = bot.id
+        symbol = strategy.symbol
+
+    configure_app_state(
+        market_data_service=stub_market_data_service,
+        bot_runner=noop_bot_runner,
+    )
+
+    with TestClient(app) as client:
+        response = client.get(f"/api/v1/bots/{bot_id}/performance")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["bot_id"] == bot_id
+    assert body["name"] == "Quiet Bot"
+    assert body["symbol"] == symbol
+    assert body["strategy_type"] == "price_threshold"
+    assert body["latest_market_price"] is None
+    assert Decimal(body["current_position_quantity"]) == Decimal("0")
+    assert body["last_decision"] is None
+    assert body["last_decision_reason"] is None
+    assert body["last_run_event_at"] is None
+    assert body["recent_run_event_count"] == 0
+    assert body["buy_decision_count"] == 0
+    assert body["sell_decision_count"] == 0
+    assert body["hold_decision_count"] == 0
+    assert body["risk_blocked_event_count"] == 0
+    assert body["filled_order_event_count"] == 0
+    assert body["realized_pnl"] is None
+    assert body["unrealized_pnl"] is None
+    assert body["health"] == "no_activity"
+
+
+def test_bot_performance_counts_recent_buy_sell_hold_events(
+    db_session_factory,
+    stub_market_data_service,
+    noop_bot_runner,
+    bot_stack_factory,
+    configure_app_state,
+) -> None:
+    now = datetime(2026, 5, 1, 12, 0, tzinfo=timezone.utc)
+    with db_session_factory() as session:
+        _, bot, _ = bot_stack_factory(session, status="active")
+        create_run_event(
+            session,
+            bot_id=bot.id,
+            message="buy_signal",
+            payload={"decision": "buy", "reason": "entry"},
+            created_at=now,
+        )
+        create_run_event(
+            session,
+            bot_id=bot.id,
+            message="sell_signal",
+            payload={"decision": "sell", "reason": "exit"},
+            created_at=now + timedelta(minutes=1),
+        )
+        create_run_event(
+            session,
+            bot_id=bot.id,
+            message="evaluation_no_signal",
+            payload={"decision": "hold", "reason": "flat"},
+            created_at=now + timedelta(minutes=2),
+        )
+        bot_id = bot.id
+
+    configure_app_state(
+        market_data_service=stub_market_data_service,
+        bot_runner=noop_bot_runner,
+    )
+
+    with TestClient(app) as client:
+        response = client.get(f"/api/v1/bots/{bot_id}/performance")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["recent_run_event_count"] == 3
+    assert body["buy_decision_count"] == 1
+    assert body["sell_decision_count"] == 1
+    assert body["hold_decision_count"] == 1
+    assert body["filled_order_event_count"] == 0
+    assert body["health"] == "healthy"
+
+
+def test_bot_performance_counts_risk_blocked_events(
+    db_session_factory,
+    stub_market_data_service,
+    noop_bot_runner,
+    bot_stack_factory,
+    configure_app_state,
+) -> None:
+    now = datetime(2026, 5, 1, 12, 0, tzinfo=timezone.utc)
+    with db_session_factory() as session:
+        _, bot, _ = bot_stack_factory(session, status="active")
+        create_run_event(
+            session,
+            bot_id=bot.id,
+            message="risk_limit_blocked",
+            payload={"decision": "skipped", "reason": "max_position_quantity_exceeded"},
+            created_at=now,
+        )
+        create_run_event(
+            session,
+            bot_id=bot.id,
+            message="order_filled",
+            payload={"side": "buy", "decision": "buy"},
+            created_at=now + timedelta(minutes=1),
+        )
+        bot_id = bot.id
+
+    configure_app_state(
+        market_data_service=stub_market_data_service,
+        bot_runner=noop_bot_runner,
+    )
+
+    with TestClient(app) as client:
+        response = client.get(f"/api/v1/bots/{bot_id}/performance")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["risk_blocked_event_count"] == 1
+    assert body["filled_order_event_count"] == 1
+    assert body["buy_decision_count"] == 1
+    assert body["hold_decision_count"] == 1
+
+
+def test_bot_performance_selects_latest_decision_reason_and_event_timestamp(
+    db_session_factory,
+    stub_market_data_service,
+    noop_bot_runner,
+    bot_stack_factory,
+    configure_app_state,
+) -> None:
+    now = datetime(2026, 5, 1, 12, 0, tzinfo=timezone.utc)
+    with db_session_factory() as session:
+        _, bot, _ = bot_stack_factory(session, status="active")
+        create_run_event(
+            session,
+            bot_id=bot.id,
+            message="buy_signal",
+            payload={"decision": "buy", "reason": "old reason"},
+            created_at=now,
+        )
+        latest_decision_event = create_run_event(
+            session,
+            bot_id=bot.id,
+            message="sell_signal",
+            payload={"decision": "sell", "detail": "latest reason"},
+            created_at=now + timedelta(minutes=1),
+        )
+        latest_event = create_run_event(
+            session,
+            bot_id=bot.id,
+            message="heartbeat",
+            payload={"source": "test"},
+            created_at=now + timedelta(minutes=2),
+        )
+        bot_id = bot.id
+        latest_decision_created_at = latest_decision_event.created_at.isoformat()
+        latest_event_created_at = latest_event.created_at.isoformat()
+
+    configure_app_state(
+        market_data_service=stub_market_data_service,
+        bot_runner=noop_bot_runner,
+    )
+
+    with TestClient(app) as client:
+        response = client.get(f"/api/v1/bots/{bot_id}/performance")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["last_decision"] == "sell"
+    assert body["last_decision_reason"] == "latest reason"
+    assert body["last_run_event_at"] == latest_event_created_at
+    assert body["last_run_event_at"] != latest_decision_created_at
+
+
+def test_bot_performance_includes_latest_market_price_and_position_fields(
+    db_session_factory,
+    stub_market_data_service,
+    noop_bot_runner,
+    bot_stack_factory,
+    configure_app_state,
+) -> None:
+    with db_session_factory() as session:
+        strategy, bot, _ = bot_stack_factory(session, status="active")
+        position = Position(
+            symbol=strategy.symbol,
+            quantity=Decimal("0.5"),
+            average_entry_price=Decimal("90"),
+            realized_pnl=Decimal("7.25"),
+        )
+        session.add(position)
+        session.commit()
+        bot_id = bot.id
+        symbol = strategy.symbol
+
+    stub_market_data_service.set_price(symbol, "100")
+    configure_app_state(
+        market_data_service=stub_market_data_service,
+        bot_runner=noop_bot_runner,
+    )
+
+    with TestClient(app) as client:
+        response = client.get(f"/api/v1/bots/{bot_id}/performance")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert Decimal(body["latest_market_price"]) == Decimal("100")
+    assert Decimal(body["current_position_quantity"]) == Decimal("0.5")
+    assert Decimal(body["realized_pnl"]) == Decimal("7.25")
+    assert Decimal(body["unrealized_pnl"]) == Decimal("5")
 
 
 def test_create_bot_returns_created_bot_and_persists_it(
