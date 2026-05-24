@@ -2443,6 +2443,16 @@ function formatDecimal(value, fallback = "—") {
   }).format(parsed);
 }
 
+function formatPnlDecimal(value, fallback = "—") {
+  if (value === null || value === undefined || value === "") return fallback;
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) return String(value);
+  return new Intl.NumberFormat([], {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  }).format(parsed);
+}
+
 function formatPercent(value, fallback = "—") {
   if (value === null || value === undefined || value === "") return fallback;
   const parsed = Number(value);
@@ -7784,12 +7794,12 @@ function renderBotPerformance() {
     { label: t("order_filled_count_label"), value: formatDecimal(performance.filledOrderEventCount) },
     {
       label: t("realized_pnl_label"),
-      value: formatDecimal(performance.realizedPnl),
+      value: formatPnlDecimal(performance.realizedPnl),
       valueClass: pnlClass(performance.realizedPnl),
     },
     {
       label: t("unrealized_pnl_label"),
-      value: formatDecimal(performance.unrealizedPnl),
+      value: formatPnlDecimal(performance.unrealizedPnl),
       valueClass: pnlClass(performance.unrealizedPnl),
     },
   ];
