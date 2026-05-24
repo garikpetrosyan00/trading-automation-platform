@@ -86,8 +86,6 @@ class BotPerformanceService:
         decision = payload.get("decision")
         if decision is None and event.message == "order_filled":
             decision = payload.get("side")
-        if decision == "skipped":
-            return "hold"
         if isinstance(decision, str):
             return decision.lower()
         return None

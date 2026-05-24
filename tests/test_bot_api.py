@@ -78,6 +78,33 @@ def test_bot_performance_missing_bot_returns_404(
     assert response.json()["error_code"] == "bot_not_found"
 
 
+def test_bot_performance_route_is_not_captured_by_bot_detail_route(
+    db_session_factory,
+    stub_market_data_service,
+    noop_bot_runner,
+    bot_stack_factory,
+    configure_app_state,
+) -> None:
+    with db_session_factory() as session:
+        _, bot, _ = bot_stack_factory(session, name="Analytics Bot")
+        bot_id = bot.id
+
+    configure_app_state(
+        market_data_service=stub_market_data_service,
+        bot_runner=noop_bot_runner,
+    )
+
+    with TestClient(app) as client:
+        response = client.get(f"/api/v1/bots/{bot_id}/performance")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["bot_id"] == bot_id
+    assert body["name"] == "Analytics Bot"
+    assert "recent_run_event_count" in body
+    assert "strategy_id" not in body
+
+
 def test_bot_performance_no_activity_returns_safe_summary(
     db_session_factory,
     stub_market_data_service,
@@ -210,7 +237,50 @@ def test_bot_performance_counts_risk_blocked_events(
     assert body["risk_blocked_event_count"] == 1
     assert body["filled_order_event_count"] == 1
     assert body["buy_decision_count"] == 1
-    assert body["hold_decision_count"] == 1
+    assert body["hold_decision_count"] == 0
+    assert body["last_decision"] == "buy"
+
+
+def test_bot_performance_same_timestamp_uses_latest_event_id_for_decision(
+    db_session_factory,
+    stub_market_data_service,
+    noop_bot_runner,
+    bot_stack_factory,
+    configure_app_state,
+) -> None:
+    created_at = datetime(2026, 5, 1, 12, 0, tzinfo=timezone.utc)
+    with db_session_factory() as session:
+        _, bot, _ = bot_stack_factory(session, status="active")
+        create_run_event(
+            session,
+            bot_id=bot.id,
+            message="buy_signal",
+            payload={"decision": "buy", "reason": "first same timestamp"},
+            created_at=created_at,
+        )
+        latest_decision_event = create_run_event(
+            session,
+            bot_id=bot.id,
+            message="sell_signal",
+            payload={"decision": "sell", "reason": "second same timestamp"},
+            created_at=created_at,
+        )
+        bot_id = bot.id
+        latest_decision_created_at = latest_decision_event.created_at.isoformat()
+
+    configure_app_state(
+        market_data_service=stub_market_data_service,
+        bot_runner=noop_bot_runner,
+    )
+
+    with TestClient(app) as client:
+        response = client.get(f"/api/v1/bots/{bot_id}/performance")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["last_decision"] == "sell"
+    assert body["last_decision_reason"] == "second same timestamp"
+    assert body["last_run_event_at"] == latest_decision_created_at
 
 
 def test_bot_performance_selects_latest_decision_reason_and_event_timestamp(
@@ -299,6 +369,36 @@ def test_bot_performance_includes_latest_market_price_and_position_fields(
     assert Decimal(body["current_position_quantity"]) == Decimal("0.5")
     assert Decimal(body["realized_pnl"]) == Decimal("7.25")
     assert Decimal(body["unrealized_pnl"]) == Decimal("5")
+
+
+def test_bot_performance_paused_bot_with_activity_is_inactive(
+    db_session_factory,
+    stub_market_data_service,
+    noop_bot_runner,
+    bot_stack_factory,
+    configure_app_state,
+) -> None:
+    with db_session_factory() as session:
+        _, bot, _ = bot_stack_factory(session, status="paused")
+        create_run_event(
+            session,
+            bot_id=bot.id,
+            message="evaluation_no_signal",
+            payload={"decision": "hold", "reason": "entry threshold not met"},
+            created_at=datetime(2026, 5, 1, 12, 0, tzinfo=timezone.utc),
+        )
+        bot_id = bot.id
+
+    configure_app_state(
+        market_data_service=stub_market_data_service,
+        bot_runner=noop_bot_runner,
+    )
+
+    with TestClient(app) as client:
+        response = client.get(f"/api/v1/bots/{bot_id}/performance")
+
+    assert response.status_code == 200
+    assert response.json()["health"] == "inactive"
 
 
 def test_create_bot_returns_created_bot_and_persists_it(
