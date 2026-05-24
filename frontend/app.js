@@ -22,9 +22,11 @@ let bots = [];
 let strategies = [];
 let selectedBotId = null;
 let selectedSummary = null;
+let selectedPerformance = null;
 let latestDecisionExplanation = null;
 let isLoadingBots = true;
 let isLoadingSummary = false;
+let isLoadingPerformance = false;
 let isLoadingStrategies = false;
 let isTogglingPause = false;
 let isRunningNow = false;
@@ -55,6 +57,7 @@ let showPassedOptimizationOnly = false;
 let symbolTouched = false;
 let botListError = "";
 let summaryError = "";
+let performanceError = "";
 let actionMessage = "";
 let actionMessageType = "";
 let createBotMessage = "";
@@ -158,6 +161,26 @@ const translations = {
     selected_cooldown_label: "Cooldown",
     selected_price_label: "Last price",
     selected_last_run_label: "Updated",
+    bot_performance: "Bot Performance",
+    bot_performance_aria: "Bot Performance",
+    bot_performance_unavailable: "Performance unavailable",
+    bot_performance_loading: "Loading performance…",
+    bot_performance_select_bot: "Select a bot to view performance.",
+    bot_performance_no_activity: "No activity recorded yet.",
+    health_label: "Health",
+    latest_price_label: "Latest price",
+    last_decision_label: "Last decision",
+    last_event_time_label: "Last event",
+    total_event_count_label: "Total events",
+    buy_signal_count_label: "Buy signals",
+    sell_signal_count_label: "Sell signals",
+    hold_signal_count_label: "Hold signals",
+    risk_blocked_count_label: "Risk blocked",
+    order_filled_count_label: "Orders filled",
+    health_healthy: "Healthy",
+    health_inactive: "Inactive",
+    health_no_activity: "No activity",
+    health_unknown: "Unknown",
     bot_settings: "Bot Settings",
     bot_settings_aria: "Bot settings",
     bot_settings_unavailable: "Bot settings unavailable",
@@ -768,6 +791,26 @@ const translations = {
     selected_cooldown_label: "Cooldown",
     selected_price_label: "Վերջին գին",
     selected_last_run_label: "Թարմացվել է",
+    bot_performance: "Bot-ի արդյունավետություն",
+    bot_performance_aria: "Bot-ի արդյունավետություն",
+    bot_performance_unavailable: "Արդյունավետությունը հասանելի չէ",
+    bot_performance_loading: "Արդյունավետությունը բեռնվում է…",
+    bot_performance_select_bot: "Ընտրիր Bot՝ արդյունավետությունը դիտելու համար։",
+    bot_performance_no_activity: "Activity դեռ չի գրանցվել։",
+    health_label: "Առողջություն",
+    latest_price_label: "Վերջին գին",
+    last_decision_label: "Վերջին որոշում",
+    last_event_time_label: "Վերջին իրադարձություն",
+    total_event_count_label: "Իրադարձություններ",
+    buy_signal_count_label: "Գնման signal-ներ",
+    sell_signal_count_label: "Վաճառքի signal-ներ",
+    hold_signal_count_label: "Hold signal-ներ",
+    risk_blocked_count_label: "Risk-ով արգելված",
+    order_filled_count_label: "Լրացված order-ներ",
+    health_healthy: "Առողջ",
+    health_inactive: "Ակտիվ չէ",
+    health_no_activity: "Activity չկա",
+    health_unknown: "Անհայտ",
     bot_settings: "Bot-ի կարգավորումներ",
     bot_settings_aria: "Bot-ի կարգավորումներ",
     bot_settings_unavailable: "Bot-ի կարգավորումները հասանելի չեն",
@@ -1433,6 +1476,9 @@ const selectedStrategyLabel = document.querySelector("#selected-strategy-label")
 const selectedCooldownLabel = document.querySelector("#selected-cooldown-label");
 const selectedPriceLabel = document.querySelector("#selected-price-label");
 const selectedLastRunLabel = document.querySelector("#selected-last-run-label");
+const botPerformancePanel = document.querySelector(".bot-performance-panel");
+const botPerformanceHeading = document.querySelector("#bot-performance-heading");
+const botPerformanceContent = document.querySelector("#bot-performance-content");
 const liveMarketPanel = document.querySelector(".live-market-panel");
 const liveMarketHeading = document.querySelector("#live-market-heading");
 const liveMarketHelp = document.querySelector("#live-market-help");
@@ -1766,6 +1812,8 @@ function applyStaticTranslations() {
   selectedCooldownLabel.textContent = t("selected_cooldown_label");
   selectedPriceLabel.textContent = t("selected_price_label");
   selectedLastRunLabel.textContent = t("selected_last_run_label");
+  botPerformancePanel?.setAttribute("aria-label", t("bot_performance_aria"));
+  botPerformanceHeading.textContent = t("bot_performance");
   liveMarketPanel?.setAttribute("aria-label", t("live_market_aria"));
   liveMarketHeading.textContent = t("live_market");
   liveMarketHelp.textContent = t("live_market_help");
@@ -1999,6 +2047,33 @@ function normalizeDecisionExplanation(rawExplanation) {
     detail: rawExplanation.detail ?? "",
     message: rawExplanation.message ?? "",
     reasonLabel,
+  };
+}
+
+function normalizePerformance(rawPerformance) {
+  if (!rawPerformance || typeof rawPerformance !== "object") return null;
+  return {
+    botId: rawPerformance.bot_id ?? rawPerformance.botId ?? null,
+    name: rawPerformance.name ?? "",
+    symbol: rawPerformance.symbol ?? "",
+    strategyType: normalizeStrategyType(rawPerformance.strategy_type ?? rawPerformance.strategyType ?? ""),
+    latestMarketPrice: rawPerformance.latest_market_price ?? rawPerformance.latestMarketPrice ?? null,
+    currentPositionQuantity:
+      rawPerformance.current_position_quantity ?? rawPerformance.currentPositionQuantity ?? null,
+    lastDecision: rawPerformance.last_decision ?? rawPerformance.lastDecision ?? "",
+    lastDecisionReason: rawPerformance.last_decision_reason ?? rawPerformance.lastDecisionReason ?? "",
+    lastRunEventAt: rawPerformance.last_run_event_at ?? rawPerformance.lastRunEventAt ?? null,
+    recentRunEventCount: rawPerformance.recent_run_event_count ?? rawPerformance.recentRunEventCount ?? 0,
+    buyDecisionCount: rawPerformance.buy_decision_count ?? rawPerformance.buyDecisionCount ?? 0,
+    sellDecisionCount: rawPerformance.sell_decision_count ?? rawPerformance.sellDecisionCount ?? 0,
+    holdDecisionCount: rawPerformance.hold_decision_count ?? rawPerformance.holdDecisionCount ?? 0,
+    riskBlockedEventCount:
+      rawPerformance.risk_blocked_event_count ?? rawPerformance.riskBlockedEventCount ?? 0,
+    filledOrderEventCount:
+      rawPerformance.filled_order_event_count ?? rawPerformance.filledOrderEventCount ?? 0,
+    realizedPnl: rawPerformance.realized_pnl ?? rawPerformance.realizedPnl ?? null,
+    unrealizedPnl: rawPerformance.unrealized_pnl ?? rawPerformance.unrealizedPnl ?? null,
+    health: normalizeRiskReason(rawPerformance.health || "unknown"),
   };
 }
 
@@ -5280,6 +5355,32 @@ function formatDecisionReason(explanation) {
   );
 }
 
+function formatPerformanceReason(reason, decision) {
+  if (!reason) return "—";
+  return (
+    firstRiskMessage(reason) ||
+    getDecisionReasonMessage(reason) ||
+    formatActivityMessageText(reason, decision ? formatDecisionLabel(decision) : humanizeMessage(reason))
+  );
+}
+
+function performanceHealthLabel(health) {
+  const labels = {
+    healthy: "health_healthy",
+    inactive: "health_inactive",
+    no_activity: "health_no_activity",
+    unknown: "health_unknown",
+  };
+  return t(labels[health] || "health_unknown");
+}
+
+function performanceHealthClass(health) {
+  if (health === "healthy") return "status-active";
+  if (health === "inactive") return "status-paused";
+  if (health === "no_activity") return "status-idle";
+  return "status-draft";
+}
+
 function clearSelectedBotMessages() {
   actionMessage = "";
   actionMessageType = "";
@@ -5307,6 +5408,9 @@ function clearSelectedBotMessages() {
   backtestHistoryError = "";
   backtestHistoryRequestId += 1;
   isLoadingBacktestHistory = false;
+  selectedPerformance = null;
+  performanceError = "";
+  isLoadingPerformance = false;
   backtestStrategyTouched = false;
   isEditingStrategyParameters = false;
 }
@@ -5361,13 +5465,19 @@ async function loadBots() {
     if (selectedBotId) {
       await loadSelectedSummary(selectedBotId);
     } else {
+      selectedPerformance = null;
+      performanceError = "";
+      isLoadingPerformance = false;
       await loadBacktestHistory();
     }
   } catch (error) {
     bots = [];
     selectedBotId = null;
     selectedSummary = null;
+    selectedPerformance = null;
     selectedExecutionProfile = null;
+    performanceError = "";
+    isLoadingPerformance = false;
     isLoadingBots = false;
     botListError = requestErrorMessage(error, t("could_not_load_bots"));
     render();
@@ -5376,6 +5486,7 @@ async function loadBots() {
 
 async function refreshSelectedData() {
   const currentBotId = selectedBotId;
+  performanceError = "";
   const data = await fetchJson("/api/v1/bots");
   bots = normalizeBotsResponse(data);
   const sortedBotList = sortedBots(bots);
@@ -5387,18 +5498,41 @@ async function refreshSelectedData() {
   }
 
   if (selectedBotId) {
-    const [summary, config] = await Promise.all([
+    isLoadingPerformance = true;
+    const [summaryResult, configResult, performanceResult] = await Promise.allSettled([
       fetchJson(`/api/v1/bots/${selectedBotId}/summary`),
       fetchJson(`/api/v1/bots/${selectedBotId}`),
+      fetchJson(`/api/v1/bots/${selectedBotId}/performance`),
     ]);
-    selectedSummary = normalizeSummary(summary);
-    selectedBotConfig = normalizeBotConfig(config);
+
+    if (summaryResult.status !== "fulfilled") {
+      isLoadingPerformance = false;
+      throw summaryResult.reason;
+    }
+    if (configResult.status !== "fulfilled") {
+      isLoadingPerformance = false;
+      throw configResult.reason;
+    }
+
+    selectedSummary = normalizeSummary(summaryResult.value);
+    selectedBotConfig = normalizeBotConfig(configResult.value);
+    if (performanceResult.status === "fulfilled") {
+      selectedPerformance = normalizePerformance(performanceResult.value);
+      performanceError = "";
+    } else {
+      selectedPerformance = null;
+      performanceError = requestErrorMessage(performanceResult.reason, t("bot_performance_unavailable"));
+    }
+    isLoadingPerformance = false;
     selectedExecutionProfile = await loadExecutionProfile(selectedBotId);
   } else {
     selectedSummary = null;
     isEditBotOpen = false;
     selectedBotConfig = null;
     selectedExecutionProfile = null;
+    selectedPerformance = null;
+    performanceError = "";
+    isLoadingPerformance = false;
   }
   await loadBacktestHistory();
   refreshMessage = "";
@@ -5430,18 +5564,41 @@ async function refreshDashboardData({ silent = false } = {}) {
     }
 
     if (selectedBotId) {
-      const [summary, config] = await Promise.all([
+      isLoadingPerformance = true;
+      const [summaryResult, configResult, performanceResult] = await Promise.allSettled([
         fetchJson(`/api/v1/bots/${selectedBotId}/summary`),
         fetchJson(`/api/v1/bots/${selectedBotId}`),
+        fetchJson(`/api/v1/bots/${selectedBotId}/performance`),
       ]);
-      selectedSummary = normalizeSummary(summary);
-      selectedBotConfig = normalizeBotConfig(config);
+
+      if (summaryResult.status !== "fulfilled") {
+        isLoadingPerformance = false;
+        throw summaryResult.reason;
+      }
+      if (configResult.status !== "fulfilled") {
+        isLoadingPerformance = false;
+        throw configResult.reason;
+      }
+
+      selectedSummary = normalizeSummary(summaryResult.value);
+      selectedBotConfig = normalizeBotConfig(configResult.value);
+      if (performanceResult.status === "fulfilled") {
+        selectedPerformance = normalizePerformance(performanceResult.value);
+        performanceError = "";
+      } else {
+        selectedPerformance = null;
+        performanceError = requestErrorMessage(performanceResult.reason, t("bot_performance_unavailable"));
+      }
+      isLoadingPerformance = false;
       selectedExecutionProfile = await loadExecutionProfile(selectedBotId);
       summaryError = "";
     } else {
       selectedSummary = null;
       selectedBotConfig = null;
       selectedExecutionProfile = null;
+      selectedPerformance = null;
+      performanceError = "";
+      isLoadingPerformance = false;
       summaryError = "";
     }
     await loadBacktestHistory();
@@ -5455,6 +5612,7 @@ async function refreshDashboardData({ silent = false } = {}) {
     refreshMessageType = "error";
   } finally {
     isRefreshing = false;
+    isLoadingPerformance = false;
     render();
   }
 }
@@ -5566,8 +5724,11 @@ async function deleteSelectedBot() {
     hasUserSelectedBot = false;
     selectedBotId = null;
     selectedSummary = null;
+    selectedPerformance = null;
     selectedBotConfig = null;
     selectedExecutionProfile = null;
+    performanceError = "";
+    isLoadingPerformance = false;
     isEditBotOpen = false;
     await refreshDashboardData();
 
@@ -7181,19 +7342,23 @@ async function fetchBinancePriceForSelectedBot() {
 
 async function loadSelectedSummary(botId) {
   summaryError = "";
+  performanceError = "";
   actionMessage = "";
   actionMessageType = "";
   isLoadingSummary = true;
+  isLoadingPerformance = true;
   selectedSummary = null;
+  selectedPerformance = null;
   selectedBotConfig = null;
   selectedExecutionProfile = null;
   render();
 
   try {
-    const [summaryResult, configResult, profileResult] = await Promise.allSettled([
+    const [summaryResult, configResult, profileResult, performanceResult] = await Promise.allSettled([
       fetchJson(`/api/v1/bots/${botId}/summary`),
       fetchJson(`/api/v1/bots/${botId}`),
       fetchJson(`/api/v1/bots/${botId}/execution-profile`),
+      fetchJson(`/api/v1/bots/${botId}/performance`),
     ]);
 
     if (summaryResult.status !== "fulfilled") {
@@ -7207,13 +7372,20 @@ async function loadSelectedSummary(botId) {
     if (profileResult.status === "fulfilled") {
       selectedExecutionProfile = normalizeExecutionProfile(profileResult.value);
     }
+    if (performanceResult.status === "fulfilled") {
+      selectedPerformance = normalizePerformance(performanceResult.value);
+    } else {
+      performanceError = requestErrorMessage(performanceResult.reason, t("bot_performance_unavailable"));
+    }
   } catch (error) {
     selectedSummary = null;
+    selectedPerformance = null;
     selectedBotConfig = null;
     selectedExecutionProfile = null;
     summaryError = requestErrorMessage(error, t("could_not_load_bot_details"));
   } finally {
     isLoadingSummary = false;
+    isLoadingPerformance = false;
   }
 
   render();
@@ -7556,6 +7728,102 @@ function renderBotSettings(bot) {
 
   botSettingsContent.className = "bot-settings-content";
   botSettingsContent.append(grid);
+}
+
+function renderBotPerformance() {
+  botPerformanceContent.innerHTML = "";
+
+  if (!selectedBotId) {
+    botPerformanceContent.textContent = t("bot_performance_select_bot");
+    botPerformanceContent.className = "bot-performance-content empty";
+    return;
+  }
+
+  if (isLoadingPerformance && !selectedPerformance) {
+    botPerformanceContent.textContent = t("bot_performance_loading");
+    botPerformanceContent.className = "bot-performance-content empty loading";
+    return;
+  }
+
+  if (performanceError && !selectedPerformance) {
+    botPerformanceContent.textContent = performanceError;
+    botPerformanceContent.className = "bot-performance-content empty error";
+    return;
+  }
+
+  if (!selectedPerformance) {
+    botPerformanceContent.textContent = t("bot_performance_unavailable");
+    botPerformanceContent.className = "bot-performance-content empty";
+    return;
+  }
+
+  const performance = selectedPerformance;
+  const decisionLabel = performance.lastDecision
+    ? formatDecisionLabel(performance.lastDecision)
+    : "—";
+  const rows = [
+    {
+      label: t("health_label"),
+      value: performanceHealthLabel(performance.health),
+      valueClass: `status-pill performance-health ${performanceHealthClass(performance.health)}`,
+    },
+    { label: t("latest_price_label"), value: formatDecimal(performance.latestMarketPrice) },
+    { label: t("current_position_qty_label"), value: formatDecimal(performance.currentPositionQuantity) },
+    { label: t("last_decision_label"), value: decisionLabel },
+    {
+      label: t("decision_reason_label"),
+      value: formatPerformanceReason(performance.lastDecisionReason, performance.lastDecision),
+      className: "performance-wide",
+    },
+    { label: t("last_event_time_label"), value: formatDateTime(performance.lastRunEventAt) },
+    { label: t("total_event_count_label"), value: formatDecimal(performance.recentRunEventCount) },
+    { label: t("buy_signal_count_label"), value: formatDecimal(performance.buyDecisionCount) },
+    { label: t("sell_signal_count_label"), value: formatDecimal(performance.sellDecisionCount) },
+    { label: t("hold_signal_count_label"), value: formatDecimal(performance.holdDecisionCount) },
+    { label: t("risk_blocked_count_label"), value: formatDecimal(performance.riskBlockedEventCount) },
+    { label: t("order_filled_count_label"), value: formatDecimal(performance.filledOrderEventCount) },
+    {
+      label: t("realized_pnl_label"),
+      value: formatDecimal(performance.realizedPnl),
+      valueClass: pnlClass(performance.realizedPnl),
+    },
+    {
+      label: t("unrealized_pnl_label"),
+      value: formatDecimal(performance.unrealizedPnl),
+      valueClass: pnlClass(performance.unrealizedPnl),
+    },
+  ];
+
+  const grid = document.createElement("dl");
+  grid.className = "bot-performance-grid";
+  rows.forEach((item) => {
+    const row = document.createElement("div");
+    const label = document.createElement("dt");
+    const value = document.createElement("dd");
+    if (item.className) row.className = item.className;
+    label.textContent = item.label;
+    value.textContent = item.value;
+    if (item.valueClass) value.className = item.valueClass;
+    row.append(label, value);
+    grid.append(row);
+  });
+
+  botPerformanceContent.className = "bot-performance-content";
+  botPerformanceContent.append(grid);
+
+  if (Number(performance.recentRunEventCount) === 0) {
+    const empty = document.createElement("p");
+    empty.className = "bot-performance-note";
+    empty.textContent = t("bot_performance_no_activity");
+    botPerformanceContent.append(empty);
+  }
+
+  if (performanceError) {
+    const error = document.createElement("p");
+    error.className = "bot-performance-note error";
+    error.textContent = performanceError;
+    botPerformanceContent.append(error);
+  }
 }
 
 function renderLiveMarket() {
@@ -7976,6 +8244,7 @@ function render() {
   renderCreateStrategyForm();
   renderBotList();
   renderSummary();
+  renderBotPerformance();
   renderLiveMarket();
   renderDecisionExplanation();
   renderStrategyParametersForm();

@@ -1276,6 +1276,7 @@ dd {
 }
 
 .bot-settings-panel,
+.bot-performance-panel,
 .execution-settings-panel,
 .strategy-parameters-panel,
 .create-strategy-panel,
@@ -1300,6 +1301,7 @@ dd {
 }
 
 .bot-settings-content,
+.bot-performance-content,
 .strategy-parameters-content,
 .backtest-result,
 .backtest-history {
@@ -1310,6 +1312,7 @@ dd {
 }
 
 .bot-settings-content.empty,
+.bot-performance-content.empty,
 .strategy-parameters-content.empty,
 .backtest-result.empty,
 .backtest-history.empty {
@@ -1319,6 +1322,7 @@ dd {
 }
 
 .bot-settings-content.error,
+.bot-performance-content.error,
 .strategy-parameters-content.error,
 .backtest-history.error {
   background: var(--danger-soft);
@@ -1326,6 +1330,7 @@ dd {
 }
 
 .bot-settings-content.loading,
+.bot-performance-content.loading,
 .strategy-parameters-content.loading,
 .backtest-result.loading,
 .backtest-history.loading {
@@ -1333,6 +1338,7 @@ dd {
 }
 
 .bot-settings-grid,
+.bot-performance-grid,
 .strategy-parameters-grid,
 .backtest-result-grid {
   display: grid;
@@ -1342,6 +1348,7 @@ dd {
 }
 
 .bot-settings-grid div,
+.bot-performance-grid div,
 .strategy-parameters-grid div,
 .backtest-result-grid div {
   display: grid;
@@ -1350,8 +1357,35 @@ dd {
 }
 
 .bot-settings-grid dd,
+.bot-performance-grid dd,
 .strategy-parameters-grid dd {
   overflow-wrap: break-word;
+}
+
+.bot-performance-grid {
+  grid-template-columns: repeat(auto-fit, minmax(132px, 1fr));
+}
+
+.bot-performance-grid .performance-wide {
+  grid-column: span 2;
+}
+
+.bot-performance-grid .performance-health {
+  justify-self: start;
+  width: fit-content;
+  font-size: 0.75rem;
+  text-transform: none;
+}
+
+.bot-performance-note {
+  margin: 12px 0 0;
+  color: var(--muted);
+  font-size: 0.84rem;
+  font-weight: 800;
+}
+
+.bot-performance-note.error {
+  color: var(--danger);
 }
 
 .strategy-parameters-empty {

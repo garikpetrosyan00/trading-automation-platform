@@ -4,7 +4,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Dashboard</title>
-    <link rel="stylesheet" href="/static/styles.css?v=candle-tooltip-polish" />
+    <link rel="stylesheet" href="/static/styles.css?v=bot-performance-card" />
   </head>
   <body>
     <main class="dashboard-shell">
@@ -177,6 +177,15 @@
               <dd id="selected-last-run"></dd>
             </div>
           </dl>
+
+          <section class="bot-performance-panel" aria-label="Bot Performance">
+            <div class="panel-heading compact-heading">
+              <h2 id="bot-performance-heading">Bot Performance</h2>
+            </div>
+            <div id="bot-performance-content" class="bot-performance-content empty loading">
+              Loading performance...
+            </div>
+          </section>
 
           <section class="live-market-panel" aria-label="Live Market">
             <div class="panel-heading compact-heading live-market-heading">
@@ -620,6 +629,6 @@
       </section>
     </div>
 
-    <script src="/static/app.js?v=candle-tooltip-polish"></script>
+    <script src="/static/app.js?v=bot-performance-card"></script>
   </body>
 </html>
