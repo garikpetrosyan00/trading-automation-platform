@@ -4,8 +4,10 @@ import hashlib
 import hmac
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from decimal import Decimal
+from decimal import Decimal, InvalidOperation
 from urllib.parse import urlencode
+
+import httpx
 
 from app.services.brokers.base import BrokerOrderIntent, BrokerOrderResult
 from app.services.brokers.safety import ExecutionSafetyConfig, ExecutionSafetyGuard
@@ -75,6 +77,60 @@ class BinanceSignedRequestBuilder:
     @staticmethod
     def _format_decimal(value: Decimal) -> str:
         return format(value.normalize(), "f")
+
+
+@dataclass(frozen=True)
+class BinanceOrderHttpResponse:
+    status_code: int
+    payload: dict | None
+
+
+class BinanceTestnetOrderClient:
+    def __init__(
+        self,
+        *,
+        base_url: str,
+        api_key: str,
+        timeout_seconds: float = 5.0,
+        transport: httpx.BaseTransport | None = None,
+    ):
+        self.base_url = base_url.rstrip("/")
+        self.api_key = api_key
+        self.timeout_seconds = timeout_seconds
+        self.transport = transport
+
+    def submit_signed_market_order(self, params: dict) -> BinanceOrderHttpResponse:
+        try:
+            with httpx.Client(
+                base_url=self.base_url,
+                timeout=self.timeout_seconds,
+                transport=self.transport,
+            ) as client:
+                response = client.post(
+                    MARKET_ORDER_ENDPOINT,
+                    data=params,
+                    headers={"X-MBX-APIKEY": self.api_key},
+                )
+        except (httpx.TimeoutException, httpx.RequestError) as exc:
+            raise BinanceTestnetOrderClientError("Could not reach Binance testnet order endpoint") from exc
+
+        try:
+            payload = response.json()
+        except ValueError as exc:
+            raise BinanceInvalidOrderResponseError("Binance testnet order endpoint returned invalid JSON") from exc
+
+        if payload is not None and not isinstance(payload, dict):
+            raise BinanceInvalidOrderResponseError("Binance testnet order endpoint returned invalid JSON")
+
+        return BinanceOrderHttpResponse(status_code=response.status_code, payload=payload)
+
+
+class BinanceTestnetOrderClientError(Exception):
+    pass
+
+
+class BinanceInvalidOrderResponseError(Exception):
+    pass
 
 
 class BinanceTestnetBroker:
@@ -172,13 +228,165 @@ class BinanceTestnetBroker:
             self._record_attempt(intent, result, final_status="rejected_by_broker", safety_status="allowed")
             return result
 
-        result = self._rejected(
-            "Binance testnet order submission is not implemented",
-            reason="testnet_order_submission_not_implemented",
-            metadata=self._safe_signed_request_metadata(signed_params, intent),
+        if self.http_client is None:
+            result = self._rejected(
+                "Binance testnet order submission is not implemented",
+                reason="testnet_order_submission_not_implemented",
+                metadata=self._safe_signed_request_metadata(signed_params, intent),
+            )
+            self._record_attempt(intent, result, final_status="rejected_by_broker", safety_status="allowed")
+            return result
+
+        result = self._submit_signed_order(intent, signed_params)
+        self._record_attempt(
+            intent,
+            result,
+            final_status="order_created" if result.accepted else "rejected_by_broker",
+            safety_status="allowed",
         )
-        self._record_attempt(intent, result, final_status="rejected_by_broker", safety_status="allowed")
         return result
+
+    def _submit_signed_order(self, intent: BrokerOrderIntent, signed_params: dict) -> BrokerOrderResult:
+        try:
+            response = self.http_client.submit_signed_market_order(signed_params)
+        except (BinanceTestnetOrderClientError, BinanceInvalidOrderResponseError) as exc:
+            return self._rejected(
+                str(exc),
+                reason=self._exception_reason(exc),
+                metadata={
+                    **self._safe_signed_request_metadata(signed_params, intent),
+                    "error_type": exc.__class__.__name__,
+                },
+            )
+        except Exception as exc:
+            return self._rejected(
+                "Binance testnet order request failed",
+                reason="binance_testnet_request_failed",
+                metadata={
+                    **self._safe_signed_request_metadata(signed_params, intent),
+                    "error_type": exc.__class__.__name__,
+                },
+            )
+
+        if response.payload is None:
+            return self._rejected(
+                "Binance testnet order endpoint returned invalid JSON",
+                reason="invalid_binance_response",
+                metadata={
+                    **self._safe_signed_request_metadata(signed_params, intent),
+                    "status_code": response.status_code,
+                },
+            )
+
+        if response.status_code < 200 or response.status_code >= 300:
+            reason = "binance_testnet_order_rejected"
+            message = self._binance_error_message(response.payload, response.status_code)
+            return self._rejected(
+                message,
+                reason=reason,
+                metadata={
+                    **self._safe_signed_request_metadata(signed_params, intent),
+                    "status_code": response.status_code,
+                    "binance_code": response.payload.get("code"),
+                },
+            )
+
+        return self._build_success_result(intent, signed_params, response)
+
+    def _build_success_result(
+        self,
+        intent: BrokerOrderIntent,
+        signed_params: dict,
+        response: BinanceOrderHttpResponse,
+    ) -> BrokerOrderResult:
+        payload = response.payload or {}
+        external_order_id = str(payload["orderId"]) if payload.get("orderId") is not None else None
+        executed_quantity = self._optional_decimal(payload.get("executedQty"))
+        executed_price = self._derive_executed_price(payload, executed_quantity)
+        fee = self._derive_fee(payload)
+
+        return BrokerOrderResult(
+            accepted=True,
+            status="submitted",
+            message="Binance testnet market order submitted",
+            external_order_id=external_order_id,
+            executed_quantity=executed_quantity,
+            executed_price=executed_price,
+            fee=fee,
+            metadata={
+                **self._safe_signed_request_metadata(signed_params, intent),
+                "status_code": response.status_code,
+                "exchange_status": payload.get("status"),
+                "client_order_id_present": payload.get("clientOrderId") is not None,
+            },
+        )
+
+    @staticmethod
+    def _exception_reason(exc: Exception) -> str:
+        if isinstance(exc, BinanceInvalidOrderResponseError):
+            return "invalid_binance_response"
+        return "binance_testnet_request_failed"
+
+    @staticmethod
+    def _binance_error_message(payload: dict, status_code: int) -> str:
+        message = payload.get("msg") if isinstance(payload.get("msg"), str) else None
+        if message:
+            return f"Binance testnet order rejected: {message}"
+        return f"Binance testnet order request failed with status {status_code}"
+
+    @classmethod
+    def _derive_executed_price(cls, payload: dict, executed_quantity: Decimal | None) -> Decimal | None:
+        quote_quantity = cls._optional_decimal(payload.get("cummulativeQuoteQty"))
+        if quote_quantity is not None and executed_quantity is not None and executed_quantity > 0:
+            return quote_quantity / executed_quantity
+
+        fills = payload.get("fills")
+        if not isinstance(fills, list) or not fills:
+            return None
+
+        total_quantity = Decimal("0")
+        total_quote = Decimal("0")
+        for fill in fills:
+            if not isinstance(fill, dict):
+                continue
+            price = cls._optional_decimal(fill.get("price"))
+            quantity = cls._optional_decimal(fill.get("qty"))
+            if price is None or quantity is None:
+                continue
+            total_quantity += quantity
+            total_quote += price * quantity
+        if total_quantity <= 0:
+            return None
+        return total_quote / total_quantity
+
+    @classmethod
+    def _derive_fee(cls, payload: dict) -> Decimal | None:
+        fills = payload.get("fills")
+        if not isinstance(fills, list):
+            return None
+        fee = Decimal("0")
+        found_fee = False
+        for fill in fills:
+            if not isinstance(fill, dict):
+                continue
+            commission = cls._optional_decimal(fill.get("commission"))
+            if commission is None:
+                continue
+            fee += commission
+            found_fee = True
+        return fee if found_fee else None
+
+    @staticmethod
+    def _optional_decimal(value) -> Decimal | None:
+        if value is None:
+            return None
+        try:
+            decimal_value = Decimal(str(value))
+        except (InvalidOperation, TypeError, ValueError):
+            return None
+        if not decimal_value.is_finite():
+            return None
+        return decimal_value
 
     def _build_signed_market_order_params(self, *, symbol: str, side: str, quantity: Decimal) -> dict:
         if self.request_builder is None:

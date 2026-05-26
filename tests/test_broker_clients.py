@@ -1,15 +1,21 @@
 import asyncio
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
+from urllib.parse import parse_qs
 
+import httpx
 from app.models.execution_attempt import ExecutionAttempt
 from app.repositories.portfolio import PortfolioRepository
 from app.services.brokers.base import BrokerOrderIntent
 from app.services.brokers.binance import (
+    BinanceInvalidOrderResponseError,
+    BinanceOrderHttpResponse,
     BinanceRequestSigner,
     BinanceSignedRequestBuilder,
     BinanceTestnetBroker,
     BinanceTestnetBrokerConfig,
+    BinanceTestnetOrderClient,
+    BinanceTestnetOrderClientError,
 )
 from app.services.brokers.safety import ExecutionSafetyConfig, ExecutionSafetyGuard
 from app.core.config import Settings
@@ -22,6 +28,40 @@ from app.services.simulated_execution import PaperExecutionBroker, PaperExecutio
 
 FIXED_NOW = datetime(2026, 5, 27, 12, 0, tzinfo=timezone.utc)
 TEST_SECRET = "test-secret"
+
+
+class RecordingOrderClient:
+    def __init__(self, response: BinanceOrderHttpResponse | None = None, exception: Exception | None = None):
+        self.response = response or BinanceOrderHttpResponse(
+            status_code=200,
+            payload={
+                "symbol": "BTCUSDT",
+                "orderId": 12345,
+                "status": "FILLED",
+                "executedQty": "0.1",
+                "cummulativeQuoteQty": "10",
+                "fills": [{"price": "100", "qty": "0.1", "commission": "0.001"}],
+            },
+        )
+        self.exception = exception
+        self.calls: list[dict] = []
+
+    def submit_signed_market_order(self, params: dict) -> BinanceOrderHttpResponse:
+        self.calls.append(params)
+        if self.exception is not None:
+            raise self.exception
+        return self.response
+
+
+def enabled_binance_config(**overrides) -> BinanceTestnetBrokerConfig:
+    values = {
+        "enabled": True,
+        "order_submission_enabled": True,
+        "api_key": "test-key",
+        "api_secret": "test-secret",
+    }
+    values.update(overrides)
+    return BinanceTestnetBrokerConfig(**values)
 
 
 def add_attempt(
@@ -368,13 +408,15 @@ def test_binance_testnet_broker_disabled_records_attempt_without_order(db_sessio
 
 
 def test_binance_testnet_broker_missing_credentials_rejects_safely() -> None:
+    client = RecordingOrderClient()
     broker = BinanceTestnetBroker(
         BinanceTestnetBrokerConfig(
             enabled=True,
             order_submission_enabled=True,
             api_key=None,
             api_secret=None,
-        )
+        ),
+        http_client=client,
     )
 
     result = broker.submit_market_order(BrokerOrderIntent(symbol="BTCUSDT", side="sell", quantity=Decimal("0.1")))
@@ -383,6 +425,7 @@ def test_binance_testnet_broker_missing_credentials_rejects_safely() -> None:
     assert result.status == "rejected"
     assert result.reason == "missing_testnet_credentials"
     assert result.message == "Binance testnet API credentials are not configured"
+    assert client.calls == []
 
 
 def test_binance_testnet_broker_respects_safety_guard() -> None:
@@ -405,12 +448,7 @@ def test_binance_testnet_broker_respects_safety_guard() -> None:
 
 def test_binance_testnet_broker_order_submission_still_not_implemented_with_credentials() -> None:
     broker = BinanceTestnetBroker(
-        BinanceTestnetBrokerConfig(
-            enabled=True,
-            order_submission_enabled=True,
-            api_key="test-key",
-            api_secret="test-secret",
-        )
+        enabled_binance_config()
     )
 
     result = broker.submit_market_order(BrokerOrderIntent(symbol="BTCUSDT", side="buy", quantity=Decimal("0.1")))
@@ -431,13 +469,7 @@ def test_binance_testnet_broker_dry_run_prepares_signed_request_without_network_
             raise AssertionError("Dry-run must not make network calls")
 
     broker = BinanceTestnetBroker(
-        BinanceTestnetBrokerConfig(
-            enabled=True,
-            order_submission_enabled=True,
-            dry_run_enabled=True,
-            api_key="test-key",
-            api_secret="test-secret",
-        ),
+        enabled_binance_config(dry_run_enabled=True),
         http_client=ExplodingHttpClient(),
         attempt_service=ExecutionAttemptService(ExecutionAttemptRepository(db_session)),
     )
@@ -459,6 +491,123 @@ def test_binance_testnet_broker_dry_run_prepares_signed_request_without_network_
     assert "test-secret" not in str(result.metadata)
     assert len(attempts) == 1
     assert "test-secret" not in str(attempts[0].metadata_)
+
+
+def test_binance_order_client_posts_signed_order_with_api_key_header() -> None:
+    captured = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        captured["path"] = request.url.path
+        captured["api_key"] = request.headers.get("X-MBX-APIKEY")
+        captured["form"] = parse_qs(request.content.decode())
+        return httpx.Response(200, json={"orderId": 1, "executedQty": "0", "status": "NEW"})
+
+    client = BinanceTestnetOrderClient(
+        base_url="https://testnet.binance.vision",
+        api_key="test-key",
+        transport=httpx.MockTransport(handler),
+    )
+
+    response = client.submit_signed_market_order(
+        {
+            "symbol": "BTCUSDT",
+            "side": "BUY",
+            "type": "MARKET",
+            "quantity": "0.1",
+            "timestamp": 1710000000000,
+            "recvWindow": 5000,
+            "signature": "abc123",
+        }
+    )
+
+    assert response.status_code == 200
+    assert response.payload["orderId"] == 1
+    assert captured["path"] == "/api/v3/order"
+    assert captured["api_key"] == "test-key"
+    assert captured["form"]["signature"] == ["abc123"]
+
+
+def test_binance_testnet_broker_enabled_mocked_submission_normalizes_success(db_session) -> None:
+    client = RecordingOrderClient()
+    broker = BinanceTestnetBroker(
+        enabled_binance_config(),
+        http_client=client,
+        attempt_service=ExecutionAttemptService(ExecutionAttemptRepository(db_session)),
+    )
+
+    result = broker.submit_market_order(BrokerOrderIntent(symbol="BTCUSDT", side="buy", quantity=Decimal("0.1")))
+
+    attempts = ExecutionAttemptRepository(db_session).list_filtered()
+    assert len(client.calls) == 1
+    assert client.calls[0]["symbol"] == "BTCUSDT"
+    assert client.calls[0]["side"] == "BUY"
+    assert client.calls[0]["type"] == "MARKET"
+    assert client.calls[0]["quantity"] == "0.1"
+    assert "signature" in client.calls[0]
+    assert result.accepted is True
+    assert result.status == "submitted"
+    assert result.external_order_id == "12345"
+    assert result.executed_quantity == Decimal("0.1")
+    assert result.executed_price == Decimal("100")
+    assert result.fee == Decimal("0.001")
+    assert result.metadata["status_code"] == 200
+    assert result.metadata["exchange_status"] == "FILLED"
+    assert "test-secret" not in str(result.metadata)
+    assert len(attempts) == 1
+    assert attempts[0].final_status == "order_created"
+    assert "test-secret" not in str(attempts[0].metadata_)
+
+
+def test_binance_testnet_broker_error_json_normalizes_rejection() -> None:
+    client = RecordingOrderClient(
+        response=BinanceOrderHttpResponse(
+            status_code=400,
+            payload={"code": -2010, "msg": "Account has insufficient balance"},
+        )
+    )
+    broker = BinanceTestnetBroker(enabled_binance_config(), http_client=client)
+
+    result = broker.submit_market_order(BrokerOrderIntent(symbol="BTCUSDT", side="buy", quantity=Decimal("0.1")))
+
+    assert result.accepted is False
+    assert result.reason == "binance_testnet_order_rejected"
+    assert result.message == "Binance testnet order rejected: Account has insufficient balance"
+    assert result.metadata["status_code"] == 400
+    assert result.metadata["binance_code"] == -2010
+
+
+def test_binance_testnet_broker_non_2xx_without_error_message_normalizes_safely() -> None:
+    client = RecordingOrderClient(response=BinanceOrderHttpResponse(status_code=500, payload={}))
+    broker = BinanceTestnetBroker(enabled_binance_config(), http_client=client)
+
+    result = broker.submit_market_order(BrokerOrderIntent(symbol="BTCUSDT", side="buy", quantity=Decimal("0.1")))
+
+    assert result.accepted is False
+    assert result.reason == "binance_testnet_order_rejected"
+    assert result.message == "Binance testnet order request failed with status 500"
+    assert result.metadata["status_code"] == 500
+
+
+def test_binance_testnet_broker_invalid_json_normalizes_safely() -> None:
+    client = RecordingOrderClient(exception=BinanceInvalidOrderResponseError("Invalid JSON"))
+    broker = BinanceTestnetBroker(enabled_binance_config(), http_client=client)
+
+    result = broker.submit_market_order(BrokerOrderIntent(symbol="BTCUSDT", side="buy", quantity=Decimal("0.1")))
+
+    assert result.accepted is False
+    assert result.reason == "invalid_binance_response"
+    assert result.metadata["error_type"] == "BinanceInvalidOrderResponseError"
+
+
+def test_binance_testnet_broker_network_error_normalizes_safely() -> None:
+    client = RecordingOrderClient(exception=BinanceTestnetOrderClientError("timeout"))
+    broker = BinanceTestnetBroker(enabled_binance_config(), http_client=client)
+
+    result = broker.submit_market_order(BrokerOrderIntent(symbol="BTCUSDT", side="buy", quantity=Decimal("0.1")))
+
+    assert result.accepted is False
+    assert result.reason == "binance_testnet_request_failed"
+    assert result.metadata["error_type"] == "BinanceTestnetOrderClientError"
 
 
 def test_bot_runner_does_not_call_binance_order_placement_by_default(
