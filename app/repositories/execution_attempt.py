@@ -1,4 +1,6 @@
-from sqlalchemy import select
+from datetime import datetime
+
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.models.execution_attempt import ExecutionAttempt
@@ -51,3 +53,20 @@ class ExecutionAttemptRepository:
             statement = statement.where(ExecutionAttempt.final_reason == reason)
         statement = statement.order_by(ExecutionAttempt.created_at.desc(), ExecutionAttempt.id.desc()).limit(limit)
         return list(self.db.scalars(statement).all())
+
+    def count_since(
+        self,
+        *,
+        started_at: datetime,
+        bot_id: int | None = None,
+        strategy_id: int | None = None,
+        final_statuses: set[str] | None = None,
+    ) -> int:
+        statement = select(func.count()).select_from(ExecutionAttempt).where(ExecutionAttempt.created_at >= started_at)
+        if bot_id is not None:
+            statement = statement.where(ExecutionAttempt.bot_id == bot_id)
+        if strategy_id is not None:
+            statement = statement.where(ExecutionAttempt.strategy_id == strategy_id)
+        if final_statuses is not None:
+            statement = statement.where(ExecutionAttempt.final_status.in_(final_statuses))
+        return int(self.db.scalar(statement) or 0)

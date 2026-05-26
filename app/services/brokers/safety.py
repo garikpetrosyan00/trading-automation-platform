@@ -5,6 +5,7 @@ from decimal import Decimal
 from typing import Any
 
 from app.services.brokers.base import BrokerOrderIntent
+from app.services.execution_limits import ExecutionDailyLimitService
 
 ZERO = Decimal("0")
 
@@ -15,6 +16,8 @@ class ExecutionSafetyConfig:
     live_enabled: bool = False
     testnet_order_submission_enabled: bool = False
     max_order_notional: Decimal | None = None
+    max_daily_order_count: int | None = None
+    max_daily_loss: Decimal | None = None
 
 
 @dataclass(frozen=True)
@@ -25,8 +28,13 @@ class ExecutionSafetyDecision:
 
 
 class ExecutionSafetyGuard:
-    def __init__(self, config: ExecutionSafetyConfig | None = None):
+    def __init__(
+        self,
+        config: ExecutionSafetyConfig | None = None,
+        daily_limit_service: ExecutionDailyLimitService | None = None,
+    ):
         self.config = config or ExecutionSafetyConfig()
+        self.daily_limit_service = daily_limit_service
 
     def validate_order(
         self,
@@ -68,6 +76,22 @@ class ExecutionSafetyGuard:
                         **metadata,
                         "notional": str(notional),
                         "max_order_notional": str(self.config.max_order_notional),
+                    },
+                )
+
+        if self.config.max_daily_order_count is not None and self.config.max_daily_order_count > 0:
+            if self.daily_limit_service is None:
+                return self._blocked("daily_limit_service_unavailable", metadata)
+            snapshot = self.daily_limit_service.count_successful_orders_today(bot_id=intent.bot_id)
+            if snapshot.count >= self.config.max_daily_order_count:
+                return self._blocked(
+                    "max_daily_order_count_exceeded",
+                    {
+                        **metadata,
+                        "bot_id": intent.bot_id,
+                        "daily_order_count": snapshot.count,
+                        "max_daily_order_count": self.config.max_daily_order_count,
+                        "day_start": snapshot.day_start.isoformat(),
                     },
                 )
 

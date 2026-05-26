@@ -1,15 +1,66 @@
 import asyncio
+from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 
+from app.models.execution_attempt import ExecutionAttempt
 from app.repositories.portfolio import PortfolioRepository
 from app.services.brokers.base import BrokerOrderIntent
 from app.services.brokers.binance import BinanceTestnetBroker, BinanceTestnetBrokerConfig
 from app.services.brokers.safety import ExecutionSafetyConfig, ExecutionSafetyGuard
 from app.core.config import Settings
 from app.repositories.execution_attempt import ExecutionAttemptRepository
+from app.services.execution_limits import ExecutionDailyLimitService
 from app.services.portfolio_account import PortfolioAccountService
 from app.services.execution_attempt import ExecutionAttemptService
 from app.services.simulated_execution import PaperExecutionBroker, PaperExecutionService
+
+
+FIXED_NOW = datetime(2026, 5, 27, 12, 0, tzinfo=timezone.utc)
+
+
+def add_attempt(
+    session,
+    *,
+    bot_id: int | None,
+    final_status: str = "filled",
+    created_at: datetime = FIXED_NOW,
+) -> None:
+    session.add(
+        ExecutionAttempt(
+            bot_id=bot_id,
+            strategy_id=None,
+            symbol="BTCUSDT",
+            side="buy",
+            mode="paper",
+            broker="paper",
+            requested_quantity=Decimal("1"),
+            requested_price=Decimal("100"),
+            risk_status="allowed",
+            safety_status="allowed",
+            final_status=final_status,
+            final_reason="Market buy order filled",
+            created_at=created_at,
+        )
+    )
+    session.commit()
+
+
+def build_daily_limit_guard(
+    db_session,
+    *,
+    max_daily_order_count: int,
+    max_order_notional: Decimal | None = None,
+) -> ExecutionSafetyGuard:
+    return ExecutionSafetyGuard(
+        ExecutionSafetyConfig(
+            max_daily_order_count=max_daily_order_count,
+            max_order_notional=max_order_notional,
+        ),
+        daily_limit_service=ExecutionDailyLimitService(
+            ExecutionAttemptRepository(db_session),
+            now_provider=lambda: FIXED_NOW,
+        ),
+    )
 
 
 def test_paper_execution_broker_returns_normalized_filled_result(
@@ -102,6 +153,93 @@ def test_execution_safety_guard_rejects_max_notional_exceeded() -> None:
     assert decision.reason == "max_order_notional_exceeded"
     assert decision.metadata["notional"] == "20.0"
     assert decision.metadata["max_order_notional"] == "10"
+
+
+def test_execution_safety_guard_allows_when_daily_order_limit_unset(db_session) -> None:
+    add_attempt(db_session, bot_id=7)
+    guard = ExecutionSafetyGuard(
+        ExecutionSafetyConfig(max_daily_order_count=None),
+        daily_limit_service=ExecutionDailyLimitService(ExecutionAttemptRepository(db_session), now_provider=lambda: FIXED_NOW),
+    )
+
+    decision = guard.validate_order(
+        BrokerOrderIntent(bot_id=7, symbol="BTCUSDT", side="buy", quantity=Decimal("0.1"), mode="paper"),
+        broker="paper",
+        market_price=Decimal("100"),
+    )
+
+    assert decision.allowed is True
+
+
+def test_execution_safety_guard_rejects_max_daily_order_count(db_session) -> None:
+    add_attempt(db_session, bot_id=7)
+    guard = build_daily_limit_guard(db_session, max_daily_order_count=1)
+
+    decision = guard.validate_order(
+        BrokerOrderIntent(bot_id=7, symbol="BTCUSDT", side="buy", quantity=Decimal("0.1"), mode="paper"),
+        broker="paper",
+        market_price=Decimal("100"),
+    )
+
+    assert decision.allowed is False
+    assert decision.reason == "max_daily_order_count_exceeded"
+    assert decision.metadata["daily_order_count"] == 1
+    assert decision.metadata["max_daily_order_count"] == 1
+
+
+def test_execution_safety_guard_daily_order_count_is_bot_scoped(db_session) -> None:
+    add_attempt(db_session, bot_id=7)
+    guard = build_daily_limit_guard(db_session, max_daily_order_count=1)
+
+    decision = guard.validate_order(
+        BrokerOrderIntent(bot_id=8, symbol="BTCUSDT", side="buy", quantity=Decimal("0.1"), mode="paper"),
+        broker="paper",
+        market_price=Decimal("100"),
+    )
+
+    assert decision.allowed is True
+
+
+def test_execution_safety_guard_daily_order_count_uses_current_utc_day_only(db_session) -> None:
+    add_attempt(db_session, bot_id=7, created_at=FIXED_NOW - timedelta(days=1))
+    guard = build_daily_limit_guard(db_session, max_daily_order_count=1)
+
+    decision = guard.validate_order(
+        BrokerOrderIntent(bot_id=7, symbol="BTCUSDT", side="buy", quantity=Decimal("0.1"), mode="paper"),
+        broker="paper",
+        market_price=Decimal("100"),
+    )
+
+    assert decision.allowed is True
+
+
+def test_paper_execution_broker_daily_order_limit_blocks_without_order_or_fill(db_session, stub_market_data_service) -> None:
+    repository = PortfolioRepository(db_session)
+    PortfolioAccountService(repository).ensure_account(base_currency="USD", starting_cash=Decimal("1000.00"))
+    add_attempt(db_session, bot_id=7)
+    stub_market_data_service.set_price("BTCUSDT", "100.00")
+    service = PaperExecutionService(
+        repository=repository,
+        market_data_service=stub_market_data_service,
+        simulation_enabled=True,
+        fee_bps=Decimal("0"),
+        slippage_bps=Decimal("0"),
+    )
+    guard = build_daily_limit_guard(db_session, max_daily_order_count=1)
+    attempt_service = ExecutionAttemptService(ExecutionAttemptRepository(db_session))
+
+    result = PaperExecutionBroker(service, safety_guard=guard, attempt_service=attempt_service).submit_market_order(
+        BrokerOrderIntent(bot_id=7, symbol="BTCUSDT", side="buy", quantity=Decimal("1"))
+    )
+
+    attempts = ExecutionAttemptRepository(db_session).list_filtered(bot_id=7, final_status="blocked_by_safety")
+    assert result.accepted is False
+    assert result.reason == "max_daily_order_count_exceeded"
+    assert repository.list_orders() == []
+    assert repository.list_fills() == []
+    assert len(attempts) == 1
+    assert attempts[0].final_reason == "max_daily_order_count_exceeded"
+    assert attempts[0].order_id is None
 
 
 def test_paper_execution_broker_rejects_when_global_kill_switch_is_disabled(
