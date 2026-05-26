@@ -44,6 +44,26 @@ class Settings(BaseSettings):
         default=Decimal("5"),
         validation_alias=AliasChoices("SIMULATION_SLIPPAGE_BPS"),
     )
+    binance_testnet_broker_enabled: bool = Field(
+        default=False,
+        validation_alias=AliasChoices("BINANCE_TESTNET_BROKER_ENABLED"),
+    )
+    binance_testnet_order_submission_enabled: bool = Field(
+        default=False,
+        validation_alias=AliasChoices("BINANCE_TESTNET_ORDER_SUBMISSION_ENABLED"),
+    )
+    binance_testnet_base_url: str = Field(
+        default="https://testnet.binance.vision",
+        validation_alias=AliasChoices("BINANCE_TESTNET_BASE_URL"),
+    )
+    binance_testnet_api_key: str | None = Field(
+        default=None,
+        validation_alias=AliasChoices("BINANCE_TESTNET_API_KEY"),
+    )
+    binance_testnet_api_secret: str | None = Field(
+        default=None,
+        validation_alias=AliasChoices("BINANCE_TESTNET_API_SECRET"),
+    )
     bot_runner_enabled: bool = Field(default=True, validation_alias=AliasChoices("BOT_RUNNER_ENABLED"))
     bot_runner_poll_interval_seconds: float = Field(
         default=2.0,

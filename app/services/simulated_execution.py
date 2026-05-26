@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from decimal import Decimal
-from typing import Any
 
 from app.data.schemas import MarketEvent
 from app.models.position import Position
@@ -10,6 +9,7 @@ from app.models.simulated_fill import SimulatedFill
 from app.models.simulated_order import SimulatedOrder
 from app.repositories.portfolio import PortfolioRepository
 from app.schemas.execution import ExecutionPositionSnapshot, MarketOrderRequest
+from app.services.brokers.base import BrokerOrderIntent, BrokerOrderResult
 from app.services.paper_portfolio import PaperPortfolioService
 
 ZERO = Decimal("0")
@@ -28,16 +28,8 @@ class ExecutionResult:
 
 
 @dataclass(frozen=True)
-class PaperOrderIntent:
-    symbol: str
-    side: str
-    quantity: Decimal
-    bot_id: int | None = None
-    strategy_id: int | None = None
-    order_type: str = "market"
-    mode: str = "paper"
-    decision_reason: str | None = None
-    decision_metadata: dict[str, Any] | None = None
+class PaperOrderIntent(BrokerOrderIntent):
+    pass
 
 
 class PaperExecutionService:
@@ -62,6 +54,10 @@ class PaperExecutionService:
             quantity=payload.quantity,
         )
         return self.submit_order_intent(intent)
+
+    def submit_broker_order(self, intent: BrokerOrderIntent) -> BrokerOrderResult:
+        result = self.submit_order_intent(PaperOrderIntent(**intent.__dict__))
+        return self._build_broker_result(result)
 
     def submit_order_intent(self, intent: PaperOrderIntent) -> ExecutionResult:
         account = self.repository.get_account()
@@ -304,6 +300,27 @@ class PaperExecutionService:
         return notional * (self.fee_bps / BPS_DIVISOR)
 
     @staticmethod
+    def _build_broker_result(result: ExecutionResult) -> BrokerOrderResult:
+        fill = result.fill
+        return BrokerOrderResult(
+            accepted=result.accepted,
+            status=result.status,
+            message=result.message,
+            order_id=result.order.id,
+            executed_quantity=fill.fill_quantity if fill is not None else None,
+            executed_price=fill.fill_price if fill is not None else None,
+            fee=fill.fee if fill is not None else None,
+            reason=result.order.rejection_reason if not result.accepted else None,
+            metadata={
+                "broker": "paper",
+                "symbol": result.order.symbol,
+                "side": result.order.side,
+                "mode": result.order.mode,
+                "fill_id": fill.id if fill is not None else None,
+            },
+        )
+
+    @staticmethod
     def _validate_intent(intent: PaperOrderIntent) -> str | None:
         if not intent.symbol or not intent.symbol.strip():
             return "Symbol must not be empty"
@@ -318,3 +335,11 @@ class PaperExecutionService:
 
 class SimulatedExecutionService(PaperExecutionService):
     pass
+
+
+class PaperExecutionBroker:
+    def __init__(self, execution_service: PaperExecutionService):
+        self.execution_service = execution_service
+
+    def submit_market_order(self, intent: BrokerOrderIntent) -> BrokerOrderResult:
+        return self.execution_service.submit_broker_order(intent)
