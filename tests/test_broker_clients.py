@@ -5,7 +5,12 @@ from decimal import Decimal
 from app.models.execution_attempt import ExecutionAttempt
 from app.repositories.portfolio import PortfolioRepository
 from app.services.brokers.base import BrokerOrderIntent
-from app.services.brokers.binance import BinanceTestnetBroker, BinanceTestnetBrokerConfig
+from app.services.brokers.binance import (
+    BinanceRequestSigner,
+    BinanceSignedRequestBuilder,
+    BinanceTestnetBroker,
+    BinanceTestnetBrokerConfig,
+)
 from app.services.brokers.safety import ExecutionSafetyConfig, ExecutionSafetyGuard
 from app.core.config import Settings
 from app.repositories.execution_attempt import ExecutionAttemptRepository
@@ -16,6 +21,7 @@ from app.services.simulated_execution import PaperExecutionBroker, PaperExecutio
 
 
 FIXED_NOW = datetime(2026, 5, 27, 12, 0, tzinfo=timezone.utc)
+TEST_SECRET = "test-secret"
 
 
 def add_attempt(
@@ -274,6 +280,58 @@ def test_paper_execution_broker_rejects_when_global_kill_switch_is_disabled(
     assert attempts[0].order_id is None
 
 
+def test_binance_request_signer_generates_hmac_sha256_signature() -> None:
+    signer = BinanceRequestSigner(TEST_SECRET, timestamp_provider=lambda: 1710000000000)
+    params = {
+        "symbol": "BTCUSDT",
+        "side": "BUY",
+        "type": "MARKET",
+        "quantity": "0.1",
+        "timestamp": 1710000000000,
+        "recvWindow": 5000,
+    }
+
+    signature = signer.sign(params)
+
+    assert signature == "da50f6c7e53ba982bc140d1ac54e932b93651b5bef77f35c40179a19144537b1"
+
+
+def test_binance_signed_request_builder_includes_timestamp_recv_window_and_signature() -> None:
+    original_payload = {
+        "symbol": "BTCUSDT",
+        "side": "BUY",
+        "type": "MARKET",
+        "quantity": "0.1",
+    }
+    builder = BinanceSignedRequestBuilder(
+        BinanceRequestSigner(TEST_SECRET, timestamp_provider=lambda: 1710000000000),
+        recv_window=6000,
+    )
+
+    signed = builder.signed_params(original_payload)
+
+    assert signed["timestamp"] == 1710000000000
+    assert signed["recvWindow"] == 6000
+    assert signed["signature"] == "d9d74c95fbbebf27e17f83911b7097113674a0e8e2567fd1da283a8195f3eab0"
+    assert "timestamp" not in original_payload
+    assert "recvWindow" not in original_payload
+    assert "signature" not in original_payload
+
+
+def test_binance_market_order_builder_constructs_market_payload() -> None:
+    builder = BinanceSignedRequestBuilder(BinanceRequestSigner(TEST_SECRET, timestamp_provider=lambda: 1710000000000))
+
+    params = builder.market_order_params(symbol="btcusdt", side="buy", quantity=Decimal("0.1000"))
+
+    assert params["symbol"] == "BTCUSDT"
+    assert params["side"] == "BUY"
+    assert params["type"] == "MARKET"
+    assert params["quantity"] == "0.1"
+    assert params["timestamp"] == 1710000000000
+    assert params["recvWindow"] == 5000
+    assert "signature" in params
+
+
 def test_binance_testnet_broker_disabled_by_default_rejects_without_http_call() -> None:
     class ExplodingHttpClient:
         def post(self, *args, **kwargs):
@@ -360,6 +418,47 @@ def test_binance_testnet_broker_order_submission_still_not_implemented_with_cred
     assert result.accepted is False
     assert result.status == "rejected"
     assert result.reason == "testnet_order_submission_not_implemented"
+    assert result.metadata["endpoint_path"] == "/api/v3/order"
+    assert result.metadata["method"] == "POST"
+    assert result.metadata["has_signature"] is True
+    assert result.metadata["credentials_configured"] is True
+    assert "test-secret" not in str(result.metadata)
+
+
+def test_binance_testnet_broker_dry_run_prepares_signed_request_without_network_or_secret_leak(db_session) -> None:
+    class ExplodingHttpClient:
+        def post(self, *args, **kwargs):
+            raise AssertionError("Dry-run must not make network calls")
+
+    broker = BinanceTestnetBroker(
+        BinanceTestnetBrokerConfig(
+            enabled=True,
+            order_submission_enabled=True,
+            dry_run_enabled=True,
+            api_key="test-key",
+            api_secret="test-secret",
+        ),
+        http_client=ExplodingHttpClient(),
+        attempt_service=ExecutionAttemptService(ExecutionAttemptRepository(db_session)),
+    )
+
+    result = broker.submit_market_order(
+        BrokerOrderIntent(bot_id=None, symbol="BTCUSDT", side="buy", quantity=Decimal("0.1"))
+    )
+
+    attempts = ExecutionAttemptRepository(db_session).list_filtered()
+    assert result.accepted is False
+    assert result.reason == "testnet_order_submission_dry_run"
+    assert result.metadata["endpoint_path"] == "/api/v3/order"
+    assert result.metadata["method"] == "POST"
+    assert result.metadata["symbol"] == "BTCUSDT"
+    assert result.metadata["side"] == "BUY"
+    assert result.metadata["order_type"] == "MARKET"
+    assert result.metadata["has_signature"] is True
+    assert result.metadata["credentials_configured"] is True
+    assert "test-secret" not in str(result.metadata)
+    assert len(attempts) == 1
+    assert "test-secret" not in str(attempts[0].metadata_)
 
 
 def test_bot_runner_does_not_call_binance_order_placement_by_default(
