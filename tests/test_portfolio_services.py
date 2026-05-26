@@ -2,9 +2,31 @@ from decimal import Decimal
 
 from app.repositories.portfolio import PortfolioRepository
 from app.schemas.execution import MarketOrderRequest
+from app.models.simulated_fill import SimulatedFill
+from app.services.paper_portfolio import PaperPortfolioService
 from app.services.portfolio import PortfolioService
 from app.services.portfolio_account import PortfolioAccountService
-from app.services.simulated_execution import SimulatedExecutionService
+from app.services.simulated_execution import PaperExecutionService, PaperOrderIntent, SimulatedExecutionService
+
+
+def build_fill(
+    *,
+    symbol: str = "BTCUSDT",
+    side: str,
+    quantity: Decimal,
+    fill_price: Decimal,
+    fee: Decimal = Decimal("0"),
+) -> SimulatedFill:
+    return SimulatedFill(
+        order_id=1,
+        symbol=symbol,
+        side=side,
+        quantity=quantity,
+        fill_quantity=quantity,
+        fill_price=fill_price,
+        fee=fee,
+        source="paper",
+    )
 
 
 def test_account_bootstrap_creates_default_account(db_session) -> None:
@@ -14,6 +36,105 @@ def test_account_bootstrap_creates_default_account(db_session) -> None:
 
     assert account.base_currency == "USD"
     assert account.starting_cash == Decimal("1000.00")
+    assert account.cash_balance == Decimal("1000.00")
+
+
+def test_paper_portfolio_buy_fill_updates_position_and_average_entry(db_session) -> None:
+    repository = PortfolioRepository(db_session)
+    account = PortfolioAccountService(repository).ensure_account(base_currency="USD", starting_cash=Decimal("1000.00"))
+    fill = build_fill(side="buy", quantity=Decimal("2"), fill_price=Decimal("100"), fee=Decimal("1"))
+
+    result = PaperPortfolioService(repository).apply_fill(fill)
+
+    position = repository.get_position_by_symbol("BTCUSDT")
+    assert result.accepted is True
+    assert position is not None
+    assert position.quantity == Decimal("2")
+    assert position.average_entry_price == Decimal("100.5")
+    assert position.realized_pnl == Decimal("0")
+    assert account.cash_balance == Decimal("799.00")
+
+
+def test_paper_portfolio_multiple_buy_fills_update_weighted_average_entry(db_session) -> None:
+    repository = PortfolioRepository(db_session)
+    PortfolioAccountService(repository).ensure_account(base_currency="USD", starting_cash=Decimal("1000.00"))
+    service = PaperPortfolioService(repository)
+
+    first = service.apply_fill(build_fill(side="buy", quantity=Decimal("2"), fill_price=Decimal("100")))
+    second = service.apply_fill(build_fill(side="buy", quantity=Decimal("1"), fill_price=Decimal("130")))
+
+    position = repository.get_position_by_symbol("BTCUSDT")
+    assert first.accepted is True
+    assert second.accepted is True
+    assert position is not None
+    assert position.quantity == Decimal("3")
+    assert position.average_entry_price == Decimal("110")
+
+
+def test_paper_portfolio_sell_fill_reduces_position_and_calculates_realized_pnl(db_session) -> None:
+    repository = PortfolioRepository(db_session)
+    account = PortfolioAccountService(repository).ensure_account(base_currency="USD", starting_cash=Decimal("1000.00"))
+    service = PaperPortfolioService(repository)
+    service.apply_fill(build_fill(side="buy", quantity=Decimal("2"), fill_price=Decimal("100")))
+
+    result = service.apply_fill(build_fill(side="sell", quantity=Decimal("2"), fill_price=Decimal("125"), fee=Decimal("1")))
+
+    position = repository.get_position_by_symbol("BTCUSDT")
+    assert result.accepted is True
+    assert result.realized_pnl_delta == Decimal("49")
+    assert position is not None
+    assert position.quantity == Decimal("0")
+    assert position.average_entry_price == Decimal("0")
+    assert position.realized_pnl == Decimal("49")
+    assert account.cash_balance == Decimal("1049.00")
+
+
+def test_paper_portfolio_partial_sell_keeps_remaining_average_entry(db_session) -> None:
+    repository = PortfolioRepository(db_session)
+    PortfolioAccountService(repository).ensure_account(base_currency="USD", starting_cash=Decimal("1000.00"))
+    service = PaperPortfolioService(repository)
+    service.apply_fill(build_fill(side="buy", quantity=Decimal("2"), fill_price=Decimal("100")))
+
+    result = service.apply_fill(build_fill(side="sell", quantity=Decimal("0.75"), fill_price=Decimal("120")))
+
+    position = repository.get_position_by_symbol("BTCUSDT")
+    assert result.accepted is True
+    assert position is not None
+    assert position.quantity == Decimal("1.25")
+    assert position.average_entry_price == Decimal("100")
+    assert position.realized_pnl == Decimal("15.00")
+
+
+def test_paper_portfolio_oversell_is_rejected_without_state_change(db_session) -> None:
+    repository = PortfolioRepository(db_session)
+    account = PortfolioAccountService(repository).ensure_account(base_currency="USD", starting_cash=Decimal("1000.00"))
+    service = PaperPortfolioService(repository)
+    service.apply_fill(build_fill(side="buy", quantity=Decimal("1"), fill_price=Decimal("100")))
+
+    result = service.apply_fill(build_fill(side="sell", quantity=Decimal("2"), fill_price=Decimal("120")))
+
+    position = repository.get_position_by_symbol("BTCUSDT")
+    assert result.accepted is False
+    assert result.message == "Insufficient position quantity for this sell order"
+    assert position is not None
+    assert position.quantity == Decimal("1")
+    assert position.realized_pnl == Decimal("0")
+    assert account.cash_balance == Decimal("900.00")
+
+
+def test_paper_portfolio_invalid_fill_does_not_corrupt_state(db_session) -> None:
+    repository = PortfolioRepository(db_session)
+    account = PortfolioAccountService(repository).ensure_account(base_currency="USD", starting_cash=Decimal("1000.00"))
+    service = PaperPortfolioService(repository)
+
+    zero_quantity = service.apply_fill(build_fill(side="buy", quantity=Decimal("0"), fill_price=Decimal("100")))
+    invalid_price = service.apply_fill(build_fill(side="buy", quantity=Decimal("1"), fill_price=Decimal("0")))
+
+    assert zero_quantity.accepted is False
+    assert zero_quantity.message == "Fill quantity must be a positive number"
+    assert invalid_price.accepted is False
+    assert invalid_price.message == "Fill price must be a positive number"
+    assert repository.get_position_by_symbol("BTCUSDT") is None
     assert account.cash_balance == Decimal("1000.00")
 
 
@@ -42,6 +163,45 @@ def test_successful_buy_updates_account_and_position(db_session, stub_market_dat
     assert result.position is not None
     assert result.position.quantity == Decimal("0.01000000")
     assert result.position.average_entry_price == Decimal("50075.025000")
+    assert result.order.order_type == "market"
+    assert result.order.mode == "paper"
+    assert result.fill.fill_quantity == result.order.quantity
+    assert result.fill.source == "paper"
+
+
+def test_paper_execution_applies_fills_through_portfolio_service(
+    db_session,
+    stub_market_data_service,
+    monkeypatch,
+) -> None:
+    repository = PortfolioRepository(db_session)
+    PortfolioAccountService(repository).ensure_account(base_currency="USD", starting_cash=Decimal("1000.00"))
+    stub_market_data_service.set_price("BTCUSDT", "100.00")
+    calls = {"count": 0}
+    original_apply_fill = PaperPortfolioService.apply_fill
+
+    def counting_apply_fill(self, fill):
+        calls["count"] += 1
+        return original_apply_fill(self, fill)
+
+    monkeypatch.setattr(PaperPortfolioService, "apply_fill", counting_apply_fill)
+    service = PaperExecutionService(
+        repository=repository,
+        market_data_service=stub_market_data_service,
+        simulation_enabled=True,
+        fee_bps=Decimal("0"),
+        slippage_bps=Decimal("0"),
+    )
+
+    result = service.submit_order_intent(PaperOrderIntent(symbol="BTCUSDT", side="buy", quantity=Decimal("1")))
+
+    position = repository.get_position_by_symbol("BTCUSDT")
+    assert result.accepted is True
+    assert calls["count"] == 1
+    assert result.fill is not None
+    assert position is not None
+    assert position.quantity == Decimal("1.00000000")
+    assert position.average_entry_price == Decimal("100.00000000")
 
 
 def test_rejected_buy_due_to_insufficient_cash(db_session, stub_market_data_service) -> None:
@@ -117,6 +277,48 @@ def test_rejected_sell_due_to_insufficient_quantity(db_session, stub_market_data
     assert result.accepted is False
     assert result.status == "rejected"
     assert result.message == "Insufficient position quantity for this sell order"
+
+
+def test_missing_market_price_rejects_without_fill(db_session, stub_market_data_service) -> None:
+    repository = PortfolioRepository(db_session)
+    PortfolioAccountService(repository).ensure_account(base_currency="USD", starting_cash=Decimal("1000.00"))
+    service = SimulatedExecutionService(
+        repository=repository,
+        market_data_service=stub_market_data_service,
+        simulation_enabled=True,
+        fee_bps=Decimal("0"),
+        slippage_bps=Decimal("0"),
+    )
+
+    result = service.submit_order_intent(PaperOrderIntent(symbol="BTCUSDT", side="buy", quantity=Decimal("0.01")))
+
+    assert result.accepted is False
+    assert result.status == "rejected"
+    assert result.fill is None
+    assert result.order.rejection_reason == "No latest market price available for symbol BTCUSDT"
+    assert repository.list_fills() == []
+
+
+def test_invalid_quantity_rejects_without_fill(db_session, stub_market_data_service) -> None:
+    repository = PortfolioRepository(db_session)
+    PortfolioAccountService(repository).ensure_account(base_currency="USD", starting_cash=Decimal("1000.00"))
+    stub_market_data_service.set_price("BTCUSDT", "50000.00")
+    service = SimulatedExecutionService(
+        repository=repository,
+        market_data_service=stub_market_data_service,
+        simulation_enabled=True,
+        fee_bps=Decimal("0"),
+        slippage_bps=Decimal("0"),
+    )
+
+    result = service.submit_order_intent(PaperOrderIntent(symbol="BTCUSDT", side="buy", quantity=Decimal("0")))
+
+    assert result.accepted is False
+    assert result.status == "rejected"
+    assert result.fill is None
+    assert result.order.status == "rejected"
+    assert result.order.rejection_reason == "Order quantity must be a positive number"
+    assert repository.list_fills() == []
 
 
 def test_portfolio_summary_uses_latest_market_price(db_session, stub_market_data_service) -> None:

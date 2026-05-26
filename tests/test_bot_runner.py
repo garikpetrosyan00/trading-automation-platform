@@ -195,6 +195,12 @@ def test_buy_signal_triggers_one_buy_and_no_duplicate_buy(
 
     assert len(orders) == 1
     assert orders[0].side == "buy"
+    assert orders[0].bot_id == bot.id
+    assert orders[0].strategy_id == bot.strategy_id
+    assert orders[0].order_type == "market"
+    assert orders[0].status == "filled"
+    assert orders[0].mode == "paper"
+    assert orders[0].decision_reason == "price is below strategy buy_below"
     assert position is not None
     assert position.quantity == Decimal("0.10000000")
 
@@ -314,11 +320,38 @@ def test_sell_signal_triggers_full_sell(
     assert orders[0].side == "sell"
     assert orders[1].side == "buy"
     assert len(fills) == 2
+    assert fills[0].order_id == orders[0].id
+    assert fills[0].fill_quantity == orders[0].quantity
+    assert fills[0].source == "paper"
     assert position is not None
     assert position.quantity == Decimal("0E-8")
     assert any(event.message == "buy_signal" for event in events)
     assert any(event.message == "sell_signal" for event in events)
     assert sum(1 for event in events if event.message == "order_filled") == 2
+
+
+def test_live_mode_records_not_implemented_without_order(
+    db_session,
+    db_session_factory,
+    stub_market_data_service,
+    bot_stack_factory,
+    funded_account,
+) -> None:
+    funded_account(db_session)
+    _, bot, _ = bot_stack_factory(db_session, is_paper=False)
+    runner = build_runner(db_session_factory, stub_market_data_service)
+    runner.start_bot(bot.id)
+    stub_market_data_service.set_price("BTCUSDT", "95")
+
+    asyncio.run(runner.run_cycle())
+
+    orders = PortfolioRepository(db_session).list_orders()
+    events = RunEventRepository(db_session).list_for_bot(bot.id)
+
+    assert orders == []
+    live_event = next(event for event in events if event.message == "live_mode_not_implemented")
+    assert live_event.payload["side"] == "buy"
+    assert live_event.payload["symbol"] == "BTCUSDT"
 
 
 def test_buy_decision_and_quantity_use_strategy_parameters(

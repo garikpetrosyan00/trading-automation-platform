@@ -15,8 +15,15 @@ class SimulatedFill(Base):
     symbol: Mapped[str] = mapped_column(String(50), nullable=False, index=True)
     side: Mapped[str] = mapped_column(String(10), nullable=False, index=True)
     quantity: Mapped[Decimal] = mapped_column(Numeric(18, 8), nullable=False)
+    fill_quantity: Mapped[Decimal] = mapped_column(Numeric(18, 8), nullable=False)
     fill_price: Mapped[Decimal] = mapped_column(Numeric(18, 8), nullable=False)
     fee: Mapped[Decimal] = mapped_column(Numeric(18, 8), nullable=False, default=Decimal("0"))
+    source: Mapped[str] = mapped_column(String(20), nullable=False, default="paper", server_default="paper", index=True)
+    filled_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        nullable=False,
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         server_default=func.now(),

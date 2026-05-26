@@ -12,6 +12,9 @@ from app.models.execution_profile import ExecutionProfile
 from app.models.position import Position
 from app.models.run_event import RunEvent
 from app.models.strategy import Strategy
+from app.repositories.portfolio import PortfolioRepository
+from app.services.portfolio_account import PortfolioAccountService
+from app.services.simulated_execution import PaperOrderIntent, SimulatedExecutionService
 
 
 def create_strategy(session, *, name: str = "API Strategy", symbol: str = "BTCUSDT") -> Strategy:
@@ -369,6 +372,63 @@ def test_bot_performance_includes_latest_market_price_and_position_fields(
     assert Decimal(body["current_position_quantity"]) == Decimal("0.5")
     assert Decimal(body["realized_pnl"]) == Decimal("7.25")
     assert Decimal(body["unrealized_pnl"]) == Decimal("5")
+
+
+def test_bot_performance_reflects_paper_fill_accounting(
+    db_session_factory,
+    stub_market_data_service,
+    noop_bot_runner,
+    bot_stack_factory,
+    configure_app_state,
+) -> None:
+    with db_session_factory() as session:
+        strategy, bot, _ = bot_stack_factory(session, status="active")
+        repository = PortfolioRepository(session)
+        PortfolioAccountService(repository).ensure_account(base_currency="USD", starting_cash=Decimal("1000.00"))
+        execution_service = SimulatedExecutionService(
+            repository=repository,
+            market_data_service=stub_market_data_service,
+            simulation_enabled=True,
+            fee_bps=Decimal("0"),
+            slippage_bps=Decimal("0"),
+        )
+        stub_market_data_service.set_price(strategy.symbol, "100")
+        execution_service.submit_order_intent(
+            PaperOrderIntent(
+                bot_id=bot.id,
+                strategy_id=strategy.id,
+                symbol=strategy.symbol,
+                side="buy",
+                quantity=Decimal("2"),
+            )
+        )
+        stub_market_data_service.set_price(strategy.symbol, "125")
+        execution_service.submit_order_intent(
+            PaperOrderIntent(
+                bot_id=bot.id,
+                strategy_id=strategy.id,
+                symbol=strategy.symbol,
+                side="sell",
+                quantity=Decimal("0.5"),
+            )
+        )
+        bot_id = bot.id
+        symbol = strategy.symbol
+
+    stub_market_data_service.set_price(symbol, "130")
+    configure_app_state(
+        market_data_service=stub_market_data_service,
+        bot_runner=noop_bot_runner,
+    )
+
+    with TestClient(app) as client:
+        response = client.get(f"/api/v1/bots/{bot_id}/performance")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert Decimal(body["current_position_quantity"]) == Decimal("1.50000000")
+    assert Decimal(body["realized_pnl"]) == Decimal("12.50000000")
+    assert Decimal(body["unrealized_pnl"]) == Decimal("45.00000000")
 
 
 def test_bot_performance_paused_bot_with_activity_is_inactive(

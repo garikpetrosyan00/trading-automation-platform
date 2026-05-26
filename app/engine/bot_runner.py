@@ -33,9 +33,8 @@ from app.schemas.bot_manual_run import BotDecisionExplanationRead, BotManualRunR
 from app.schemas.bot_run import BotRunCreate, BotRunUpdate
 from app.schemas.bot_runner import BotControlRead, BotStatusRead
 from app.schemas.bot_summary import BotSummaryRead
-from app.schemas.execution import MarketOrderRequest
 from app.services.bot_run import BotRunService
-from app.services.simulated_execution import SimulatedExecutionService
+from app.services.simulated_execution import PaperOrderIntent, SimulatedExecutionService
 
 logger = get_logger(__name__)
 
@@ -579,8 +578,17 @@ class BotRunner:
             fee_bps=self.config.simulation_fee_bps,
             slippage_bps=self.config.simulation_slippage_bps,
         )
-        result = execution_service.submit_market_order(
-            MarketOrderRequest(symbol=strategy.symbol, side=execution_action, quantity=quantity)
+        result = execution_service.submit_order_intent(
+            PaperOrderIntent(
+                bot_id=bot.id,
+                strategy_id=strategy.id,
+                symbol=strategy.symbol,
+                side=execution_action,
+                quantity=quantity,
+                mode="paper",
+                decision_reason=decision_payload.get("detail") or decision_payload.get("reason"),
+                decision_metadata=decision_payload,
+            )
         )
 
         self._record_event(
