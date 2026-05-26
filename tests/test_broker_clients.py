@@ -6,7 +6,9 @@ from app.services.brokers.base import BrokerOrderIntent
 from app.services.brokers.binance import BinanceTestnetBroker, BinanceTestnetBrokerConfig
 from app.services.brokers.safety import ExecutionSafetyConfig, ExecutionSafetyGuard
 from app.core.config import Settings
+from app.repositories.execution_attempt import ExecutionAttemptRepository
 from app.services.portfolio_account import PortfolioAccountService
+from app.services.execution_attempt import ExecutionAttemptService
 from app.services.simulated_execution import PaperExecutionBroker, PaperExecutionService
 
 
@@ -117,8 +119,9 @@ def test_paper_execution_broker_rejects_when_global_kill_switch_is_disabled(
         slippage_bps=Decimal("0"),
     )
     guard = ExecutionSafetyGuard(ExecutionSafetyConfig(global_enabled=False))
+    attempt_service = ExecutionAttemptService(ExecutionAttemptRepository(db_session))
 
-    result = PaperExecutionBroker(service, safety_guard=guard).submit_market_order(
+    result = PaperExecutionBroker(service, safety_guard=guard, attempt_service=attempt_service).submit_market_order(
         BrokerOrderIntent(symbol="BTCUSDT", side="buy", quantity=Decimal("1"))
     )
 
@@ -126,6 +129,11 @@ def test_paper_execution_broker_rejects_when_global_kill_switch_is_disabled(
     assert result.reason == "execution_global_disabled"
     assert repository.list_orders() == []
     assert repository.list_fills() == []
+    attempts = ExecutionAttemptRepository(db_session).list_filtered()
+    assert len(attempts) == 1
+    assert attempts[0].final_status == "blocked_by_safety"
+    assert attempts[0].final_reason == "execution_global_disabled"
+    assert attempts[0].order_id is None
 
 
 def test_binance_testnet_broker_disabled_by_default_rejects_without_http_call() -> None:
@@ -141,6 +149,26 @@ def test_binance_testnet_broker_disabled_by_default_rejects_without_http_call() 
     assert result.status == "rejected"
     assert result.reason == "testnet_broker_disabled"
     assert result.external_order_id is None
+
+
+def test_binance_testnet_broker_disabled_records_attempt_without_order(db_session) -> None:
+    broker = BinanceTestnetBroker(
+        BinanceTestnetBrokerConfig(),
+        attempt_service=ExecutionAttemptService(ExecutionAttemptRepository(db_session)),
+    )
+
+    result = broker.submit_market_order(BrokerOrderIntent(symbol="BTCUSDT", side="buy", quantity=Decimal("0.1")))
+
+    attempts = ExecutionAttemptRepository(db_session).list_filtered()
+    assert result.accepted is False
+    assert len(attempts) == 1
+    assert attempts[0].bot_id is None
+    assert attempts[0].strategy_id is None
+    assert attempts[0].mode == "testnet"
+    assert attempts[0].broker == "binance_testnet"
+    assert attempts[0].final_status == "blocked_by_safety"
+    assert attempts[0].final_reason == "testnet_broker_disabled"
+    assert attempts[0].order_id is None
 
 
 def test_binance_testnet_broker_missing_credentials_rejects_safely() -> None:

@@ -4,6 +4,7 @@ from app.models.backtest_run import BacktestRun
 from app.models.bot import Bot
 from app.models.bot_run import BotRun
 from app.models.execution_profile import ExecutionProfile
+from app.models.execution_attempt import ExecutionAttempt
 from app.models.market_candle import MarketCandle
 from app.models.notification_rule import NotificationRule
 from app.models.portfolio_account import PortfolioAccount
@@ -18,6 +19,7 @@ __all__ = [
     "BacktestRun",
     "Bot",
     "ExecutionProfile",
+    "ExecutionAttempt",
     "MarketCandle",
     "BotRun",
     "RunEvent",

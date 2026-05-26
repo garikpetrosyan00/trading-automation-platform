@@ -4,12 +4,17 @@ from fastapi import APIRouter, Query
 
 from app.api.dependencies import DbSession
 from app.core.errors import NotFoundError
+from app.models.execution_attempt import ExecutionAttempt
 from app.models.simulated_fill import SimulatedFill
 from app.models.simulated_order import SimulatedOrder
+from app.repositories.execution_attempt import ExecutionAttemptRepository
 from app.repositories.portfolio import PortfolioRepository
 from app.schemas.execution import (
     ExecutionAuditMode,
     ExecutionAuditStatus,
+    ExecutionAttemptMode,
+    ExecutionAttemptRead,
+    ExecutionAttemptStatus,
     ExecutionFillAuditRead,
     ExecutionOrderAuditRead,
     ExecutionSide,
@@ -42,6 +47,44 @@ async def list_orders(
         limit=limit,
     )
     return [_build_order_read(repository, order) for order in orders]
+
+
+@router.get("/execution-attempts", response_model=list[ExecutionAttemptRead])
+async def list_execution_attempts(
+    db: DbSession,
+    bot_id: int | None = Query(default=None, ge=1),
+    strategy_id: int | None = Query(default=None, ge=1),
+    symbol: str | None = Query(default=None),
+    side: ExecutionSide | None = Query(default=None),
+    mode: ExecutionAttemptMode | None = Query(default=None),
+    final_status: ExecutionAttemptStatus | None = Query(default=None),
+    reason: str | None = Query(default=None),
+    limit: OrderLimit = 50,
+) -> list[ExecutionAttemptRead]:
+    repository = ExecutionAttemptRepository(db)
+    attempts = repository.list_filtered(
+        bot_id=bot_id,
+        strategy_id=strategy_id,
+        symbol=_normalize_symbol_filter(symbol),
+        side=side,
+        mode=mode,
+        final_status=final_status,
+        reason=reason,
+        limit=limit,
+    )
+    return [_build_attempt_read(attempt) for attempt in attempts]
+
+
+@router.get("/execution-attempts/{attempt_id}", response_model=ExecutionAttemptRead)
+async def get_execution_attempt(attempt_id: int, db: DbSession) -> ExecutionAttemptRead:
+    repository = ExecutionAttemptRepository(db)
+    attempt = repository.get_by_id(attempt_id)
+    if attempt is None:
+        raise NotFoundError(
+            f"Execution attempt with id {attempt_id} was not found",
+            error_code="execution_attempt_not_found",
+        )
+    return _build_attempt_read(attempt)
 
 
 @router.get("/orders/{order_id}", response_model=ExecutionOrderAuditRead)
@@ -82,6 +125,30 @@ async def list_bot_orders(
         limit=limit,
     )
     return [_build_order_read(repository, order) for order in orders]
+
+
+@router.get("/bots/{bot_id}/execution-attempts", response_model=list[ExecutionAttemptRead])
+async def list_bot_execution_attempts(
+    bot_id: int,
+    db: DbSession,
+    symbol: str | None = Query(default=None),
+    side: ExecutionSide | None = Query(default=None),
+    mode: ExecutionAttemptMode | None = Query(default=None),
+    final_status: ExecutionAttemptStatus | None = Query(default=None),
+    reason: str | None = Query(default=None),
+    limit: OrderLimit = 50,
+) -> list[ExecutionAttemptRead]:
+    repository = ExecutionAttemptRepository(db)
+    attempts = repository.list_filtered(
+        bot_id=bot_id,
+        symbol=_normalize_symbol_filter(symbol),
+        side=side,
+        mode=mode,
+        final_status=final_status,
+        reason=reason,
+        limit=limit,
+    )
+    return [_build_attempt_read(attempt) for attempt in attempts]
 
 
 def _build_order_read(
@@ -125,6 +192,28 @@ def _build_fill_read(fill: SimulatedFill) -> ExecutionFillAuditRead:
         fee=fill.fee,
         source=fill.source,
         filled_at=fill.filled_at,
+    )
+
+
+def _build_attempt_read(attempt: ExecutionAttempt) -> ExecutionAttemptRead:
+    return ExecutionAttemptRead(
+        id=attempt.id,
+        bot_id=attempt.bot_id,
+        strategy_id=attempt.strategy_id,
+        order_id=attempt.order_id,
+        symbol=attempt.symbol,
+        side=attempt.side,
+        mode=attempt.mode,
+        broker=attempt.broker,
+        requested_quantity=attempt.requested_quantity,
+        requested_price=attempt.requested_price,
+        decision_reason=attempt.decision_reason,
+        risk_status=attempt.risk_status,
+        safety_status=attempt.safety_status,
+        final_status=attempt.final_status,
+        final_reason=attempt.final_reason,
+        metadata=attempt.metadata_,
+        created_at=attempt.created_at,
     )
 
 

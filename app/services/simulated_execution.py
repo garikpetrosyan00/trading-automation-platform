@@ -11,6 +11,7 @@ from app.repositories.portfolio import PortfolioRepository
 from app.schemas.execution import ExecutionPositionSnapshot, MarketOrderRequest
 from app.services.brokers.base import BrokerOrderIntent, BrokerOrderResult
 from app.services.brokers.safety import ExecutionSafetyGuard
+from app.services.execution_attempt import ExecutionAttemptService
 from app.services.paper_portfolio import PaperPortfolioService
 
 ZERO = Decimal("0")
@@ -352,13 +353,36 @@ class SimulatedExecutionService(PaperExecutionService):
 
 
 class PaperExecutionBroker:
-    def __init__(self, execution_service: PaperExecutionService, safety_guard: ExecutionSafetyGuard | None = None):
+    def __init__(
+        self,
+        execution_service: PaperExecutionService,
+        safety_guard: ExecutionSafetyGuard | None = None,
+        attempt_service: ExecutionAttemptService | None = None,
+    ):
         self.execution_service = execution_service
         self.safety_guard = safety_guard or ExecutionSafetyGuard()
+        self.attempt_service = attempt_service
 
     def submit_market_order(self, intent: BrokerOrderIntent) -> BrokerOrderResult:
         safety_decision = self.safety_guard.validate_order(intent, broker="paper")
         if not safety_decision.allowed:
+            if self.attempt_service is not None:
+                self.attempt_service.record(
+                    bot_id=intent.bot_id,
+                    strategy_id=intent.strategy_id,
+                    symbol=intent.symbol,
+                    side=intent.side,
+                    mode=intent.mode,
+                    broker="paper",
+                    requested_quantity=intent.quantity,
+                    requested_price=None,
+                    decision_reason=intent.decision_reason,
+                    risk_status=None,
+                    safety_status=safety_decision.reason,
+                    final_status="blocked_by_safety",
+                    final_reason=safety_decision.reason,
+                    metadata=safety_decision.metadata,
+                )
             return BrokerOrderResult(
                 accepted=False,
                 status="rejected",
@@ -366,4 +390,23 @@ class PaperExecutionBroker:
                 reason=safety_decision.reason,
                 metadata=safety_decision.metadata,
             )
-        return self.execution_service.submit_broker_order(intent)
+        result = self.execution_service.submit_broker_order(intent)
+        if self.attempt_service is not None:
+            self.attempt_service.record(
+                bot_id=intent.bot_id,
+                strategy_id=intent.strategy_id,
+                symbol=intent.symbol,
+                side=intent.side,
+                mode=intent.mode,
+                broker="paper",
+                requested_quantity=intent.quantity,
+                requested_price=result.executed_price,
+                decision_reason=intent.decision_reason,
+                risk_status="allowed",
+                safety_status="allowed",
+                final_status="filled" if result.accepted else "rejected_by_broker",
+                final_reason=result.reason or result.message,
+                order_id=result.order_id,
+                metadata=result.metadata,
+            )
+        return result

@@ -23,6 +23,7 @@ from app.models.run_event import RunEvent
 from app.repositories.bot import BotRepository
 from app.repositories.bot_run import BotRunRepository
 from app.repositories.execution_profile import ExecutionProfileRepository
+from app.repositories.execution_attempt import ExecutionAttemptRepository
 from app.repositories.market_candle import MarketCandleRepository
 from app.repositories.portfolio import PortfolioRepository
 from app.repositories.run_event import RunEventRepository
@@ -34,6 +35,7 @@ from app.schemas.bot_run import BotRunCreate, BotRunUpdate
 from app.schemas.bot_runner import BotControlRead, BotStatusRead
 from app.schemas.bot_summary import BotSummaryRead
 from app.services.bot_run import BotRunService
+from app.services.execution_attempt import ExecutionAttemptService
 from app.services.simulated_execution import PaperOrderIntent, SimulatedExecutionService
 
 logger = get_logger(__name__)
@@ -465,6 +467,23 @@ class BotRunner:
             current_price=decision.current_price if decision.current_price is not None else latest_price,
         )
         if not risk_decision.allowed:
+            if decision.action in {"buy", "sell"} and risk_quantity is not None:
+                ExecutionAttemptService(ExecutionAttemptRepository(db)).record(
+                    bot_id=bot.id,
+                    strategy_id=strategy.id,
+                    symbol=strategy.symbol,
+                    side=decision.action,
+                    mode="paper" if bot.is_paper else "live",
+                    broker="paper" if bot.is_paper else None,
+                    requested_quantity=risk_quantity,
+                    requested_price=decision.current_price if decision.current_price is not None else latest_price,
+                    decision_reason=decision_payload.get("detail") or decision_payload.get("reason"),
+                    risk_status=risk_decision.reason,
+                    safety_status=None,
+                    final_status="blocked_by_risk",
+                    final_reason=risk_decision.reason,
+                    metadata={"decision": decision_payload, "risk": risk_decision.details},
+                )
             self._record_event(
                 db,
                 bot_run.id,
@@ -560,6 +579,22 @@ class BotRunner:
         db.commit()
 
         if not bot.is_paper:
+            ExecutionAttemptService(ExecutionAttemptRepository(db)).record(
+                bot_id=bot.id,
+                strategy_id=strategy.id,
+                symbol=strategy.symbol,
+                side=execution_action,
+                mode="live",
+                broker=None,
+                requested_quantity=quantity,
+                requested_price=decision.current_price if decision.current_price is not None else latest_price,
+                decision_reason=decision_payload.get("detail") or decision_payload.get("reason"),
+                risk_status=risk_decision.reason,
+                safety_status="live_execution_disabled",
+                final_status="blocked_by_safety",
+                final_reason="live_mode_not_implemented",
+                metadata={"decision": decision_payload},
+            )
             self._record_event(
                 db,
                 bot_run.id,
@@ -589,6 +624,27 @@ class BotRunner:
                 decision_reason=decision_payload.get("detail") or decision_payload.get("reason"),
                 decision_metadata=decision_payload,
             )
+        )
+
+        ExecutionAttemptService(ExecutionAttemptRepository(db)).record(
+            bot_id=bot.id,
+            strategy_id=strategy.id,
+            symbol=strategy.symbol,
+            side=execution_action,
+            mode="paper",
+            broker="paper",
+            requested_quantity=quantity,
+            requested_price=decision.current_price if decision.current_price is not None else latest_price,
+            decision_reason=decision_payload.get("detail") or decision_payload.get("reason"),
+            risk_status=risk_decision.reason,
+            safety_status="allowed" if result.accepted else result.order.rejection_reason,
+            final_status="filled" if result.accepted else "rejected_by_broker",
+            final_reason=result.message,
+            order_id=result.order.id,
+            metadata={
+                "decision": decision_payload,
+                "fill_id": result.fill.id if result.fill is not None else None,
+            },
         )
 
         self._record_event(

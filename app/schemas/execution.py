@@ -9,6 +9,16 @@ ExecutionSide = Literal["buy", "sell"]
 ExecutionStatus = Literal["filled", "rejected"]
 ExecutionAuditStatus = Literal["created", "submitted", "filled", "rejected", "cancelled"]
 ExecutionAuditMode = Literal["paper", "live"]
+ExecutionAttemptMode = Literal["paper", "testnet", "live"]
+ExecutionAttemptStatus = Literal[
+    "created",
+    "blocked_by_risk",
+    "blocked_by_safety",
+    "rejected_by_broker",
+    "order_created",
+    "filled",
+    "failed",
+]
 
 
 class MarketOrderRequest(BaseModel):
@@ -84,6 +94,28 @@ class ExecutionOrderAuditRead(BaseModel):
     fills: list[ExecutionFillAuditRead] = Field(default_factory=list)
     created_at: datetime
     updated_at: datetime | None = None
+
+
+class ExecutionAttemptRead(BaseModel):
+    id: int
+    bot_id: int | None = None
+    strategy_id: int | None = None
+    order_id: int | None = None
+    symbol: str
+    side: ExecutionSide
+    mode: ExecutionAttemptMode
+    broker: str | None = None
+    requested_quantity: Decimal
+    requested_price: Decimal | None = None
+    decision_reason: str | None = None
+    risk_status: str | None = None
+    safety_status: str | None = None
+    final_status: ExecutionAttemptStatus
+    final_reason: str | None = None
+    metadata: dict | None = None
+    created_at: datetime
+
+    model_config = ConfigDict(from_attributes=True)
 
 
 class ExecutionPositionSnapshot(BaseModel):

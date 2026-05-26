@@ -4,6 +4,7 @@ from dataclasses import dataclass
 
 from app.services.brokers.base import BrokerOrderIntent, BrokerOrderResult
 from app.services.brokers.safety import ExecutionSafetyConfig, ExecutionSafetyGuard
+from app.services.execution_attempt import ExecutionAttemptService
 
 
 @dataclass(frozen=True)
@@ -21,9 +22,11 @@ class BinanceTestnetBroker:
         config: BinanceTestnetBrokerConfig,
         http_client=None,
         safety_guard: ExecutionSafetyGuard | None = None,
+        attempt_service: ExecutionAttemptService | None = None,
     ):
         self.config = config
         self.http_client = http_client
+        self.attempt_service = attempt_service
         self.safety_guard = safety_guard or ExecutionSafetyGuard(
             ExecutionSafetyConfig(testnet_order_submission_enabled=config.order_submission_enabled)
         )
@@ -40,18 +43,22 @@ class BinanceTestnetBroker:
             return self._rejected("Order quantity must be a positive number", reason="invalid_quantity")
 
         if not self.config.enabled:
-            return self._rejected(
+            result = self._rejected(
                 "Binance testnet broker is disabled",
                 reason="testnet_broker_disabled",
                 metadata={"base_url": self.config.base_url},
             )
+            self._record_attempt(intent, result, final_status="blocked_by_safety", safety_status=result.reason)
+            return result
 
         if not self.config.order_submission_enabled:
-            return self._rejected(
+            result = self._rejected(
                 "Binance testnet order submission is disabled",
                 reason="testnet_order_submission_disabled",
                 metadata={"base_url": self.config.base_url},
             )
+            self._record_attempt(intent, result, final_status="blocked_by_safety", safety_status=result.reason)
+            return result
 
         safety_intent = BrokerOrderIntent(
             symbol=intent.symbol,
@@ -66,23 +73,56 @@ class BinanceTestnetBroker:
         )
         safety_decision = self.safety_guard.validate_order(safety_intent, broker="binance_testnet")
         if not safety_decision.allowed:
-            return self._rejected(
+            result = self._rejected(
                 safety_decision.reason,
                 reason=safety_decision.reason,
                 metadata=safety_decision.metadata,
             )
+            self._record_attempt(intent, result, final_status="blocked_by_safety", safety_status=result.reason)
+            return result
 
         if not self.config.api_key or not self.config.api_secret:
-            return self._rejected(
+            result = self._rejected(
                 "Binance testnet API credentials are not configured",
                 reason="missing_testnet_credentials",
                 metadata={"base_url": self.config.base_url},
             )
+            self._record_attempt(intent, result, final_status="rejected_by_broker", safety_status="allowed")
+            return result
 
-        return self._rejected(
+        result = self._rejected(
             "Binance testnet order submission is not implemented",
             reason="testnet_order_submission_not_implemented",
             metadata={"base_url": self.config.base_url},
+        )
+        self._record_attempt(intent, result, final_status="rejected_by_broker", safety_status="allowed")
+        return result
+
+    def _record_attempt(
+        self,
+        intent: BrokerOrderIntent,
+        result: BrokerOrderResult,
+        *,
+        final_status: str,
+        safety_status: str | None,
+    ) -> None:
+        if self.attempt_service is None:
+            return
+        self.attempt_service.record(
+            bot_id=intent.bot_id,
+            strategy_id=intent.strategy_id,
+            symbol=intent.symbol,
+            side=intent.side,
+            mode="testnet",
+            broker="binance_testnet",
+            requested_quantity=intent.quantity,
+            requested_price=None,
+            decision_reason=intent.decision_reason,
+            risk_status=None,
+            safety_status=safety_status,
+            final_status=final_status,
+            final_reason=result.reason or result.message,
+            metadata=result.metadata,
         )
 
     @staticmethod
