@@ -118,6 +118,24 @@ class ExecutionAttemptRead(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
 
+class ExecutionSafetyStatusRead(BaseModel):
+    global_execution_enabled: bool
+    live_execution_enabled: bool
+    paper_execution_allowed: bool
+    binance_testnet_broker_enabled: bool
+    binance_testnet_order_submission_enabled: bool
+    binance_testnet_credentials_configured: bool
+    max_order_notional: Decimal | None = None
+    max_daily_order_count: int | None = None
+    max_daily_loss: Decimal | None = None
+    utc_day_start: datetime
+    current_daily_attempt_count: int
+    remaining_daily_order_capacity: int | None = None
+    is_execution_currently_allowed: bool
+    blocking_reason: str | None = None
+    metadata: dict = Field(default_factory=dict)
+
+
 class ExecutionPositionSnapshot(BaseModel):
     symbol: str
     quantity: Decimal
