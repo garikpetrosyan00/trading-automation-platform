@@ -10,6 +10,7 @@ from app.models.simulated_order import SimulatedOrder
 from app.repositories.portfolio import PortfolioRepository
 from app.schemas.execution import ExecutionPositionSnapshot, MarketOrderRequest
 from app.services.brokers.base import BrokerOrderIntent, BrokerOrderResult
+from app.services.brokers.safety import ExecutionSafetyGuard
 from app.services.paper_portfolio import PaperPortfolioService
 
 ZERO = Decimal("0")
@@ -40,12 +41,14 @@ class PaperExecutionService:
         simulation_enabled: bool,
         fee_bps: Decimal,
         slippage_bps: Decimal,
+        safety_guard: ExecutionSafetyGuard | None = None,
     ):
         self.repository = repository
         self.market_data_service = market_data_service
         self.simulation_enabled = simulation_enabled
         self.fee_bps = fee_bps
         self.slippage_bps = slippage_bps
+        self.safety_guard = safety_guard or ExecutionSafetyGuard()
 
     def submit_market_order(self, payload: MarketOrderRequest) -> ExecutionResult:
         intent = PaperOrderIntent(
@@ -115,6 +118,17 @@ class PaperExecutionService:
                 symbol=symbol,
                 requested_price_snapshot=latest_price,
                 reason=f"Invalid latest market price for symbol {symbol}",
+                cash_balance=account.cash_balance,
+                position=position,
+            )
+
+        safety_decision = self.safety_guard.validate_order(intent, broker="paper", market_price=latest_price)
+        if not safety_decision.allowed:
+            return self._reject_order(
+                intent=intent,
+                symbol=symbol,
+                requested_price_snapshot=latest_price,
+                reason=safety_decision.reason,
                 cash_balance=account.cash_balance,
                 position=position,
             )
@@ -338,8 +352,18 @@ class SimulatedExecutionService(PaperExecutionService):
 
 
 class PaperExecutionBroker:
-    def __init__(self, execution_service: PaperExecutionService):
+    def __init__(self, execution_service: PaperExecutionService, safety_guard: ExecutionSafetyGuard | None = None):
         self.execution_service = execution_service
+        self.safety_guard = safety_guard or ExecutionSafetyGuard()
 
     def submit_market_order(self, intent: BrokerOrderIntent) -> BrokerOrderResult:
+        safety_decision = self.safety_guard.validate_order(intent, broker="paper")
+        if not safety_decision.allowed:
+            return BrokerOrderResult(
+                accepted=False,
+                status="rejected",
+                message=safety_decision.reason,
+                reason=safety_decision.reason,
+                metadata=safety_decision.metadata,
+            )
         return self.execution_service.submit_broker_order(intent)

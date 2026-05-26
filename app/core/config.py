@@ -64,6 +64,26 @@ class Settings(BaseSettings):
         default=None,
         validation_alias=AliasChoices("BINANCE_TESTNET_API_SECRET"),
     )
+    execution_global_enabled: bool = Field(
+        default=True,
+        validation_alias=AliasChoices("EXECUTION_GLOBAL_ENABLED"),
+    )
+    execution_live_enabled: bool = Field(
+        default=False,
+        validation_alias=AliasChoices("EXECUTION_LIVE_ENABLED"),
+    )
+    execution_max_order_notional: Decimal | None = Field(
+        default=None,
+        validation_alias=AliasChoices("EXECUTION_MAX_ORDER_NOTIONAL"),
+    )
+    execution_max_daily_order_count: int | None = Field(
+        default=None,
+        validation_alias=AliasChoices("EXECUTION_MAX_DAILY_ORDER_COUNT"),
+    )
+    execution_max_daily_loss: Decimal | None = Field(
+        default=None,
+        validation_alias=AliasChoices("EXECUTION_MAX_DAILY_LOSS"),
+    )
     bot_runner_enabled: bool = Field(default=True, validation_alias=AliasChoices("BOT_RUNNER_ENABLED"))
     bot_runner_poll_interval_seconds: float = Field(
         default=2.0,
