@@ -7,6 +7,8 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 PositiveDecimal = Annotated[Decimal, Field(gt=0)]
 ExecutionSide = Literal["buy", "sell"]
 ExecutionStatus = Literal["filled", "rejected"]
+ExecutionAuditStatus = Literal["created", "submitted", "filled", "rejected", "cancelled"]
+ExecutionAuditMode = Literal["paper", "live"]
 
 
 class MarketOrderRequest(BaseModel):
@@ -47,6 +49,41 @@ class SimulatedFillRead(BaseModel):
     created_at: datetime
 
     model_config = ConfigDict(from_attributes=True)
+
+
+class ExecutionFillAuditRead(BaseModel):
+    id: int
+    order_id: int
+    symbol: str
+    side: ExecutionSide
+    fill_price: Decimal
+    fill_quantity: Decimal
+    fee: Decimal
+    source: str
+    filled_at: datetime
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class ExecutionOrderAuditRead(BaseModel):
+    id: int
+    bot_id: int | None = None
+    strategy_id: int | None = None
+    symbol: str
+    side: ExecutionSide
+    order_type: str
+    mode: ExecutionAuditMode
+    quantity: Decimal
+    requested_price: Decimal | None = None
+    requested_price_snapshot: Decimal | None = None
+    status: ExecutionAuditStatus
+    decision_reason: str | None = None
+    decision_metadata: dict | None = None
+    rejection_reason: str | None = None
+    fill_count: int
+    fills: list[ExecutionFillAuditRead] = Field(default_factory=list)
+    created_at: datetime
+    updated_at: datetime | None = None
 
 
 class ExecutionPositionSnapshot(BaseModel):

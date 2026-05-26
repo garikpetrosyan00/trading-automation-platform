@@ -1,4 +1,4 @@
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.models.portfolio_account import PortfolioAccount
@@ -40,9 +40,52 @@ class PortfolioRepository:
         statement = select(SimulatedOrder).order_by(SimulatedOrder.created_at.desc(), SimulatedOrder.id.desc())
         return list(self.db.scalars(statement).all())
 
+    def list_orders_filtered(
+        self,
+        *,
+        bot_id: int | None = None,
+        strategy_id: int | None = None,
+        symbol: str | None = None,
+        status: str | None = None,
+        side: str | None = None,
+        mode: str | None = None,
+        limit: int = 50,
+    ) -> list[SimulatedOrder]:
+        statement = select(SimulatedOrder)
+        if bot_id is not None:
+            statement = statement.where(SimulatedOrder.bot_id == bot_id)
+        if strategy_id is not None:
+            statement = statement.where(SimulatedOrder.strategy_id == strategy_id)
+        if symbol is not None:
+            statement = statement.where(SimulatedOrder.symbol == symbol.upper())
+        if status is not None:
+            statement = statement.where(SimulatedOrder.status == status)
+        if side is not None:
+            statement = statement.where(SimulatedOrder.side == side)
+        if mode is not None:
+            statement = statement.where(SimulatedOrder.mode == mode)
+        statement = statement.order_by(SimulatedOrder.created_at.desc(), SimulatedOrder.id.desc()).limit(limit)
+        return list(self.db.scalars(statement).all())
+
+    def get_order_by_id(self, order_id: int) -> SimulatedOrder | None:
+        statement = select(SimulatedOrder).where(SimulatedOrder.id == order_id)
+        return self.db.scalar(statement)
+
     def list_fills(self) -> list[SimulatedFill]:
         statement = select(SimulatedFill).order_by(SimulatedFill.created_at.desc(), SimulatedFill.id.desc())
         return list(self.db.scalars(statement).all())
+
+    def list_fills_for_order(self, order_id: int) -> list[SimulatedFill]:
+        statement = (
+            select(SimulatedFill)
+            .where(SimulatedFill.order_id == order_id)
+            .order_by(SimulatedFill.filled_at.desc(), SimulatedFill.id.desc())
+        )
+        return list(self.db.scalars(statement).all())
+
+    def count_fills_for_order(self, order_id: int) -> int:
+        statement = select(func.count()).select_from(SimulatedFill).where(SimulatedFill.order_id == order_id)
+        return int(self.db.scalar(statement) or 0)
 
     def get_fill_by_id(self, fill_id: int) -> SimulatedFill | None:
         statement = select(SimulatedFill).where(SimulatedFill.id == fill_id)
