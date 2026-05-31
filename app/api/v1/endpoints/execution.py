@@ -7,6 +7,7 @@ from app.repositories.paper_accounting import PaperAccountingRepository
 from app.repositories.portfolio import PortfolioRepository
 from app.schemas.execution import MarketOrderRequest, MarketOrderResponse, SimulatedFillRead, SimulatedOrderRead
 from app.services.brokers.safety import ExecutionSafetyConfig, ExecutionSafetyGuard
+from app.services.execution_attempt import ExecutionAttemptService
 from app.services.execution_limits import ExecutionDailyLimitService
 from app.services.simulated_execution import SimulatedExecutionService
 
@@ -38,6 +39,7 @@ async def create_market_order(
         simulation_enabled=settings.simulation_enabled,
         fee_bps=settings.simulation_fee_bps,
         slippage_bps=settings.simulation_slippage_bps,
+        attempt_service=ExecutionAttemptService(ExecutionAttemptRepository(db)),
         safety_guard=ExecutionSafetyGuard(
             ExecutionSafetyConfig(
                 global_enabled=settings.execution_global_enabled,

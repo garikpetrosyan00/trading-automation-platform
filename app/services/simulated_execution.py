@@ -4,13 +4,14 @@ from dataclasses import dataclass
 from decimal import Decimal
 
 from app.data.schemas import MarketEvent
+from app.models.execution_attempt import ExecutionAttempt
 from app.models.position import Position
 from app.models.simulated_fill import SimulatedFill
 from app.models.simulated_order import SimulatedOrder
 from app.repositories.portfolio import PortfolioRepository
 from app.schemas.execution import ExecutionPositionSnapshot, MarketOrderRequest
 from app.services.brokers.base import BrokerOrderIntent, BrokerOrderResult
-from app.services.brokers.safety import ExecutionSafetyGuard
+from app.services.brokers.safety import ExecutionSafetyDecision, ExecutionSafetyGuard
 from app.services.execution_attempt import ExecutionAttemptService
 from app.services.paper_portfolio import PaperPortfolioService
 
@@ -23,10 +24,11 @@ class ExecutionResult:
     accepted: bool
     status: str
     message: str
-    order: SimulatedOrder
+    order: SimulatedOrder | None
     fill: SimulatedFill | None
     updated_cash_balance: Decimal
     position: Position | None
+    execution_attempt: ExecutionAttempt | None = None
 
 
 @dataclass(frozen=True)
@@ -43,6 +45,8 @@ class PaperExecutionService:
         fee_bps: Decimal,
         slippage_bps: Decimal,
         safety_guard: ExecutionSafetyGuard | None = None,
+        attempt_service: ExecutionAttemptService | None = None,
+        safety_rejections_create_order: bool = True,
     ):
         self.repository = repository
         self.market_data_service = market_data_service
@@ -50,6 +54,8 @@ class PaperExecutionService:
         self.fee_bps = fee_bps
         self.slippage_bps = slippage_bps
         self.safety_guard = safety_guard or ExecutionSafetyGuard()
+        self.attempt_service = attempt_service
+        self.safety_rejections_create_order = safety_rejections_create_order
 
     def submit_market_order(self, payload: MarketOrderRequest) -> ExecutionResult:
         intent = PaperOrderIntent(
@@ -133,15 +139,62 @@ class PaperExecutionService:
                 raise ValueError("Portfolio account is not initialized")
             position = self.repository.get_position_by_symbol(symbol)
 
-            safety_decision = self.safety_guard.validate_order(intent, broker="paper", market_price=latest_price)
-            if not safety_decision.allowed:
-                return self._reject_order(
+            daily_count_decision = self._validate_daily_order_count(intent)
+            if not daily_count_decision.allowed:
+                attempt = self._record_blocked_attempt(
                     intent=intent,
                     symbol=symbol,
-                    requested_price_snapshot=latest_price,
+                    requested_price=latest_price,
+                    reason=daily_count_decision.reason,
+                    metadata=daily_count_decision.metadata,
+                )
+                if self.safety_rejections_create_order:
+                    return self._reject_order(
+                        intent=intent,
+                        symbol=symbol,
+                        requested_price_snapshot=latest_price,
+                        reason=daily_count_decision.reason,
+                        cash_balance=account.cash_balance,
+                        position=position,
+                        attempt=attempt,
+                        final_status="blocked_by_safety",
+                    )
+                return self._reject_without_order(
+                    intent=intent,
+                    symbol=symbol,
+                    reason=daily_count_decision.reason,
+                    cash_balance=account.cash_balance,
+                    position=position,
+                    attempt=attempt,
+                )
+
+            attempt = self._reserve_attempt(intent=intent, symbol=symbol, requested_price=latest_price)
+
+            safety_decision = self.safety_guard.validate_order(
+                intent,
+                broker="paper",
+                market_price=latest_price,
+                skip_daily_order_count=True,
+            )
+            if not safety_decision.allowed:
+                if self.safety_rejections_create_order:
+                    return self._reject_order(
+                        intent=intent,
+                        symbol=symbol,
+                        requested_price_snapshot=latest_price,
+                        reason=safety_decision.reason,
+                        cash_balance=account.cash_balance,
+                        position=position,
+                        attempt=attempt,
+                        final_status="blocked_by_safety",
+                    )
+                return self._reject_without_order(
+                    intent=intent,
+                    symbol=symbol,
                     reason=safety_decision.reason,
                     cash_balance=account.cash_balance,
                     position=position,
+                    attempt=attempt,
                 )
 
             if intent.side == "buy":
@@ -154,6 +207,7 @@ class PaperExecutionService:
                         reason="insufficient_paper_cash",
                         cash_balance=account.cash_balance,
                         position=position,
+                        attempt=attempt,
                     )
 
                 order = self._create_order(intent, symbol, latest_price, status="filled")
@@ -168,8 +222,23 @@ class PaperExecutionService:
                         reason=accounting_result.message,
                         cash_balance=account.cash_balance,
                         position=position,
+                        attempt=None,
                     )
 
+                self._finalize_attempt(
+                    attempt,
+                    final_status="filled",
+                    final_reason="Market buy order filled",
+                    order_id=order.id,
+                    safety_status="allowed",
+                    metadata={
+                        "broker": "paper",
+                        "symbol": symbol,
+                        "side": intent.side,
+                        "mode": intent.mode,
+                        "fill_id": fill.id,
+                    },
+                )
                 self.repository.commit()
                 self.repository.refresh(order)
                 self.repository.refresh(fill)
@@ -184,6 +253,7 @@ class PaperExecutionService:
                     fill=fill,
                     updated_cash_balance=accounting_result.account.cash_balance,
                     position=accounting_result.position,
+                    execution_attempt=attempt,
                 )
 
             order = self._create_order(intent, symbol, latest_price, status="filled")
@@ -198,8 +268,23 @@ class PaperExecutionService:
                     reason=accounting_result.message,
                     cash_balance=account.cash_balance,
                     position=position,
+                    attempt=None,
                 )
 
+            self._finalize_attempt(
+                attempt,
+                final_status="filled",
+                final_reason="Market sell order filled",
+                order_id=order.id,
+                safety_status="allowed",
+                metadata={
+                    "broker": "paper",
+                    "symbol": symbol,
+                    "side": intent.side,
+                    "mode": intent.mode,
+                    "fill_id": fill.id,
+                },
+            )
             self.repository.commit()
             self.repository.refresh(order)
             self.repository.refresh(fill)
@@ -214,6 +299,7 @@ class PaperExecutionService:
                 fill=fill,
                 updated_cash_balance=accounting_result.account.cash_balance,
                 position=accounting_result.position,
+                execution_attempt=attempt,
             )
         except Exception:
             self.repository.rollback()
@@ -238,6 +324,8 @@ class PaperExecutionService:
         reason: str,
         cash_balance: Decimal,
         position: Position | None,
+        attempt: ExecutionAttempt | None = None,
+        final_status: str = "rejected_by_broker",
     ) -> ExecutionResult:
         try:
             order = SimulatedOrder(
@@ -255,6 +343,21 @@ class PaperExecutionService:
                 rejection_reason=reason,
             )
             self.repository.save(order)
+            self.repository.flush()
+            self._finalize_attempt(
+                attempt,
+                final_status=final_status,
+                final_reason=reason,
+                order_id=order.id,
+                safety_status=reason if final_status == "blocked_by_safety" else "allowed",
+                metadata={
+                    "broker": "paper",
+                    "symbol": symbol,
+                    "side": intent.side,
+                    "mode": intent.mode,
+                    "fill_id": None,
+                },
+            )
             self.repository.commit()
             self.repository.refresh(order)
             return ExecutionResult(
@@ -265,6 +368,45 @@ class PaperExecutionService:
                 fill=None,
                 updated_cash_balance=cash_balance,
                 position=position,
+                execution_attempt=attempt,
+            )
+        except Exception:
+            self.repository.rollback()
+            raise
+
+    def _reject_without_order(
+        self,
+        intent: PaperOrderIntent,
+        symbol: str,
+        reason: str,
+        cash_balance: Decimal,
+        position: Position | None,
+        attempt: ExecutionAttempt | None,
+    ) -> ExecutionResult:
+        try:
+            self._finalize_attempt(
+                attempt,
+                final_status="blocked_by_safety",
+                final_reason=reason,
+                safety_status=reason,
+                metadata={
+                    "broker": "paper",
+                    "symbol": symbol,
+                    "side": intent.side,
+                    "mode": intent.mode,
+                    "fill_id": None,
+                },
+            )
+            self.repository.commit()
+            return ExecutionResult(
+                accepted=False,
+                status="rejected",
+                message=reason,
+                order=None,
+                fill=None,
+                updated_cash_balance=cash_balance,
+                position=position,
+                execution_attempt=attempt,
             )
         except Exception:
             self.repository.rollback()
@@ -316,6 +458,118 @@ class PaperExecutionService:
         self.repository.flush()
         return fill
 
+    def _validate_daily_order_count(self, intent: PaperOrderIntent):
+        config = self.safety_guard.config
+        daily_limit_service = self.safety_guard.daily_limit_service
+        metadata = {
+            "broker": "paper",
+            "mode": intent.mode,
+            "symbol": intent.symbol.strip().upper() if intent.symbol else intent.symbol,
+            "side": intent.side,
+        }
+        if config.max_daily_order_count is None or config.max_daily_order_count <= 0:
+            return self.safety_guard.validate_order(
+                intent,
+                broker="paper",
+                market_price=None,
+                skip_daily_order_count=True,
+            )
+        if daily_limit_service is None:
+            return self.safety_guard._blocked("daily_limit_service_unavailable", metadata)
+        snapshot = daily_limit_service.count_successful_orders_today(bot_id=intent.bot_id)
+        if snapshot.count >= config.max_daily_order_count:
+            return self.safety_guard._blocked(
+                "max_daily_order_count_exceeded",
+                {
+                    **metadata,
+                    "bot_id": intent.bot_id,
+                    "daily_order_count": snapshot.count,
+                    "max_daily_order_count": config.max_daily_order_count,
+                    "day_start": snapshot.day_start.isoformat(),
+                },
+            )
+        return ExecutionSafetyDecision(allowed=True, reason="allowed", metadata=metadata)
+
+    def _reserve_attempt(
+        self,
+        *,
+        intent: PaperOrderIntent,
+        symbol: str,
+        requested_price: Decimal | None,
+    ) -> ExecutionAttempt | None:
+        if self.attempt_service is None:
+            return None
+        return self.attempt_service.record(
+            bot_id=intent.bot_id,
+            strategy_id=intent.strategy_id,
+            symbol=symbol,
+            side=intent.side,
+            mode=intent.mode,
+            broker="paper",
+            requested_quantity=intent.quantity,
+            requested_price=requested_price,
+            decision_reason=intent.decision_reason,
+            risk_status="allowed",
+            safety_status="reserved",
+            final_status="created",
+            final_reason="paper_order_slot_reserved",
+            metadata={
+                "broker": "paper",
+                "symbol": symbol,
+                "side": intent.side,
+                "mode": intent.mode,
+            },
+        )
+
+    def _record_blocked_attempt(
+        self,
+        *,
+        intent: PaperOrderIntent,
+        symbol: str,
+        requested_price: Decimal | None,
+        reason: str,
+        metadata: dict,
+    ) -> ExecutionAttempt | None:
+        if self.attempt_service is None:
+            return None
+        return self.attempt_service.record(
+            bot_id=intent.bot_id,
+            strategy_id=intent.strategy_id,
+            symbol=symbol,
+            side=intent.side,
+            mode=intent.mode,
+            broker="paper",
+            requested_quantity=intent.quantity,
+            requested_price=requested_price,
+            decision_reason=intent.decision_reason,
+            risk_status="allowed",
+            safety_status=reason,
+            final_status="blocked_by_safety",
+            final_reason=reason,
+            metadata=metadata,
+        )
+
+    def _finalize_attempt(
+        self,
+        attempt: ExecutionAttempt | None,
+        *,
+        final_status: str,
+        final_reason: str,
+        order_id: int | None = None,
+        safety_status: str | None = None,
+        metadata: dict | None = None,
+    ) -> None:
+        if attempt is None or self.attempt_service is None:
+            return
+        self.attempt_service.mark_final(
+            attempt,
+            final_status=final_status,
+            final_reason=final_reason,
+            order_id=order_id,
+            safety_status=safety_status,
+            metadata=metadata,
+        )
+
     def _get_latest_price(self, symbol: str) -> Decimal | None:
         latest = self.market_data_service.get_latest(symbol)
         if latest is None or not isinstance(latest, MarketEvent):
@@ -334,21 +588,23 @@ class PaperExecutionService:
     @staticmethod
     def _build_broker_result(result: ExecutionResult) -> BrokerOrderResult:
         fill = result.fill
+        order = result.order
         return BrokerOrderResult(
             accepted=result.accepted,
             status=result.status,
             message=result.message,
-            order_id=result.order.id,
+            order_id=order.id if order is not None else None,
             executed_quantity=fill.fill_quantity if fill is not None else None,
             executed_price=fill.fill_price if fill is not None else None,
             fee=fill.fee if fill is not None else None,
-            reason=result.order.rejection_reason if not result.accepted else None,
+            reason=order.rejection_reason if not result.accepted and order is not None else result.message if not result.accepted else None,
             metadata={
                 "broker": "paper",
-                "symbol": result.order.symbol,
-                "side": result.order.side,
-                "mode": result.order.mode,
+                "symbol": order.symbol if order is not None else None,
+                "side": order.side if order is not None else None,
+                "mode": order.mode if order is not None else None,
                 "fill_id": fill.id if fill is not None else None,
+                "attempt_id": result.execution_attempt.id if result.execution_attempt is not None else None,
             },
         )
 
@@ -379,6 +635,9 @@ class PaperExecutionBroker:
         self.execution_service = execution_service
         self.safety_guard = safety_guard or ExecutionSafetyGuard()
         self.attempt_service = attempt_service
+        if self.attempt_service is not None:
+            self.execution_service.attempt_service = self.attempt_service
+            self.execution_service.safety_rejections_create_order = False
 
     def submit_market_order(self, intent: BrokerOrderIntent) -> BrokerOrderResult:
         safety_decision = self.safety_guard.validate_order(intent, broker="paper")
@@ -408,7 +667,7 @@ class PaperExecutionBroker:
                 metadata=safety_decision.metadata,
             )
         result = self.execution_service.submit_broker_order(intent)
-        if self.attempt_service is not None:
+        if self.attempt_service is not None and result.metadata.get("attempt_id") is None:
             self.attempt_service.record(
                 bot_id=intent.bot_id,
                 strategy_id=intent.strategy_id,

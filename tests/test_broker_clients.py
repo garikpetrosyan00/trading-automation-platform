@@ -185,6 +185,40 @@ def test_paper_execution_broker_returns_normalized_filled_result(
     assert position.quantity == Decimal("1.00000000")
 
 
+def test_paper_execution_broker_buy_and_sell_consume_daily_slots(
+    db_session,
+    stub_market_data_service,
+) -> None:
+    repository = PortfolioRepository(db_session)
+    PortfolioAccountService(repository).ensure_account(base_currency="USD", starting_cash=Decimal("1000.00"))
+    service = PaperExecutionService(
+        repository=repository,
+        market_data_service=stub_market_data_service,
+        simulation_enabled=True,
+        fee_bps=Decimal("0"),
+        slippage_bps=Decimal("0"),
+    )
+    broker = PaperExecutionBroker(
+        service,
+        safety_guard=build_daily_limit_guard(db_session, max_daily_order_count=2),
+        attempt_service=ExecutionAttemptService(ExecutionAttemptRepository(db_session)),
+    )
+    stub_market_data_service.set_price("BTCUSDT", "100.00")
+
+    buy = broker.submit_market_order(BrokerOrderIntent(bot_id=7, symbol="BTCUSDT", side="buy", quantity=Decimal("1")))
+    sell = broker.submit_market_order(BrokerOrderIntent(bot_id=7, symbol="BTCUSDT", side="sell", quantity=Decimal("1")))
+    blocked = broker.submit_market_order(BrokerOrderIntent(bot_id=7, symbol="BTCUSDT", side="buy", quantity=Decimal("1")))
+
+    attempts = ExecutionAttemptRepository(db_session).list_filtered(bot_id=7, limit=10)
+    count = ExecutionDailyLimitService(ExecutionAttemptRepository(db_session)).count_successful_orders_today(bot_id=7)
+    assert buy.accepted is True
+    assert sell.accepted is True
+    assert blocked.accepted is False
+    assert blocked.reason == "max_daily_order_count_exceeded"
+    assert count.count == 2
+    assert [attempt.final_status for attempt in attempts] == ["blocked_by_safety", "filled", "filled"]
+
+
 def test_execution_safety_guard_allows_normal_paper_execution_by_default() -> None:
     decision = ExecutionSafetyGuard().validate_order(
         BrokerOrderIntent(symbol="BTCUSDT", side="buy", quantity=Decimal("0.1"), mode="paper"),

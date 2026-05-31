@@ -1,4 +1,6 @@
 from app.main import app
+from app.core.config import Settings
+from app.repositories.execution_attempt import ExecutionAttemptRepository
 
 
 def test_portfolio_and_execution_endpoints(
@@ -193,3 +195,101 @@ def test_paper_portfolio_reset_endpoint_rejects_open_position_and_succeeds_when_
     assert len(orders_response.json()) == 2
     assert fills_response.status_code == 200
     assert len(fills_response.json()) == 2
+
+
+def test_direct_market_orders_consume_daily_count_slots_and_block_next_request(
+    db_session_factory,
+    stub_market_data_service,
+    noop_bot_runner,
+    configure_app_state,
+    monkeypatch,
+) -> None:
+    settings = Settings(EXECUTION_MAX_DAILY_ORDER_COUNT=2)
+    import app.api.v1.endpoints.execution as execution_endpoint
+    import app.api.v1.endpoints.execution_safety as safety_endpoint
+
+    monkeypatch.setattr(execution_endpoint, "settings", settings)
+    monkeypatch.setattr(safety_endpoint, "get_settings", lambda: settings)
+    stub_market_data_service.set_price("BTCUSDT", "100.00")
+    configure_app_state(
+        market_data_service=stub_market_data_service,
+        bot_runner=noop_bot_runner,
+    )
+
+    from fastapi.testclient import TestClient
+
+    with TestClient(app) as client:
+        buy_response = client.post(
+            "/api/v1/execution/market-order",
+            json={"symbol": "BTCUSDT", "side": "buy", "quantity": "1"},
+        )
+        sell_response = client.post(
+            "/api/v1/execution/market-order",
+            json={"symbol": "BTCUSDT", "side": "sell", "quantity": "1"},
+        )
+        status_response = client.get("/api/v1/execution-safety/status")
+        blocked_response = client.post(
+            "/api/v1/execution/market-order",
+            json={"symbol": "BTCUSDT", "side": "buy", "quantity": "1"},
+        )
+        blocked_status_response = client.get("/api/v1/execution-safety/status")
+
+    assert buy_response.status_code == 200
+    assert buy_response.json()["accepted"] is True
+    assert sell_response.status_code == 200
+    assert sell_response.json()["accepted"] is True
+
+    assert status_response.status_code == 200
+    assert status_response.json()["current_daily_attempt_count"] == 2
+    assert status_response.json()["remaining_daily_order_capacity"] == 0
+    assert status_response.json()["blocking_reason"] == "max_daily_order_count_exceeded"
+
+    assert blocked_response.status_code == 200
+    assert blocked_response.json()["accepted"] is False
+    assert blocked_response.json()["message"] == "max_daily_order_count_exceeded"
+    assert blocked_response.json()["fill"] is None
+
+    assert blocked_status_response.status_code == 200
+    assert blocked_status_response.json()["current_daily_attempt_count"] == 2
+    assert blocked_status_response.json()["remaining_daily_order_capacity"] == 0
+
+    with db_session_factory() as session:
+        attempts = ExecutionAttemptRepository(session).list_filtered(limit=10)
+        assert [attempt.final_status for attempt in attempts] == ["blocked_by_safety", "filled", "filled"]
+        assert attempts[0].final_reason == "max_daily_order_count_exceeded"
+
+
+def test_failed_direct_execution_leaves_no_counted_reservation(
+    db_session_factory,
+    stub_market_data_service,
+    noop_bot_runner,
+    configure_app_state,
+    monkeypatch,
+) -> None:
+    settings = Settings(EXECUTION_MAX_DAILY_ORDER_COUNT=1)
+    import app.api.v1.endpoints.execution as execution_endpoint
+    import app.api.v1.endpoints.execution_safety as safety_endpoint
+
+    monkeypatch.setattr(execution_endpoint, "settings", settings)
+    monkeypatch.setattr(safety_endpoint, "get_settings", lambda: settings)
+    stub_market_data_service.set_price("BTCUSDT", "50000.00")
+    configure_app_state(
+        market_data_service=stub_market_data_service,
+        bot_runner=noop_bot_runner,
+    )
+
+    from fastapi.testclient import TestClient
+
+    with TestClient(app) as client:
+        insufficient_cash_response = client.post(
+            "/api/v1/execution/market-order",
+            json={"symbol": "BTCUSDT", "side": "buy", "quantity": "1"},
+        )
+        status_response = client.get("/api/v1/execution-safety/status")
+
+    assert insufficient_cash_response.status_code == 200
+    assert insufficient_cash_response.json()["accepted"] is False
+    assert insufficient_cash_response.json()["message"] == "insufficient_paper_cash"
+    assert status_response.status_code == 200
+    assert status_response.json()["current_daily_attempt_count"] == 0
+    assert status_response.json()["remaining_daily_order_capacity"] == 1

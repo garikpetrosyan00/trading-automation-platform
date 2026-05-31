@@ -328,6 +328,34 @@ def test_accounting_failure_rolls_back_order_fill_cash_position_and_event(
     assert PaperAccountingRepository(db_session).list_events() == []
 
 
+def test_accounting_failure_rolls_back_reserved_execution_attempt(
+    db_session,
+    stub_market_data_service,
+    monkeypatch,
+) -> None:
+    repository = PortfolioRepository(db_session)
+    PortfolioAccountService(repository).ensure_account(base_currency="USD", starting_cash=Decimal("1000.00"))
+    stub_market_data_service.set_price("BTCUSDT", "100.00")
+    service = SimulatedExecutionService(
+        repository=repository,
+        market_data_service=stub_market_data_service,
+        simulation_enabled=True,
+        fee_bps=Decimal("0"),
+        slippage_bps=Decimal("0"),
+        attempt_service=ExecutionAttemptService(ExecutionAttemptRepository(db_session)),
+    )
+
+    def fail_accounting_event(self, *, fill, cash_delta, realized_pnl_delta):
+        raise RuntimeError("forced accounting failure")
+
+    monkeypatch.setattr(PaperPortfolioService, "_record_accounting_event", fail_accounting_event)
+
+    with pytest.raises(RuntimeError, match="forced accounting failure"):
+        service.submit_market_order(MarketOrderRequest(symbol="BTCUSDT", side="buy", quantity=Decimal("1")))
+
+    assert ExecutionAttemptRepository(db_session).list_filtered() == []
+
+
 def test_duplicate_fill_accounting_is_rejected_without_second_mutation(
     db_session,
     stub_market_data_service,

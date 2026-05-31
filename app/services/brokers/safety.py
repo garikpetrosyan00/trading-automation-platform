@@ -42,6 +42,7 @@ class ExecutionSafetyGuard:
         *,
         broker: str,
         market_price: Decimal | None = None,
+        skip_daily_order_count: bool = False,
     ) -> ExecutionSafetyDecision:
         metadata = {
             "broker": broker,
@@ -79,7 +80,11 @@ class ExecutionSafetyGuard:
                     },
                 )
 
-        if self.config.max_daily_order_count is not None and self.config.max_daily_order_count > 0:
+        if (
+            not skip_daily_order_count
+            and self.config.max_daily_order_count is not None
+            and self.config.max_daily_order_count > 0
+        ):
             if self.daily_limit_service is None:
                 return self._blocked("daily_limit_service_unavailable", metadata)
             snapshot = self.daily_limit_service.count_successful_orders_today(bot_id=intent.bot_id)

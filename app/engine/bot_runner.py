@@ -685,6 +685,7 @@ class BotRunner:
             fee_bps=self.config.simulation_fee_bps,
             slippage_bps=self.config.simulation_slippage_bps,
             safety_guard=safety_guard,
+            attempt_service=ExecutionAttemptService(attempt_repository),
         )
         result = execution_service.submit_order_intent(
             PaperOrderIntent(
@@ -699,26 +700,27 @@ class BotRunner:
             )
         )
 
-        ExecutionAttemptService(attempt_repository).record(
-            bot_id=bot.id,
-            strategy_id=strategy.id,
-            symbol=strategy.symbol,
-            side=execution_action,
-            mode="paper",
-            broker="paper",
-            requested_quantity=quantity,
-            requested_price=decision.current_price if decision.current_price is not None else latest_price,
-            decision_reason=decision_payload.get("detail") or decision_payload.get("reason"),
-            risk_status=risk_decision.reason,
-            safety_status="allowed" if result.accepted else result.order.rejection_reason,
-            final_status="filled" if result.accepted else "rejected_by_broker",
-            final_reason=result.message,
-            order_id=result.order.id,
-            metadata={
-                "decision": decision_payload,
-                "fill_id": result.fill.id if result.fill is not None else None,
-            },
-        )
+        if result.execution_attempt is None:
+            ExecutionAttemptService(attempt_repository).record(
+                bot_id=bot.id,
+                strategy_id=strategy.id,
+                symbol=strategy.symbol,
+                side=execution_action,
+                mode="paper",
+                broker="paper",
+                requested_quantity=quantity,
+                requested_price=decision.current_price if decision.current_price is not None else latest_price,
+                decision_reason=decision_payload.get("detail") or decision_payload.get("reason"),
+                risk_status=risk_decision.reason,
+                safety_status="allowed" if result.accepted else result.order.rejection_reason if result.order is not None else result.message,
+                final_status="filled" if result.accepted else "rejected_by_broker",
+                final_reason=result.message,
+                order_id=result.order.id if result.order is not None else None,
+                metadata={
+                    "decision": decision_payload,
+                    "fill_id": result.fill.id if result.fill is not None else None,
+                },
+            )
 
         self._record_event(
             db,
@@ -730,7 +732,7 @@ class BotRunner:
                 "side": execution_action,
                 "symbol": strategy.symbol,
                 "message": result.message,
-                "order_id": result.order.id,
+                "order_id": result.order.id if result.order is not None else None,
                 "fill_id": result.fill.id if result.fill is not None else None,
                 **decision_payload,
             },

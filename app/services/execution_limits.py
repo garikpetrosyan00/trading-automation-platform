@@ -8,7 +8,7 @@ from app.repositories.execution_attempt import ExecutionAttemptRepository
 from app.repositories.paper_accounting import PaperAccountingRepository
 
 
-ORDER_COUNT_STATUSES = {"filled", "order_created"}
+ORDER_COUNT_STATUSES = {"created", "filled", "order_created"}
 ZERO = Decimal("0")
 
 
