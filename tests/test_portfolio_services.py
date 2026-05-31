@@ -189,6 +189,12 @@ def test_successful_buy_updates_account_and_position(db_session, stub_market_dat
     assert result.order.mode == "paper"
     assert result.fill.fill_quantity == result.order.quantity
     assert result.fill.source == "paper"
+    events = PaperAccountingRepository(db_session).list_events()
+    assert len(events) == 1
+    assert events[0].order_id == result.order.id
+    assert events[0].fill_id == result.fill.id
+    assert events[0].cash_delta == Decimal("-500.75025000")
+    assert events[0].realized_pnl_delta == Decimal("0E-8")
 
 
 def test_paper_execution_applies_fills_through_portfolio_service(
@@ -283,6 +289,101 @@ def test_successful_sell_updates_realized_pnl(db_session, stub_market_data_servi
     assert result.position is not None
     assert result.position.quantity == Decimal("0.00600000")
     assert result.position.realized_pnl == Decimal("3.39400200")
+    events = PaperAccountingRepository(db_session).list_events()
+    assert len(events) == 2
+    assert events[0].fill_id == result.fill.id
+    assert events[0].cash_delta == Decimal("203.69410200")
+    assert events[0].realized_pnl_delta == Decimal("3.39400200")
+
+
+def test_accounting_failure_rolls_back_order_fill_cash_position_and_event(
+    db_session,
+    stub_market_data_service,
+    monkeypatch,
+) -> None:
+    repository = PortfolioRepository(db_session)
+    PortfolioAccountService(repository).ensure_account(base_currency="USD", starting_cash=Decimal("1000.00"))
+    stub_market_data_service.set_price("BTCUSDT", "100.00")
+    service = SimulatedExecutionService(
+        repository=repository,
+        market_data_service=stub_market_data_service,
+        simulation_enabled=True,
+        fee_bps=Decimal("0"),
+        slippage_bps=Decimal("0"),
+    )
+
+    def fail_accounting_event(self, *, fill, cash_delta, realized_pnl_delta):
+        raise RuntimeError("forced accounting failure")
+
+    monkeypatch.setattr(PaperPortfolioService, "_record_accounting_event", fail_accounting_event)
+
+    with pytest.raises(RuntimeError, match="forced accounting failure"):
+        service.submit_market_order(MarketOrderRequest(symbol="BTCUSDT", side="buy", quantity=Decimal("1")))
+
+    account = repository.get_account()
+    assert account.cash_balance == Decimal("1000.00000000")
+    assert repository.get_position_by_symbol("BTCUSDT") is None
+    assert repository.list_orders() == []
+    assert repository.list_fills() == []
+    assert PaperAccountingRepository(db_session).list_events() == []
+
+
+def test_duplicate_fill_accounting_is_rejected_without_second_mutation(
+    db_session,
+    stub_market_data_service,
+) -> None:
+    repository = PortfolioRepository(db_session)
+    PortfolioAccountService(repository).ensure_account(base_currency="USD", starting_cash=Decimal("1000.00"))
+    stub_market_data_service.set_price("BTCUSDT", "100.00")
+    service = SimulatedExecutionService(
+        repository=repository,
+        market_data_service=stub_market_data_service,
+        simulation_enabled=True,
+        fee_bps=Decimal("0"),
+        slippage_bps=Decimal("0"),
+    )
+    result = service.submit_market_order(MarketOrderRequest(symbol="BTCUSDT", side="buy", quantity=Decimal("1")))
+    assert result.fill is not None
+    cash_after_first = repository.get_account().cash_balance
+    quantity_after_first = repository.get_position_by_symbol("BTCUSDT").quantity
+
+    duplicate = PaperPortfolioService(repository).apply_fill(result.fill)
+
+    assert duplicate.accepted is False
+    assert duplicate.message == "duplicate_fill_accounting"
+    assert repository.get_account().cash_balance == cash_after_first
+    assert repository.get_position_by_symbol("BTCUSDT").quantity == quantity_after_first
+    assert len(PaperAccountingRepository(db_session).list_events()) == 1
+
+
+def test_paper_execution_uses_locked_account_mutation_path(
+    db_session,
+    stub_market_data_service,
+    monkeypatch,
+) -> None:
+    repository = PortfolioRepository(db_session)
+    PortfolioAccountService(repository).ensure_account(base_currency="USD", starting_cash=Decimal("1000.00"))
+    stub_market_data_service.set_price("BTCUSDT", "100.00")
+    calls = {"count": 0}
+    original = repository.get_account_for_update
+
+    def counting_get_account_for_update():
+        calls["count"] += 1
+        return original()
+
+    monkeypatch.setattr(repository, "get_account_for_update", counting_get_account_for_update)
+    service = SimulatedExecutionService(
+        repository=repository,
+        market_data_service=stub_market_data_service,
+        simulation_enabled=True,
+        fee_bps=Decimal("0"),
+        slippage_bps=Decimal("0"),
+    )
+
+    result = service.submit_market_order(MarketOrderRequest(symbol="BTCUSDT", side="buy", quantity=Decimal("1")))
+
+    assert result.accepted is True
+    assert calls["count"] >= 2
 
 
 def test_rejected_sell_due_to_insufficient_quantity(db_session, stub_market_data_service) -> None:
@@ -467,6 +568,28 @@ def test_paper_reset_rejects_when_open_position_exists(db_session, stub_market_d
         PortfolioService(repository, stub_market_data_service).reset_paper_portfolio(Decimal("5000"))
 
     assert repository.get_account().cash_balance == Decimal("900.00000000")
+
+
+def test_paper_reset_uses_locked_account_mutation_path(
+    db_session,
+    stub_market_data_service,
+    monkeypatch,
+) -> None:
+    repository = PortfolioRepository(db_session)
+    PortfolioAccountService(repository).ensure_account(base_currency="USD", starting_cash=Decimal("1000.00"))
+    calls = {"count": 0}
+    original = repository.get_account_for_update
+
+    def counting_get_account_for_update():
+        calls["count"] += 1
+        return original()
+
+    monkeypatch.setattr(repository, "get_account_for_update", counting_get_account_for_update)
+
+    reset = PortfolioService(repository, stub_market_data_service).reset_paper_portfolio(Decimal("2500.00"))
+
+    assert reset.cash_balance == Decimal("2500.00000000")
+    assert calls["count"] == 1
 
 
 def test_paper_reset_succeeds_when_flat_and_preserves_audit_history(

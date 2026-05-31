@@ -123,22 +123,27 @@ class PaperExecutionService:
                 position=position,
             )
 
-        safety_decision = self.safety_guard.validate_order(intent, broker="paper", market_price=latest_price)
-        if not safety_decision.allowed:
-            return self._reject_order(
-                intent=intent,
-                symbol=symbol,
-                requested_price_snapshot=latest_price,
-                reason=safety_decision.reason,
-                cash_balance=account.cash_balance,
-                position=position,
-            )
-
         fill_price = self._apply_slippage(latest_price, intent.side)
         notional = intent.quantity * fill_price
         fee = self._calculate_fee(notional)
 
         try:
+            account = self.repository.get_account_for_update()
+            if account is None:
+                raise ValueError("Portfolio account is not initialized")
+            position = self.repository.get_position_by_symbol(symbol)
+
+            safety_decision = self.safety_guard.validate_order(intent, broker="paper", market_price=latest_price)
+            if not safety_decision.allowed:
+                return self._reject_order(
+                    intent=intent,
+                    symbol=symbol,
+                    requested_price_snapshot=latest_price,
+                    reason=safety_decision.reason,
+                    cash_balance=account.cash_balance,
+                    position=position,
+                )
+
             if intent.side == "buy":
                 required_cash = notional + fee
                 if required_cash > account.cash_balance:

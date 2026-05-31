@@ -4,6 +4,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.models.portfolio_account import PortfolioAccount
+from app.models.paper_accounting_event import PaperAccountingEvent
 from app.models.position import Position
 from app.models.simulated_fill import SimulatedFill
 from app.models.simulated_order import SimulatedOrder
@@ -15,6 +16,10 @@ class PortfolioRepository:
 
     def get_account(self) -> PortfolioAccount | None:
         statement = select(PortfolioAccount).order_by(PortfolioAccount.id.asc()).limit(1)
+        return self.db.scalar(statement)
+
+    def get_account_for_update(self) -> PortfolioAccount | None:
+        statement = select(PortfolioAccount).order_by(PortfolioAccount.id.asc()).limit(1).with_for_update()
         return self.db.scalar(statement)
 
     def create_account(self, base_currency: str, starting_cash) -> PortfolioAccount:
@@ -41,6 +46,10 @@ class PortfolioRepository:
     def has_open_positions(self) -> bool:
         statement = select(func.count()).select_from(Position).where(Position.quantity != 0)
         return int(self.db.scalar(statement) or 0) > 0
+
+    def get_accounting_event_by_fill_id(self, fill_id: int) -> PaperAccountingEvent | None:
+        statement = select(PaperAccountingEvent).where(PaperAccountingEvent.fill_id == fill_id)
+        return self.db.scalar(statement)
 
     def reset_account(self, account: PortfolioAccount, starting_cash: Decimal) -> PortfolioAccount:
         account.starting_cash = starting_cash

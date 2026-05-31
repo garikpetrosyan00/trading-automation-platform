@@ -26,11 +26,19 @@ class PaperPortfolioService:
         self.repository = repository
 
     def apply_fill(self, fill: SimulatedFill) -> PaperPortfolioResult:
-        account = self.repository.get_account()
+        account = self.repository.get_account_for_update()
         if account is None:
             raise ValueError("Portfolio account is not initialized")
 
         position = self.repository.get_position_by_symbol(fill.symbol)
+        if fill.id is not None and self.repository.get_accounting_event_by_fill_id(fill.id) is not None:
+            return PaperPortfolioResult(
+                accepted=False,
+                message="duplicate_fill_accounting",
+                account=account,
+                position=position,
+            )
+
         quantity = fill.fill_quantity if fill.fill_quantity is not None else fill.quantity
         invalid_reason = self._validate_fill(fill, quantity)
         if invalid_reason is not None:
@@ -168,3 +176,4 @@ class PaperPortfolioService:
             realized_pnl_delta=realized_pnl_delta,
         )
         self.repository.save(event)
+        self.repository.flush()

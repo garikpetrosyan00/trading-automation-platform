@@ -115,14 +115,16 @@ class PortfolioService:
     def reset_paper_portfolio(self, starting_balance: Decimal) -> PaperPortfolioResetRead:
         if not starting_balance.is_finite() or starting_balance <= ZERO:
             raise ValueError("Paper starting balance must be a positive decimal")
-        if self.repository.has_open_positions():
-            raise ConflictError(
-                "Paper portfolio reset is only allowed when all positions are flat",
-                error_code="paper_portfolio_not_flat",
-            )
 
-        account = self.get_account()
+        account = self.repository.get_account_for_update()
+        if account is None:
+            raise ValueError("Portfolio account is not initialized")
         try:
+            if self.repository.has_open_positions():
+                raise ConflictError(
+                    "Paper portfolio reset is only allowed when all positions are flat",
+                    error_code="paper_portfolio_not_flat",
+                )
             self.repository.reset_account(account, starting_balance)
             self.repository.reset_position_session_state()
             self.repository.commit()

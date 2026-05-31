@@ -24,6 +24,7 @@ class PaperAccountingEvent(Base):
     fill_id: Mapped[int | None] = mapped_column(
         ForeignKey("simulated_fills.id", ondelete="SET NULL"),
         nullable=True,
+        unique=True,
         index=True,
     )
     bot_id: Mapped[int | None] = mapped_column(ForeignKey("bots.id", ondelete="SET NULL"), nullable=True, index=True)
