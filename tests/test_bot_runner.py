@@ -16,6 +16,7 @@ from app.engine.bot_runner import BotRunner, RunnerConfig
 from app.models.market_candle import MarketCandle
 from app.models.position import Position
 from app.repositories.bot_run import BotRunRepository
+from app.repositories.execution_attempt import ExecutionAttemptRepository
 from app.repositories.portfolio import PortfolioRepository
 from app.repositories.run_event import RunEventRepository
 from app.schemas.market import MarketPriceUpdateRequest
@@ -328,6 +329,46 @@ def test_sell_signal_triggers_full_sell(
     assert any(event.message == "buy_signal" for event in events)
     assert any(event.message == "sell_signal" for event in events)
     assert sum(1 for event in events if event.message == "order_filled") == 2
+
+
+def test_bot_runner_allows_sell_exit_after_daily_count_exhausted(
+    db_session,
+    db_session_factory,
+    stub_market_data_service,
+    bot_stack_factory,
+    funded_account,
+) -> None:
+    funded_account(db_session)
+    _, bot, _ = bot_stack_factory(db_session)
+    runner = BotRunner(
+        session_factory=db_session_factory,
+        market_data_service=stub_market_data_service,
+        config=RunnerConfig(
+            enabled=True,
+            poll_interval_seconds=3600,
+            simulation_enabled=True,
+            simulation_fee_bps=Decimal("0"),
+            simulation_slippage_bps=Decimal("0"),
+            execution_max_daily_order_count=1,
+        ),
+    )
+    runner.start_bot(bot.id)
+    stub_market_data_service.set_price("BTCUSDT", "95")
+    asyncio.run(runner.run_cycle())
+
+    stub_market_data_service.set_price("BTCUSDT", "115")
+    asyncio.run(runner.run_cycle())
+
+    repository = PortfolioRepository(db_session)
+    orders = repository.list_orders()
+    position = repository.get_position_by_symbol("BTCUSDT")
+    attempts = ExecutionAttemptRepository(db_session).list_filtered(bot_id=bot.id, limit=10)
+    assert [order.side for order in orders] == ["sell", "buy"]
+    assert position is not None
+    assert position.quantity == Decimal("0E-8")
+    assert [attempt.final_status for attempt in attempts] == ["filled", "filled"]
+    assert attempts[0].side == "sell"
+    assert attempts[0].metadata_["risk_reducing_exit"] is True
 
 
 def test_live_mode_records_not_implemented_without_order(

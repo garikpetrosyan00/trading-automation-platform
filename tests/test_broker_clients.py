@@ -219,6 +219,60 @@ def test_paper_execution_broker_buy_and_sell_consume_daily_slots(
     assert [attempt.final_status for attempt in attempts] == ["blocked_by_safety", "filled", "filled"]
 
 
+def test_paper_execution_broker_allows_partial_and_full_sell_after_daily_count_exhausted(
+    db_session,
+    stub_market_data_service,
+) -> None:
+    repository = PortfolioRepository(db_session)
+    PortfolioAccountService(repository).ensure_account(base_currency="USD", starting_cash=Decimal("1000.00"))
+    service = PaperExecutionService(
+        repository=repository,
+        market_data_service=stub_market_data_service,
+        simulation_enabled=True,
+        fee_bps=Decimal("0"),
+        slippage_bps=Decimal("0"),
+    )
+    broker = PaperExecutionBroker(
+        service,
+        safety_guard=build_daily_limit_guard(db_session, max_daily_order_count=1),
+        attempt_service=ExecutionAttemptService(ExecutionAttemptRepository(db_session)),
+    )
+    stub_market_data_service.set_price("BTCUSDT", "100.00")
+
+    buy = broker.submit_market_order(BrokerOrderIntent(bot_id=7, symbol="BTCUSDT", side="buy", quantity=Decimal("2")))
+    blocked_buy = broker.submit_market_order(BrokerOrderIntent(bot_id=7, symbol="BTCUSDT", side="buy", quantity=Decimal("1")))
+    partial_sell = broker.submit_market_order(
+        BrokerOrderIntent(bot_id=7, symbol="BTCUSDT", side="sell", quantity=Decimal("0.75"))
+    )
+    full_sell = broker.submit_market_order(
+        BrokerOrderIntent(bot_id=7, symbol="BTCUSDT", side="sell", quantity=Decimal("1.25"))
+    )
+    oversell = broker.submit_market_order(BrokerOrderIntent(bot_id=7, symbol="BTCUSDT", side="sell", quantity=Decimal("1")))
+
+    position = repository.get_position_by_symbol("BTCUSDT")
+    attempts = ExecutionAttemptRepository(db_session).list_filtered(bot_id=7, limit=10)
+    events = PaperAccountingRepository(db_session).list_events()
+    assert buy.accepted is True
+    assert blocked_buy.accepted is False
+    assert blocked_buy.reason == "max_daily_order_count_exceeded"
+    assert partial_sell.accepted is True
+    assert full_sell.accepted is True
+    assert oversell.accepted is False
+    assert oversell.reason == "Insufficient position quantity for this sell order"
+    assert position is not None
+    assert position.quantity == Decimal("0E-8")
+    assert len(events) == 3
+    assert [attempt.final_status for attempt in attempts] == [
+        "rejected_by_broker",
+        "filled",
+        "filled",
+        "blocked_by_safety",
+        "filled",
+    ]
+    assert attempts[1].metadata_["risk_reducing_exit"] is True
+    assert attempts[2].metadata_["risk_reducing_exit"] is True
+
+
 def test_execution_safety_guard_allows_normal_paper_execution_by_default() -> None:
     decision = ExecutionSafetyGuard().validate_order(
         BrokerOrderIntent(symbol="BTCUSDT", side="buy", quantity=Decimal("0.1"), mode="paper"),
@@ -308,6 +362,21 @@ def test_execution_safety_guard_rejects_max_daily_order_count(db_session) -> Non
     assert decision.reason == "max_daily_order_count_exceeded"
     assert decision.metadata["daily_order_count"] == 1
     assert decision.metadata["max_daily_order_count"] == 1
+
+
+def test_execution_safety_guard_allows_sell_when_daily_order_count_exhausted(db_session) -> None:
+    add_attempt(db_session, bot_id=7)
+    guard = build_daily_limit_guard(db_session, max_daily_order_count=1)
+
+    decision = guard.validate_order(
+        BrokerOrderIntent(bot_id=7, symbol="BTCUSDT", side="sell", quantity=Decimal("0.1"), mode="paper"),
+        broker="paper",
+        market_price=Decimal("100"),
+    )
+
+    assert decision.allowed is True
+    assert decision.reason == "allowed"
+    assert decision.metadata["risk_reducing_exits_allowed"] is True
 
 
 def test_execution_safety_guard_daily_order_count_is_bot_scoped(db_session) -> None:

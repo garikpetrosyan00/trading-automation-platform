@@ -280,6 +280,7 @@ def test_execution_safety_status_reports_blocked_when_daily_limit_reached(
 
     with TestClient(app) as client:
         response = client.get(f"/api/v1/bots/{bot_id}/execution-safety/status")
+        sell_response = client.get(f"/api/v1/bots/{bot_id}/execution-safety/status", params={"side": "sell"})
 
     assert response.status_code == 200
     body = response.json()
@@ -287,6 +288,14 @@ def test_execution_safety_status_reports_blocked_when_daily_limit_reached(
     assert body["remaining_daily_order_capacity"] == 0
     assert body["is_execution_currently_allowed"] is False
     assert body["blocking_reason"] == "max_daily_order_count_exceeded"
+
+    assert sell_response.status_code == 200
+    sell_body = sell_response.json()
+    assert sell_body["current_daily_attempt_count"] == 1
+    assert sell_body["remaining_daily_order_capacity"] == 0
+    assert sell_body["is_execution_currently_allowed"] is True
+    assert sell_body["blocking_reason"] is None
+    assert sell_body["metadata"]["risk_reducing_exits_allowed"] is True
 
 
 def test_execution_safety_status_unknown_bot_returns_404(

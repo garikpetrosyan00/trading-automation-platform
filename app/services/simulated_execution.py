@@ -237,6 +237,7 @@ class PaperExecutionService:
                         "side": intent.side,
                         "mode": intent.mode,
                         "fill_id": fill.id,
+                        "risk_reducing_exit": intent.side == "sell",
                     },
                 )
                 self.repository.commit()
@@ -283,6 +284,7 @@ class PaperExecutionService:
                     "side": intent.side,
                     "mode": intent.mode,
                     "fill_id": fill.id,
+                    "risk_reducing_exit": True,
                 },
             )
             self.repository.commit()
@@ -466,7 +468,17 @@ class PaperExecutionService:
             "mode": intent.mode,
             "symbol": intent.symbol.strip().upper() if intent.symbol else intent.symbol,
             "side": intent.side,
+            "risk_reducing_exits_allowed": True,
         }
+        if intent.side == "sell":
+            return ExecutionSafetyDecision(
+                allowed=True,
+                reason="risk_reducing_exit_allowed",
+                metadata={
+                    **metadata,
+                    "daily_order_count_limit_applies_to": "buy",
+                },
+            )
         if config.max_daily_order_count is None or config.max_daily_order_count <= 0:
             return self.safety_guard.validate_order(
                 intent,

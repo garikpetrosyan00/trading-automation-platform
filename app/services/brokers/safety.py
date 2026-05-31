@@ -49,6 +49,7 @@ class ExecutionSafetyGuard:
             "mode": intent.mode,
             "symbol": intent.symbol.strip().upper() if intent.symbol else intent.symbol,
             "side": intent.side,
+            "risk_reducing_exits_allowed": True,
         }
 
         if not self.config.global_enabled:
@@ -82,6 +83,7 @@ class ExecutionSafetyGuard:
 
         if (
             not skip_daily_order_count
+            and intent.side == "buy"
             and self.config.max_daily_order_count is not None
             and self.config.max_daily_order_count > 0
         ):
