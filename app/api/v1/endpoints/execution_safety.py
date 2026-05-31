@@ -8,6 +8,7 @@ from app.core.config import get_settings
 from app.core.errors import NotFoundError
 from app.repositories.bot import BotRepository
 from app.repositories.execution_attempt import ExecutionAttemptRepository
+from app.repositories.paper_accounting import PaperAccountingRepository
 from app.schemas.execution import ExecutionSafetyStatusRead
 from app.services.execution_safety_status import ExecutionSafetyStatusService
 
@@ -73,6 +74,7 @@ def _build_status(
     service = ExecutionSafetyStatusService(
         ExecutionAttemptRepository(db),
         get_settings(),
+        paper_accounting_repository=PaperAccountingRepository(db),
     )
     status = service.get_status(
         bot_id=bot_id,

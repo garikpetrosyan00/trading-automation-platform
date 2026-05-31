@@ -6,7 +6,9 @@ from fastapi.testclient import TestClient
 from app.core.config import Settings
 from app.main import app
 from app.models.execution_attempt import ExecutionAttempt
+from app.models.paper_accounting_event import PaperAccountingEvent
 from app.repositories.execution_attempt import ExecutionAttemptRepository
+from app.repositories.paper_accounting import PaperAccountingRepository
 from app.repositories.portfolio import PortfolioRepository
 from app.services.execution_safety_status import ExecutionSafetyStatusService
 
@@ -62,6 +64,10 @@ def test_global_execution_safety_status_returns_safe_defaults(
     assert body["max_daily_loss"] is None
     assert body["current_daily_attempt_count"] == 0
     assert body["remaining_daily_order_capacity"] is None
+    assert body["current_daily_realized_pnl"] == "0"
+    assert body["current_daily_realized_loss"] == "0"
+    assert body["remaining_daily_loss_capacity"] is None
+    assert body["is_daily_loss_limit_exceeded"] is False
     assert body["is_execution_currently_allowed"] is True
     assert body["blocking_reason"] is None
 
@@ -140,6 +146,117 @@ def test_execution_safety_status_counts_current_utc_day_only(db_session) -> None
     assert status.utc_day_start == datetime(2026, 5, 27, tzinfo=timezone.utc)
     assert status.current_daily_attempt_count == 1
     assert status.remaining_daily_order_capacity == 1
+
+
+def test_execution_safety_status_reports_daily_loss_state(db_session) -> None:
+    now = datetime(2026, 5, 27, 12, 0, tzinfo=timezone.utc)
+    db_session.add(
+        PaperAccountingEvent(
+            symbol="BTCUSDT",
+            side="sell",
+            mode="paper",
+            event_type="fill_applied",
+            cash_delta=Decimal("90"),
+            realized_pnl_delta=Decimal("-7"),
+            occurred_at=now,
+        )
+    )
+    db_session.add(
+        PaperAccountingEvent(
+            symbol="BTCUSDT",
+            side="sell",
+            mode="paper",
+            event_type="fill_applied",
+            cash_delta=Decimal("120"),
+            realized_pnl_delta=Decimal("2"),
+            occurred_at=now,
+        )
+    )
+    db_session.commit()
+    service = ExecutionSafetyStatusService(
+        ExecutionAttemptRepository(db_session),
+        Settings(EXECUTION_MAX_DAILY_LOSS="10"),
+        paper_accounting_repository=PaperAccountingRepository(db_session),
+        now_provider=lambda: now,
+    )
+
+    status = service.get_status(side="buy")
+
+    assert status.utc_day_start == datetime(2026, 5, 27, tzinfo=timezone.utc)
+    assert status.max_daily_loss == Decimal("10")
+    assert status.current_daily_realized_pnl == Decimal("-5.00000000")
+    assert status.current_daily_realized_loss == Decimal("5.00000000")
+    assert status.remaining_daily_loss_capacity == Decimal("5.00000000")
+    assert status.is_daily_loss_limit_exceeded is False
+    assert status.is_execution_currently_allowed is True
+
+
+def test_execution_safety_status_reports_daily_loss_block(
+    db_session_factory,
+    stub_market_data_service,
+    noop_bot_runner,
+    configure_app_state,
+    monkeypatch,
+) -> None:
+    settings = Settings(EXECUTION_MAX_DAILY_LOSS="10")
+    import app.api.v1.endpoints.execution_safety as endpoint
+
+    monkeypatch.setattr(endpoint, "get_settings", lambda: settings)
+    with db_session_factory() as session:
+        session.add(
+            PaperAccountingEvent(
+                symbol="BTCUSDT",
+                side="sell",
+                mode="paper",
+                event_type="fill_applied",
+                cash_delta=Decimal("90"),
+                realized_pnl_delta=Decimal("-10"),
+                occurred_at=datetime.now(timezone.utc),
+            )
+        )
+        session.commit()
+
+    configure_app_state(market_data_service=stub_market_data_service, bot_runner=noop_bot_runner)
+
+    with TestClient(app) as client:
+        response = client.get("/api/v1/execution-safety/status", params={"side": "buy"})
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["max_daily_loss"] == "10"
+    assert body["current_daily_realized_pnl"] == "-10.00000000"
+    assert body["current_daily_realized_loss"] == "10.00000000"
+    assert body["remaining_daily_loss_capacity"] == "0"
+    assert body["is_daily_loss_limit_exceeded"] is True
+    assert body["is_execution_currently_allowed"] is False
+    assert body["blocking_reason"] == "max_daily_loss_exceeded"
+
+
+def test_execution_safety_status_allows_sell_when_daily_loss_limit_is_reached(db_session) -> None:
+    now = datetime(2026, 5, 27, 12, 0, tzinfo=timezone.utc)
+    db_session.add(
+        PaperAccountingEvent(
+            symbol="BTCUSDT",
+            side="sell",
+            mode="paper",
+            event_type="fill_applied",
+            cash_delta=Decimal("90"),
+            realized_pnl_delta=Decimal("-10"),
+            occurred_at=now,
+        )
+    )
+    db_session.commit()
+    service = ExecutionSafetyStatusService(
+        ExecutionAttemptRepository(db_session),
+        Settings(EXECUTION_MAX_DAILY_LOSS="10"),
+        paper_accounting_repository=PaperAccountingRepository(db_session),
+        now_provider=lambda: now,
+    )
+
+    status = service.get_status(side="sell")
+
+    assert status.is_daily_loss_limit_exceeded is True
+    assert status.is_execution_currently_allowed is True
 
 
 def test_execution_safety_status_reports_blocked_when_daily_limit_reached(

@@ -5,6 +5,8 @@ from urllib.parse import parse_qs
 
 import httpx
 from app.models.execution_attempt import ExecutionAttempt
+from app.models.paper_accounting_event import PaperAccountingEvent
+from app.repositories.paper_accounting import PaperAccountingRepository
 from app.repositories.portfolio import PortfolioRepository
 from app.services.brokers.base import BrokerOrderIntent
 from app.services.brokers.binance import (
@@ -22,6 +24,7 @@ from app.core.config import Settings
 from app.repositories.execution_attempt import ExecutionAttemptRepository
 from app.services.execution_limits import ExecutionDailyLimitService
 from app.services.portfolio_account import PortfolioAccountService
+from app.services.portfolio import PortfolioService
 from app.services.execution_attempt import ExecutionAttemptService
 from app.services.simulated_execution import PaperExecutionBroker, PaperExecutionService
 
@@ -106,6 +109,46 @@ def build_daily_limit_guard(
             ExecutionAttemptRepository(db_session),
             now_provider=lambda: FIXED_NOW,
         ),
+    )
+
+
+def build_daily_loss_guard(
+    db_session,
+    *,
+    max_daily_loss: Decimal | None,
+    now=datetime(2026, 5, 27, 12, 0, tzinfo=timezone.utc),
+) -> ExecutionSafetyGuard:
+    return ExecutionSafetyGuard(
+        ExecutionSafetyConfig(max_daily_loss=max_daily_loss),
+        daily_limit_service=ExecutionDailyLimitService(
+            ExecutionAttemptRepository(db_session),
+            paper_accounting_repository=PaperAccountingRepository(db_session),
+            now_provider=lambda: now,
+        ),
+    )
+
+
+def build_paper_broker(
+    db_session,
+    stub_market_data_service,
+    *,
+    max_daily_loss: Decimal | None,
+    starting_cash: Decimal = Decimal("1000.00"),
+    now=datetime(2026, 5, 27, 12, 0, tzinfo=timezone.utc),
+) -> PaperExecutionBroker:
+    repository = PortfolioRepository(db_session)
+    PortfolioAccountService(repository).ensure_account(base_currency="USD", starting_cash=starting_cash)
+    service = PaperExecutionService(
+        repository=repository,
+        market_data_service=stub_market_data_service,
+        simulation_enabled=True,
+        fee_bps=Decimal("0"),
+        slippage_bps=Decimal("0"),
+    )
+    return PaperExecutionBroker(
+        service,
+        safety_guard=build_daily_loss_guard(db_session, max_daily_loss=max_daily_loss, now=now),
+        attempt_service=ExecutionAttemptService(ExecutionAttemptRepository(db_session)),
     )
 
 
@@ -286,6 +329,201 @@ def test_paper_execution_broker_daily_order_limit_blocks_without_order_or_fill(d
     assert len(attempts) == 1
     assert attempts[0].final_reason == "max_daily_order_count_exceeded"
     assert attempts[0].order_id is None
+
+
+def test_daily_loss_disabled_preserves_paper_buy_behavior(db_session, stub_market_data_service) -> None:
+    broker = build_paper_broker(db_session, stub_market_data_service, max_daily_loss=None)
+    stub_market_data_service.set_price("BTCUSDT", "100")
+
+    result = broker.submit_market_order(BrokerOrderIntent(bot_id=1, symbol="BTCUSDT", side="buy", quantity=Decimal("1")))
+
+    assert result.accepted is True
+    assert len(PortfolioRepository(db_session).list_orders()) == 1
+    assert len(PortfolioRepository(db_session).list_fills()) == 1
+
+
+def test_positive_realized_pnl_does_not_consume_daily_loss_capacity(db_session, stub_market_data_service) -> None:
+    broker = build_paper_broker(db_session, stub_market_data_service, max_daily_loss=Decimal("10"))
+    stub_market_data_service.set_price("BTCUSDT", "100")
+    broker.submit_market_order(BrokerOrderIntent(bot_id=1, symbol="BTCUSDT", side="buy", quantity=Decimal("1")))
+    stub_market_data_service.set_price("BTCUSDT", "115")
+    broker.submit_market_order(BrokerOrderIntent(bot_id=1, symbol="BTCUSDT", side="sell", quantity=Decimal("1")))
+
+    stub_market_data_service.set_price("BTCUSDT", "120")
+    result = broker.submit_market_order(BrokerOrderIntent(bot_id=1, symbol="BTCUSDT", side="buy", quantity=Decimal("1")))
+
+    loss_snapshot = broker.safety_guard.daily_limit_service.get_realized_loss_today()
+    assert loss_snapshot.realized_pnl == Decimal("15.00000000")
+    assert loss_snapshot.realized_loss == Decimal("0")
+    assert result.accepted is True
+
+
+def test_realized_sell_loss_consumes_daily_loss_capacity(db_session, stub_market_data_service) -> None:
+    broker = build_paper_broker(db_session, stub_market_data_service, max_daily_loss=Decimal("20"))
+    stub_market_data_service.set_price("BTCUSDT", "100")
+    broker.submit_market_order(BrokerOrderIntent(bot_id=1, symbol="BTCUSDT", side="buy", quantity=Decimal("1")))
+    stub_market_data_service.set_price("BTCUSDT", "90")
+    broker.submit_market_order(BrokerOrderIntent(bot_id=1, symbol="BTCUSDT", side="sell", quantity=Decimal("1")))
+
+    loss_snapshot = broker.safety_guard.daily_limit_service.get_realized_loss_today()
+
+    assert loss_snapshot.realized_pnl == Decimal("-10.00000000")
+    assert loss_snapshot.realized_loss == Decimal("10.00000000")
+
+
+def test_reaching_daily_loss_limit_blocks_later_buy_without_order_fill_or_mutation(
+    db_session,
+    stub_market_data_service,
+) -> None:
+    broker = build_paper_broker(db_session, stub_market_data_service, max_daily_loss=Decimal("10"))
+    repository = PortfolioRepository(db_session)
+    stub_market_data_service.set_price("BTCUSDT", "100")
+    broker.submit_market_order(BrokerOrderIntent(bot_id=1, symbol="BTCUSDT", side="buy", quantity=Decimal("1")))
+    stub_market_data_service.set_price("BTCUSDT", "90")
+    broker.submit_market_order(BrokerOrderIntent(bot_id=1, symbol="BTCUSDT", side="sell", quantity=Decimal("1")))
+    cash_before = repository.get_account().cash_balance
+    position_before = repository.get_position_by_symbol("BTCUSDT").quantity
+    order_count_before = len(repository.list_orders())
+    fill_count_before = len(repository.list_fills())
+
+    result = broker.submit_market_order(BrokerOrderIntent(bot_id=1, symbol="BTCUSDT", side="buy", quantity=Decimal("1")))
+
+    attempts = ExecutionAttemptRepository(db_session).list_filtered(final_status="blocked_by_safety")
+    assert result.accepted is False
+    assert result.reason == "max_daily_loss_exceeded"
+    assert len(repository.list_orders()) == order_count_before
+    assert len(repository.list_fills()) == fill_count_before
+    assert repository.get_account().cash_balance == cash_before
+    assert repository.get_position_by_symbol("BTCUSDT").quantity == position_before
+    assert len(attempts) == 1
+    assert attempts[0].final_reason == "max_daily_loss_exceeded"
+    assert attempts[0].safety_status == "max_daily_loss_exceeded"
+    assert attempts[0].order_id is None
+
+
+def test_exceeding_daily_loss_limit_blocks_later_buy(db_session, stub_market_data_service) -> None:
+    broker = build_paper_broker(db_session, stub_market_data_service, max_daily_loss=Decimal("5"))
+    stub_market_data_service.set_price("BTCUSDT", "100")
+    broker.submit_market_order(BrokerOrderIntent(bot_id=1, symbol="BTCUSDT", side="buy", quantity=Decimal("1")))
+    stub_market_data_service.set_price("BTCUSDT", "90")
+    broker.submit_market_order(BrokerOrderIntent(bot_id=1, symbol="BTCUSDT", side="sell", quantity=Decimal("1")))
+
+    result = broker.submit_market_order(BrokerOrderIntent(bot_id=1, symbol="BTCUSDT", side="buy", quantity=Decimal("1")))
+
+    assert result.accepted is False
+    assert result.reason == "max_daily_loss_exceeded"
+
+
+def test_sell_remains_allowed_after_daily_loss_limit_is_reached(db_session, stub_market_data_service) -> None:
+    broker = build_paper_broker(db_session, stub_market_data_service, max_daily_loss=Decimal("10"))
+    repository = PortfolioRepository(db_session)
+    stub_market_data_service.set_price("BTCUSDT", "100")
+    broker.submit_market_order(BrokerOrderIntent(bot_id=1, symbol="BTCUSDT", side="buy", quantity=Decimal("2")))
+    stub_market_data_service.set_price("BTCUSDT", "90")
+    broker.submit_market_order(BrokerOrderIntent(bot_id=1, symbol="BTCUSDT", side="sell", quantity=Decimal("1")))
+
+    result = broker.submit_market_order(BrokerOrderIntent(bot_id=1, symbol="BTCUSDT", side="sell", quantity=Decimal("1")))
+
+    assert result.accepted is True
+    assert repository.get_position_by_symbol("BTCUSDT").quantity == Decimal("0E-8")
+
+
+def test_daily_loss_limit_does_not_bypass_oversell_rejection(db_session, stub_market_data_service) -> None:
+    broker = build_paper_broker(db_session, stub_market_data_service, max_daily_loss=Decimal("10"))
+    stub_market_data_service.set_price("BTCUSDT", "100")
+
+    result = broker.submit_market_order(BrokerOrderIntent(bot_id=1, symbol="BTCUSDT", side="sell", quantity=Decimal("1")))
+
+    assert result.accepted is False
+    assert result.reason == "Insufficient position quantity for this sell order"
+
+
+def test_daily_loss_uses_current_utc_day_only(db_session) -> None:
+    now = datetime(2026, 5, 27, 12, 0, tzinfo=timezone.utc)
+    db_session.add(
+        PaperAccountingEvent(
+            symbol="BTCUSDT",
+            side="sell",
+            mode="paper",
+            event_type="fill_applied",
+            cash_delta=Decimal("90"),
+            realized_pnl_delta=Decimal("-10"),
+            occurred_at=now - timedelta(days=1),
+        )
+    )
+    db_session.add(
+        PaperAccountingEvent(
+            symbol="BTCUSDT",
+            side="sell",
+            mode="paper",
+            event_type="fill_applied",
+            cash_delta=Decimal("95"),
+            realized_pnl_delta=Decimal("-5"),
+            occurred_at=now,
+        )
+    )
+    db_session.commit()
+    snapshot = ExecutionDailyLimitService(
+        ExecutionAttemptRepository(db_session),
+        paper_accounting_repository=PaperAccountingRepository(db_session),
+        now_provider=lambda: now,
+    ).get_realized_loss_today()
+
+    assert snapshot.day_start == datetime(2026, 5, 27, tzinfo=timezone.utc)
+    assert snapshot.realized_pnl == Decimal("-5.00000000")
+    assert snapshot.realized_loss == Decimal("5.00000000")
+
+
+def test_prior_day_realized_losses_do_not_block_today(db_session, stub_market_data_service) -> None:
+    now = datetime(2026, 5, 27, 12, 0, tzinfo=timezone.utc)
+    db_session.add(
+        PaperAccountingEvent(
+            symbol="BTCUSDT",
+            side="sell",
+            mode="paper",
+            event_type="fill_applied",
+            cash_delta=Decimal("90"),
+            realized_pnl_delta=Decimal("-10"),
+            occurred_at=now - timedelta(days=1),
+        )
+    )
+    db_session.commit()
+    broker = build_paper_broker(db_session, stub_market_data_service, max_daily_loss=Decimal("10"), now=now)
+    stub_market_data_service.set_price("BTCUSDT", "100")
+
+    result = broker.submit_market_order(BrokerOrderIntent(bot_id=1, symbol="BTCUSDT", side="buy", quantity=Decimal("1")))
+
+    assert result.accepted is True
+
+
+def test_daily_loss_is_shared_across_bots(db_session, stub_market_data_service) -> None:
+    broker = build_paper_broker(db_session, stub_market_data_service, max_daily_loss=Decimal("10"))
+    stub_market_data_service.set_price("BTCUSDT", "100")
+    broker.submit_market_order(BrokerOrderIntent(bot_id=1, symbol="BTCUSDT", side="buy", quantity=Decimal("1")))
+    stub_market_data_service.set_price("BTCUSDT", "90")
+    broker.submit_market_order(BrokerOrderIntent(bot_id=1, symbol="BTCUSDT", side="sell", quantity=Decimal("1")))
+
+    result = broker.submit_market_order(BrokerOrderIntent(bot_id=2, symbol="BTCUSDT", side="buy", quantity=Decimal("1")))
+
+    assert result.accepted is False
+    assert result.reason == "max_daily_loss_exceeded"
+
+
+def test_paper_portfolio_reset_does_not_bypass_same_day_daily_loss(db_session, stub_market_data_service) -> None:
+    broker = build_paper_broker(db_session, stub_market_data_service, max_daily_loss=Decimal("10"))
+    repository = PortfolioRepository(db_session)
+    stub_market_data_service.set_price("BTCUSDT", "100")
+    broker.submit_market_order(BrokerOrderIntent(bot_id=1, symbol="BTCUSDT", side="buy", quantity=Decimal("1")))
+    stub_market_data_service.set_price("BTCUSDT", "90")
+    broker.submit_market_order(BrokerOrderIntent(bot_id=1, symbol="BTCUSDT", side="sell", quantity=Decimal("1")))
+
+    reset = PortfolioService(repository, stub_market_data_service).reset_paper_portfolio(Decimal("1000"))
+    result = broker.submit_market_order(BrokerOrderIntent(bot_id=1, symbol="BTCUSDT", side="buy", quantity=Decimal("1")))
+
+    assert reset.cash_balance == Decimal("1000.00000000")
+    assert len(PaperAccountingRepository(db_session).list_events()) == 2
+    assert result.accepted is False
+    assert result.reason == "max_daily_loss_exceeded"
 
 
 def test_paper_execution_broker_rejects_when_global_kill_switch_is_disabled(

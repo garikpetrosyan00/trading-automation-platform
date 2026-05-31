@@ -41,6 +41,12 @@ async def lifespan(app: FastAPI):
                 simulation_enabled=settings.simulation_enabled,
                 simulation_fee_bps=settings.simulation_fee_bps,
                 simulation_slippage_bps=settings.simulation_slippage_bps,
+                execution_global_enabled=settings.execution_global_enabled,
+                execution_live_enabled=settings.execution_live_enabled,
+                binance_testnet_order_submission_enabled=settings.binance_testnet_order_submission_enabled,
+                execution_max_order_notional=settings.execution_max_order_notional,
+                execution_max_daily_order_count=settings.execution_max_daily_order_count,
+                execution_max_daily_loss=settings.execution_max_daily_loss,
             ),
         )
         app.state.bot_runner = bot_runner

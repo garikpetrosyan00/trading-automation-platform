@@ -308,6 +308,7 @@ class PaperExecutionService:
             source="paper",
         )
         self.repository.save(fill)
+        self.repository.flush()
         return fill
 
     def _get_latest_price(self, symbol: str) -> Decimal | None:

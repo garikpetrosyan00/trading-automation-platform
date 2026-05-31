@@ -7,6 +7,7 @@ from app.models.execution_profile import ExecutionProfile
 from app.models.execution_attempt import ExecutionAttempt
 from app.models.market_candle import MarketCandle
 from app.models.notification_rule import NotificationRule
+from app.models.paper_accounting_event import PaperAccountingEvent
 from app.models.portfolio_account import PortfolioAccount
 from app.models.position import Position
 from app.models.run_event import RunEvent
@@ -26,6 +27,7 @@ __all__ = [
     "AlertEvent",
     "AlertRule",
     "NotificationRule",
+    "PaperAccountingEvent",
     "PortfolioAccount",
     "Position",
     "SimulatedOrder",

@@ -25,6 +25,7 @@ from app.repositories.bot_run import BotRunRepository
 from app.repositories.execution_profile import ExecutionProfileRepository
 from app.repositories.execution_attempt import ExecutionAttemptRepository
 from app.repositories.market_candle import MarketCandleRepository
+from app.repositories.paper_accounting import PaperAccountingRepository
 from app.repositories.portfolio import PortfolioRepository
 from app.repositories.run_event import RunEventRepository
 from app.repositories.strategy import StrategyRepository
@@ -35,7 +36,9 @@ from app.schemas.bot_run import BotRunCreate, BotRunUpdate
 from app.schemas.bot_runner import BotControlRead, BotStatusRead
 from app.schemas.bot_summary import BotSummaryRead
 from app.services.bot_run import BotRunService
+from app.services.brokers.safety import ExecutionSafetyConfig, ExecutionSafetyGuard
 from app.services.execution_attempt import ExecutionAttemptService
+from app.services.execution_limits import ExecutionDailyLimitService
 from app.services.simulated_execution import PaperOrderIntent, SimulatedExecutionService
 
 logger = get_logger(__name__)
@@ -50,6 +53,12 @@ class RunnerConfig:
     simulation_enabled: bool
     simulation_fee_bps: Decimal
     simulation_slippage_bps: Decimal
+    execution_global_enabled: bool = True
+    execution_live_enabled: bool = False
+    binance_testnet_order_submission_enabled: bool = False
+    execution_max_order_notional: Decimal | None = None
+    execution_max_daily_order_count: int | None = None
+    execution_max_daily_loss: Decimal | None = None
 
 
 class BotRunner:
@@ -606,12 +615,76 @@ class BotRunner:
             db.commit()
             return
 
+        attempt_repository = ExecutionAttemptRepository(db)
+        safety_guard = ExecutionSafetyGuard(
+            ExecutionSafetyConfig(
+                global_enabled=self.config.execution_global_enabled,
+                live_enabled=self.config.execution_live_enabled,
+                testnet_order_submission_enabled=self.config.binance_testnet_order_submission_enabled,
+                max_order_notional=self.config.execution_max_order_notional,
+                max_daily_order_count=self.config.execution_max_daily_order_count,
+                max_daily_loss=self.config.execution_max_daily_loss,
+            ),
+            daily_limit_service=ExecutionDailyLimitService(
+                attempt_repository,
+                paper_accounting_repository=PaperAccountingRepository(db),
+                now_provider=self.now_provider,
+            ),
+        )
+        safety_decision = safety_guard.validate_order(
+            PaperOrderIntent(
+                bot_id=bot.id,
+                strategy_id=strategy.id,
+                symbol=strategy.symbol,
+                side=execution_action,
+                quantity=quantity,
+                mode="paper",
+                decision_reason=decision_payload.get("detail") or decision_payload.get("reason"),
+                decision_metadata=decision_payload,
+            ),
+            broker="paper",
+            market_price=decision.current_price if decision.current_price is not None else latest_price,
+        )
+        if not safety_decision.allowed:
+            ExecutionAttemptService(attempt_repository).record(
+                bot_id=bot.id,
+                strategy_id=strategy.id,
+                symbol=strategy.symbol,
+                side=execution_action,
+                mode="paper",
+                broker="paper",
+                requested_quantity=quantity,
+                requested_price=decision.current_price if decision.current_price is not None else latest_price,
+                decision_reason=decision_payload.get("detail") or decision_payload.get("reason"),
+                risk_status=risk_decision.reason,
+                safety_status=safety_decision.reason,
+                final_status="blocked_by_safety",
+                final_reason=safety_decision.reason,
+                metadata={**safety_decision.metadata, "decision": decision_payload},
+            )
+            self._record_event(
+                db,
+                bot_run.id,
+                event_type="system",
+                level="warning",
+                message="order_rejected",
+                payload={
+                    "side": execution_action,
+                    "symbol": strategy.symbol,
+                    "message": safety_decision.reason,
+                    **decision_payload,
+                },
+            )
+            db.commit()
+            return
+
         execution_service = SimulatedExecutionService(
             repository=portfolio_repository,
             market_data_service=self.market_data_service,
             simulation_enabled=self.config.simulation_enabled,
             fee_bps=self.config.simulation_fee_bps,
             slippage_bps=self.config.simulation_slippage_bps,
+            safety_guard=safety_guard,
         )
         result = execution_service.submit_order_intent(
             PaperOrderIntent(
@@ -626,7 +699,7 @@ class BotRunner:
             )
         )
 
-        ExecutionAttemptService(ExecutionAttemptRepository(db)).record(
+        ExecutionAttemptService(attempt_repository).record(
             bot_id=bot.id,
             strategy_id=strategy.id,
             symbol=strategy.symbol,

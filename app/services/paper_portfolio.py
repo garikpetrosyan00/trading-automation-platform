@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from decimal import Decimal
 
 from app.models.portfolio_account import PortfolioAccount
+from app.models.paper_accounting_event import PaperAccountingEvent
 from app.models.position import Position
 from app.models.simulated_fill import SimulatedFill
 from app.repositories.portfolio import PortfolioRepository
@@ -85,6 +86,11 @@ class PaperPortfolioService:
         account.cash_balance -= total_cost
         position.quantity = new_total_quantity
         position.average_entry_price = new_total_cost_basis / new_total_quantity
+        self._record_accounting_event(
+            fill=fill,
+            cash_delta=-total_cost,
+            realized_pnl_delta=ZERO,
+        )
 
         return PaperPortfolioResult(
             accepted=True,
@@ -117,6 +123,11 @@ class PaperPortfolioService:
         position.quantity -= quantity
         if position.quantity == ZERO:
             position.average_entry_price = ZERO
+        self._record_accounting_event(
+            fill=fill,
+            cash_delta=proceeds,
+            realized_pnl_delta=realized_pnl_delta,
+        )
 
         return PaperPortfolioResult(
             accepted=True,
@@ -135,3 +146,25 @@ class PaperPortfolioService:
         if not fill.fee.is_finite() or fill.fee < ZERO:
             return "Fill fee must not be negative"
         return None
+
+    def _record_accounting_event(
+        self,
+        *,
+        fill: SimulatedFill,
+        cash_delta: Decimal,
+        realized_pnl_delta: Decimal,
+    ) -> None:
+        order = self.repository.get_order_by_id(fill.order_id)
+        event = PaperAccountingEvent(
+            order_id=order.id if order is not None else None,
+            fill_id=fill.id,
+            bot_id=order.bot_id if order is not None else None,
+            strategy_id=order.strategy_id if order is not None else None,
+            symbol=fill.symbol,
+            side=fill.side,
+            mode="paper",
+            event_type="fill_applied",
+            cash_delta=cash_delta,
+            realized_pnl_delta=realized_pnl_delta,
+        )
+        self.repository.save(event)

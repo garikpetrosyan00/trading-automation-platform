@@ -6,6 +6,7 @@ from decimal import Decimal
 
 from app.core.config import Settings
 from app.repositories.execution_attempt import ExecutionAttemptRepository
+from app.repositories.paper_accounting import PaperAccountingRepository
 from app.services.brokers.base import BrokerOrderIntent
 from app.services.brokers.safety import ExecutionSafetyConfig, ExecutionSafetyGuard
 from app.services.execution_limits import ExecutionDailyLimitService
@@ -25,16 +26,30 @@ class ExecutionSafetyStatus:
     utc_day_start: datetime
     current_daily_attempt_count: int
     remaining_daily_order_capacity: int | None
+    current_daily_realized_pnl: Decimal
+    current_daily_realized_loss: Decimal
+    remaining_daily_loss_capacity: Decimal | None
+    is_daily_loss_limit_exceeded: bool
     is_execution_currently_allowed: bool
     blocking_reason: str | None
     metadata: dict
 
 
 class ExecutionSafetyStatusService:
-    def __init__(self, repository: ExecutionAttemptRepository, settings: Settings, now_provider=None):
+    def __init__(
+        self,
+        repository: ExecutionAttemptRepository,
+        settings: Settings,
+        paper_accounting_repository: PaperAccountingRepository | None = None,
+        now_provider=None,
+    ):
         self.repository = repository
         self.settings = settings
-        self.daily_limit_service = ExecutionDailyLimitService(repository, now_provider=now_provider)
+        self.daily_limit_service = ExecutionDailyLimitService(
+            repository,
+            paper_accounting_repository=paper_accounting_repository,
+            now_provider=now_provider,
+        )
 
     def get_status(
         self,
@@ -48,6 +63,7 @@ class ExecutionSafetyStatusService:
     ) -> ExecutionSafetyStatus:
         config = self._build_safety_config()
         snapshot = self.daily_limit_service.count_successful_orders_today(bot_id=bot_id)
+        daily_loss = self.daily_limit_service.get_realized_loss_today()
         guard = ExecutionSafetyGuard(config, daily_limit_service=self.daily_limit_service)
         decision = guard.validate_order(
             BrokerOrderIntent(
@@ -61,6 +77,12 @@ class ExecutionSafetyStatusService:
             market_price=market_price,
         )
         remaining_capacity = self._remaining_daily_order_capacity(config.max_daily_order_count, snapshot.count)
+        remaining_loss_capacity = self._remaining_daily_loss_capacity(config.max_daily_loss, daily_loss.realized_loss)
+        is_daily_loss_limit_exceeded = (
+            config.max_daily_loss is not None
+            and config.max_daily_loss > Decimal("0")
+            and daily_loss.realized_loss >= config.max_daily_loss
+        )
 
         return ExecutionSafetyStatus(
             global_execution_enabled=self.settings.execution_global_enabled,
@@ -77,6 +99,10 @@ class ExecutionSafetyStatusService:
             utc_day_start=snapshot.day_start,
             current_daily_attempt_count=snapshot.count,
             remaining_daily_order_capacity=remaining_capacity,
+            current_daily_realized_pnl=daily_loss.realized_pnl,
+            current_daily_realized_loss=daily_loss.realized_loss,
+            remaining_daily_loss_capacity=remaining_loss_capacity,
+            is_daily_loss_limit_exceeded=is_daily_loss_limit_exceeded,
             is_execution_currently_allowed=decision.allowed,
             blocking_reason=None if decision.allowed else decision.reason,
             metadata=decision.metadata,
@@ -97,3 +123,10 @@ class ExecutionSafetyStatusService:
         if max_daily_order_count is None or max_daily_order_count <= 0:
             return None
         return max(max_daily_order_count - current_count, 0)
+
+    @staticmethod
+    def _remaining_daily_loss_capacity(max_daily_loss: Decimal | None, current_loss: Decimal) -> Decimal | None:
+        if max_daily_loss is None or max_daily_loss <= Decimal("0"):
+            return None
+        remaining = max_daily_loss - current_loss
+        return remaining if remaining > Decimal("0") else Decimal("0")

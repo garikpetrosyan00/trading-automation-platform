@@ -5,6 +5,7 @@ import pytest
 from app.core.config import Settings
 from app.core.errors import ConflictError
 from app.models.execution_attempt import ExecutionAttempt
+from app.repositories.paper_accounting import PaperAccountingRepository
 from app.repositories.portfolio import PortfolioRepository
 from app.repositories.execution_attempt import ExecutionAttemptRepository
 from app.schemas.execution import MarketOrderRequest
@@ -504,6 +505,7 @@ def test_paper_reset_succeeds_when_flat_and_preserves_audit_history(
     assert position.realized_pnl == Decimal("0")
     assert len(repository.list_orders()) == 2
     assert len(repository.list_fills()) == 2
+    assert len(PaperAccountingRepository(db_session).list_events()) == 2
     assert len(db_session.query(ExecutionAttempt).all()) == 2
 
 

@@ -131,6 +131,10 @@ class ExecutionSafetyStatusRead(BaseModel):
     utc_day_start: datetime
     current_daily_attempt_count: int
     remaining_daily_order_capacity: int | None = None
+    current_daily_realized_pnl: Decimal = Decimal("0")
+    current_daily_realized_loss: Decimal = Decimal("0")
+    remaining_daily_loss_capacity: Decimal | None = None
+    is_daily_loss_limit_exceeded: bool = False
     is_execution_currently_allowed: bool
     blocking_reason: str | None = None
     metadata: dict = Field(default_factory=dict)

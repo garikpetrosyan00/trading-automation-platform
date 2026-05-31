@@ -95,6 +95,28 @@ class ExecutionSafetyGuard:
                     },
                 )
 
+        if (
+            intent.mode == "paper"
+            and intent.side == "buy"
+            and self.config.max_daily_loss is not None
+            and self.config.max_daily_loss > ZERO
+        ):
+            if self.daily_limit_service is None:
+                return self._blocked("daily_limit_service_unavailable", metadata)
+            daily_loss = self.daily_limit_service.get_realized_loss_today()
+            if daily_loss.realized_loss >= self.config.max_daily_loss:
+                return self._blocked(
+                    "max_daily_loss_exceeded",
+                    {
+                        **metadata,
+                        "current_daily_realized_pnl": str(daily_loss.realized_pnl),
+                        "current_daily_realized_loss": str(daily_loss.realized_loss),
+                        "max_daily_loss": str(self.config.max_daily_loss),
+                        "remaining_daily_loss_capacity": "0",
+                        "day_start": daily_loss.day_start.isoformat(),
+                    },
+                )
+
         return ExecutionSafetyDecision(allowed=True, reason="allowed", metadata=metadata)
 
     @staticmethod
