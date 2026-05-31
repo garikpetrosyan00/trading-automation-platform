@@ -63,7 +63,7 @@ class PaperPortfolioService:
         if total_cost > account.cash_balance:
             return PaperPortfolioResult(
                 accepted=False,
-                message="Insufficient cash balance for this buy order",
+                message="insufficient_paper_cash",
                 account=account,
                 position=position,
             )

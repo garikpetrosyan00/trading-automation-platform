@@ -140,6 +140,17 @@ class PaperExecutionService:
 
         try:
             if intent.side == "buy":
+                required_cash = notional + fee
+                if required_cash > account.cash_balance:
+                    return self._reject_order(
+                        intent=intent,
+                        symbol=symbol,
+                        requested_price_snapshot=latest_price,
+                        reason="insufficient_paper_cash",
+                        cash_balance=account.cash_balance,
+                        position=position,
+                    )
+
                 order = self._create_order(intent, symbol, latest_price, status="filled")
                 fill = self._create_fill(order, intent, symbol, fill_price, fee)
                 accounting_result = PaperPortfolioService(self.repository).apply_fill(fill)

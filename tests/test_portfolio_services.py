@@ -1,12 +1,20 @@
 from decimal import Decimal
 
+import pytest
+
+from app.core.config import Settings
+from app.core.errors import ConflictError
+from app.models.execution_attempt import ExecutionAttempt
 from app.repositories.portfolio import PortfolioRepository
+from app.repositories.execution_attempt import ExecutionAttemptRepository
 from app.schemas.execution import MarketOrderRequest
 from app.models.simulated_fill import SimulatedFill
+from app.services.brokers.base import BrokerOrderIntent
+from app.services.execution_attempt import ExecutionAttemptService
 from app.services.paper_portfolio import PaperPortfolioService
 from app.services.portfolio import PortfolioService
 from app.services.portfolio_account import PortfolioAccountService
-from app.services.simulated_execution import PaperExecutionService, PaperOrderIntent, SimulatedExecutionService
+from app.services.simulated_execution import PaperExecutionBroker, PaperExecutionService, PaperOrderIntent, SimulatedExecutionService
 
 
 def build_fill(
@@ -37,6 +45,19 @@ def test_account_bootstrap_creates_default_account(db_session) -> None:
     assert account.base_currency == "USD"
     assert account.starting_cash == Decimal("1000.00")
     assert account.cash_balance == Decimal("1000.00")
+
+
+def test_settings_default_paper_initial_balance_is_positive(monkeypatch) -> None:
+    monkeypatch.delenv("PAPER_INITIAL_BALANCE", raising=False)
+    monkeypatch.delenv("SIMULATION_STARTING_CASH", raising=False)
+    settings = Settings(_env_file=None)
+
+    assert settings.paper_initial_balance == Decimal("10000.00")
+
+
+def test_settings_rejects_non_positive_paper_initial_balance() -> None:
+    with pytest.raises(ValueError):
+        Settings(PAPER_INITIAL_BALANCE="0")
 
 
 def test_paper_portfolio_buy_fill_updates_position_and_average_entry(db_session) -> None:
@@ -222,9 +243,14 @@ def test_rejected_buy_due_to_insufficient_cash(db_session, stub_market_data_serv
 
     assert result.accepted is False
     assert result.status == "rejected"
-    assert result.message == "Insufficient cash balance for this buy order"
+    assert result.message == "insufficient_paper_cash"
     assert result.fill is None
     assert result.updated_cash_balance == Decimal("1000.00000000")
+    assert result.order.status == "rejected"
+    assert result.order.rejection_reason == "insufficient_paper_cash"
+    assert repository.list_fills() == []
+    assert repository.get_position_by_symbol("BTCUSDT") is None
+    assert repository.get_account().cash_balance == Decimal("1000.00000000")
 
 
 def test_successful_sell_updates_realized_pnl(db_session, stub_market_data_service) -> None:
@@ -348,3 +374,160 @@ def test_portfolio_summary_uses_latest_market_price(db_session, stub_market_data
     assert summary.equity == Decimal("1008.94385200")
     assert summary.unrealized_pnl == Decimal("5.54985000")
     assert summary.realized_pnl == Decimal("3.39400200")
+
+
+def test_paper_execution_broker_records_insufficient_cash_attempt(
+    db_session,
+    stub_market_data_service,
+) -> None:
+    repository = PortfolioRepository(db_session)
+    PortfolioAccountService(repository).ensure_account(base_currency="USD", starting_cash=Decimal("100.00"))
+    stub_market_data_service.set_price("BTCUSDT", "50000.00")
+    service = PaperExecutionService(
+        repository=repository,
+        market_data_service=stub_market_data_service,
+        simulation_enabled=True,
+        fee_bps=Decimal("0"),
+        slippage_bps=Decimal("0"),
+    )
+    attempt_service = ExecutionAttemptService(ExecutionAttemptRepository(db_session))
+
+    result = PaperExecutionBroker(service, attempt_service=attempt_service).submit_market_order(
+        BrokerOrderIntent(bot_id=1, strategy_id=2, symbol="BTCUSDT", side="buy", quantity=Decimal("1"))
+    )
+
+    attempts = db_session.query(ExecutionAttempt).all()
+    assert result.accepted is False
+    assert result.reason == "insufficient_paper_cash"
+    assert len(attempts) == 1
+    assert attempts[0].final_status == "rejected_by_broker"
+    assert attempts[0].final_reason == "insufficient_paper_cash"
+    assert attempts[0].safety_status == "allowed"
+    assert attempts[0].order_id == result.order_id
+
+
+def test_paper_snapshot_returns_nullable_market_values_when_price_missing(
+    db_session,
+    stub_market_data_service,
+) -> None:
+    repository = PortfolioRepository(db_session)
+    PortfolioAccountService(repository).ensure_account(base_currency="USD", starting_cash=Decimal("1000.00"))
+    PaperPortfolioService(repository).apply_fill(build_fill(side="buy", quantity=Decimal("2"), fill_price=Decimal("100")))
+    db_session.commit()
+
+    snapshot = PortfolioService(repository, stub_market_data_service).get_paper_snapshot()
+
+    assert snapshot.starting_balance == Decimal("1000.00000000")
+    assert snapshot.cash_balance == Decimal("800.00000000")
+    assert snapshot.total_equity is None
+    assert snapshot.total_market_value is None
+    assert snapshot.positions[0].symbol == "BTCUSDT"
+    assert snapshot.positions[0].quantity == Decimal("2.00000000")
+    assert snapshot.positions[0].average_entry_price == Decimal("100.00000000")
+    assert snapshot.positions[0].latest_price is None
+    assert snapshot.positions[0].market_value is None
+    assert snapshot.positions[0].unrealized_pnl is None
+
+
+def test_paper_snapshot_returns_equity_when_prices_are_available(
+    db_session,
+    stub_market_data_service,
+) -> None:
+    repository = PortfolioRepository(db_session)
+    PortfolioAccountService(repository).ensure_account(base_currency="USD", starting_cash=Decimal("1000.00"))
+    PaperPortfolioService(repository).apply_fill(build_fill(side="buy", quantity=Decimal("2"), fill_price=Decimal("100")))
+    db_session.commit()
+    stub_market_data_service.set_price("BTCUSDT", "125")
+
+    snapshot = PortfolioService(repository, stub_market_data_service).get_paper_snapshot()
+
+    assert snapshot.starting_balance == Decimal("1000.00000000")
+    assert snapshot.cash_balance == Decimal("800.00000000")
+    assert snapshot.total_market_value == Decimal("250.00000000")
+    assert snapshot.total_unrealized_pnl == Decimal("50.00000000")
+    assert snapshot.total_equity == Decimal("1050.00000000")
+
+
+def test_paper_reset_rejects_invalid_balance(db_session, stub_market_data_service) -> None:
+    repository = PortfolioRepository(db_session)
+    PortfolioAccountService(repository).ensure_account(base_currency="USD", starting_cash=Decimal("1000.00"))
+
+    with pytest.raises(ValueError):
+        PortfolioService(repository, stub_market_data_service).reset_paper_portfolio(Decimal("0"))
+
+
+def test_paper_reset_rejects_when_open_position_exists(db_session, stub_market_data_service) -> None:
+    repository = PortfolioRepository(db_session)
+    PortfolioAccountService(repository).ensure_account(base_currency="USD", starting_cash=Decimal("1000.00"))
+    PaperPortfolioService(repository).apply_fill(build_fill(side="buy", quantity=Decimal("1"), fill_price=Decimal("100")))
+    db_session.commit()
+
+    with pytest.raises(ConflictError):
+        PortfolioService(repository, stub_market_data_service).reset_paper_portfolio(Decimal("5000"))
+
+    assert repository.get_account().cash_balance == Decimal("900.00000000")
+
+
+def test_paper_reset_succeeds_when_flat_and_preserves_audit_history(
+    db_session,
+    stub_market_data_service,
+) -> None:
+    repository = PortfolioRepository(db_session)
+    PortfolioAccountService(repository).ensure_account(base_currency="USD", starting_cash=Decimal("1000.00"))
+    execution_service = SimulatedExecutionService(
+        repository=repository,
+        market_data_service=stub_market_data_service,
+        simulation_enabled=True,
+        fee_bps=Decimal("0"),
+        slippage_bps=Decimal("0"),
+    )
+    attempt_service = ExecutionAttemptService(ExecutionAttemptRepository(db_session))
+    stub_market_data_service.set_price("BTCUSDT", "100")
+    PaperExecutionBroker(execution_service, attempt_service=attempt_service).submit_market_order(
+        BrokerOrderIntent(bot_id=1, strategy_id=2, symbol="BTCUSDT", side="buy", quantity=Decimal("1"))
+    )
+    stub_market_data_service.set_price("BTCUSDT", "120")
+    PaperExecutionBroker(execution_service, attempt_service=attempt_service).submit_market_order(
+        BrokerOrderIntent(bot_id=1, strategy_id=2, symbol="BTCUSDT", side="sell", quantity=Decimal("1"))
+    )
+
+    reset = PortfolioService(repository, stub_market_data_service).reset_paper_portfolio(Decimal("5000.00"))
+
+    account = repository.get_account()
+    position = repository.get_position_by_symbol("BTCUSDT")
+    assert reset.starting_balance == Decimal("5000.00000000")
+    assert reset.cash_balance == Decimal("5000.00000000")
+    assert account.starting_cash == Decimal("5000.00000000")
+    assert account.cash_balance == Decimal("5000.00000000")
+    assert position is not None
+    assert position.quantity == Decimal("0E-8")
+    assert position.realized_pnl == Decimal("0")
+    assert len(repository.list_orders()) == 2
+    assert len(repository.list_fills()) == 2
+    assert len(db_session.query(ExecutionAttempt).all()) == 2
+
+
+def test_paper_execution_rejects_live_mode_without_mutating_paper_state(
+    db_session,
+    stub_market_data_service,
+) -> None:
+    repository = PortfolioRepository(db_session)
+    PortfolioAccountService(repository).ensure_account(base_currency="USD", starting_cash=Decimal("1000.00"))
+    stub_market_data_service.set_price("BTCUSDT", "100")
+    service = PaperExecutionService(
+        repository=repository,
+        market_data_service=stub_market_data_service,
+        simulation_enabled=True,
+        fee_bps=Decimal("0"),
+        slippage_bps=Decimal("0"),
+    )
+
+    result = service.submit_order_intent(
+        PaperOrderIntent(symbol="BTCUSDT", side="buy", quantity=Decimal("1"), mode="live")
+    )
+
+    assert result.accepted is False
+    assert result.order.mode == "live"
+    assert result.fill is None
+    assert repository.get_account().cash_balance == Decimal("1000.00000000")
+    assert repository.get_position_by_symbol("BTCUSDT") is None

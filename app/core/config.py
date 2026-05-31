@@ -1,7 +1,7 @@
 from functools import lru_cache
 from decimal import Decimal
 
-from pydantic import AliasChoices, Field
+from pydantic import AliasChoices, Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -32,9 +32,9 @@ class Settings(BaseSettings):
     )
     simulation_enabled: bool = Field(default=True, validation_alias=AliasChoices("SIMULATION_ENABLED"))
     simulation_base_currency: str = Field(default="USD", validation_alias=AliasChoices("SIMULATION_BASE_CURRENCY"))
-    simulation_starting_cash: Decimal = Field(
-        default=Decimal("1000.00"),
-        validation_alias=AliasChoices("SIMULATION_STARTING_CASH"),
+    paper_initial_balance: Decimal = Field(
+        default=Decimal("10000.00"),
+        validation_alias=AliasChoices("PAPER_INITIAL_BALANCE", "SIMULATION_STARTING_CASH"),
     )
     simulation_fee_bps: Decimal = Field(
         default=Decimal("10"),
@@ -105,6 +105,13 @@ class Settings(BaseSettings):
         env_file_encoding="utf-8",
         case_sensitive=False,
     )
+
+    @field_validator("paper_initial_balance")
+    @classmethod
+    def validate_paper_initial_balance(cls, value: Decimal) -> Decimal:
+        if not value.is_finite() or value <= Decimal("0"):
+            raise ValueError("PAPER_INITIAL_BALANCE must be a positive decimal")
+        return value
 
 
 @lru_cache

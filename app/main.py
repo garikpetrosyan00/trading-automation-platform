@@ -52,7 +52,7 @@ async def lifespan(app: FastAPI):
     with session_factory() as db:
         PortfolioAccountService(PortfolioRepository(db)).ensure_account(
             base_currency=settings.simulation_base_currency,
-            starting_cash=settings.simulation_starting_cash,
+            starting_cash=settings.paper_initial_balance,
         )
     await market_data_service.start()
     await bot_runner.start()

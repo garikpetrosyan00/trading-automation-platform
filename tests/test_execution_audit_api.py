@@ -145,7 +145,7 @@ def test_rejected_order_audit_appears_without_fill(
     assert len(orders) == 1
     assert orders[0]["status"] == "rejected"
     assert orders[0]["fill_count"] == 0
-    assert orders[0]["rejection_reason"] == "Insufficient cash balance for this buy order"
+    assert orders[0]["rejection_reason"] == "insufficient_paper_cash"
 
 
 def test_risk_blocked_and_live_mode_create_no_audit_orders(

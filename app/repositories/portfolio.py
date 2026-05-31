@@ -1,3 +1,5 @@
+from decimal import Decimal
+
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
@@ -35,6 +37,24 @@ class PortfolioRepository:
         if not include_closed:
             statement = statement.where(Position.quantity > 0)
         return list(self.db.scalars(statement).all())
+
+    def has_open_positions(self) -> bool:
+        statement = select(func.count()).select_from(Position).where(Position.quantity != 0)
+        return int(self.db.scalar(statement) or 0) > 0
+
+    def reset_account(self, account: PortfolioAccount, starting_cash: Decimal) -> PortfolioAccount:
+        account.starting_cash = starting_cash
+        account.cash_balance = starting_cash
+        self.db.add(account)
+        return account
+
+    def reset_position_session_state(self) -> None:
+        positions = self.list_positions(include_closed=True)
+        for position in positions:
+            position.realized_pnl = Decimal("0")
+            if position.quantity == 0:
+                position.average_entry_price = Decimal("0")
+            self.db.add(position)
 
     def list_orders(self) -> list[SimulatedOrder]:
         statement = select(SimulatedOrder).order_by(SimulatedOrder.created_at.desc(), SimulatedOrder.id.desc())

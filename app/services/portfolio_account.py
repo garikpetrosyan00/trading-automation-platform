@@ -9,6 +9,9 @@ class PortfolioAccountService:
         self.repository = repository
 
     def ensure_account(self, base_currency: str, starting_cash):
+        if not starting_cash.is_finite() or starting_cash <= 0:
+            raise ValueError("Paper starting cash must be a positive decimal")
+
         existing = self.repository.get_account()
         if existing is not None:
             logger.info(
