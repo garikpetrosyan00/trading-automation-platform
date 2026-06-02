@@ -8,11 +8,13 @@ from app.models.execution_attempt import ExecutionAttempt
 from app.models.position import Position
 from app.models.simulated_fill import SimulatedFill
 from app.models.simulated_order import SimulatedOrder
+from app.repositories.execution_attempt import ExecutionAttemptRepository
 from app.repositories.portfolio import PortfolioRepository
 from app.schemas.execution import ExecutionPositionSnapshot, MarketOrderRequest
 from app.services.brokers.base import BrokerOrderIntent, BrokerOrderResult
 from app.services.brokers.safety import ExecutionSafetyDecision, ExecutionSafetyGuard
 from app.services.execution_attempt import ExecutionAttemptService
+from app.services.execution_limits import ExecutionDailyLimitService
 from app.services.paper_portfolio import PaperPortfolioService
 
 ZERO = Decimal("0")
@@ -54,6 +56,10 @@ class PaperExecutionService:
         self.fee_bps = fee_bps
         self.slippage_bps = slippage_bps
         self.safety_guard = safety_guard or ExecutionSafetyGuard()
+        if self.safety_guard.daily_limit_service is None:
+            self.safety_guard.daily_limit_service = ExecutionDailyLimitService(
+                ExecutionAttemptRepository(repository.db)
+            )
         self.attempt_service = attempt_service
         self.safety_rejections_create_order = safety_rejections_create_order
 
@@ -206,6 +212,35 @@ class PaperExecutionService:
                         requested_price_snapshot=latest_price,
                         reason="insufficient_paper_cash",
                         cash_balance=account.cash_balance,
+                    position=position,
+                    attempt=attempt,
+                )
+
+                quota_decision = self._reserve_daily_quota(intent)
+                if not quota_decision.allowed:
+                    self._finalize_attempt(
+                        attempt,
+                        final_status="blocked_by_safety",
+                        final_reason=quota_decision.reason,
+                        safety_status=quota_decision.reason,
+                        metadata=quota_decision.metadata,
+                    )
+                    if self.safety_rejections_create_order:
+                        return self._reject_order(
+                            intent=intent,
+                            symbol=symbol,
+                            requested_price_snapshot=latest_price,
+                            reason=quota_decision.reason,
+                            cash_balance=account.cash_balance,
+                            position=position,
+                            attempt=attempt,
+                            final_status="blocked_by_safety",
+                        )
+                    return self._reject_without_order(
+                        intent=intent,
+                        symbol=symbol,
+                        reason=quota_decision.reason,
+                        cash_balance=account.cash_balance,
                         position=position,
                         attempt=attempt,
                     )
@@ -255,6 +290,35 @@ class PaperExecutionService:
                     updated_cash_balance=accounting_result.account.cash_balance,
                     position=accounting_result.position,
                     execution_attempt=attempt,
+                )
+
+            quota_decision = self._reserve_daily_quota(intent)
+            if not quota_decision.allowed:
+                self._finalize_attempt(
+                    attempt,
+                    final_status="blocked_by_safety",
+                    final_reason=quota_decision.reason,
+                    safety_status=quota_decision.reason,
+                    metadata=quota_decision.metadata,
+                )
+                if self.safety_rejections_create_order:
+                    return self._reject_order(
+                        intent=intent,
+                        symbol=symbol,
+                        requested_price_snapshot=latest_price,
+                        reason=quota_decision.reason,
+                        cash_balance=account.cash_balance,
+                        position=position,
+                        attempt=attempt,
+                        final_status="blocked_by_safety",
+                    )
+                return self._reject_without_order(
+                    intent=intent,
+                    symbol=symbol,
+                    reason=quota_decision.reason,
+                    cash_balance=account.cash_balance,
+                    position=position,
+                    attempt=attempt,
                 )
 
             order = self._create_order(intent, symbol, latest_price, status="filled")
@@ -502,6 +566,46 @@ class PaperExecutionService:
             )
         return ExecutionSafetyDecision(allowed=True, reason="allowed", metadata=metadata)
 
+    def _reserve_daily_quota(self, intent: PaperOrderIntent) -> ExecutionSafetyDecision:
+        config = self.safety_guard.config
+        daily_limit_service = self.safety_guard.daily_limit_service
+        metadata = {
+            "broker": "paper",
+            "mode": intent.mode,
+            "symbol": intent.symbol.strip().upper() if intent.symbol else intent.symbol,
+            "side": intent.side,
+            "risk_reducing_exits_allowed": True,
+            "bot_id": intent.bot_id,
+        }
+        if daily_limit_service is None:
+            return self.safety_guard._blocked("daily_limit_service_unavailable", metadata)
+
+        reservation = daily_limit_service.reserve_accepted_order_quota(
+            bot_id=intent.bot_id,
+            max_daily_order_count=config.max_daily_order_count,
+            enforce_limit=intent.side == "buy",
+        )
+        if not reservation.allowed:
+            return self.safety_guard._blocked(
+                "max_daily_order_count_exceeded",
+                {
+                    **metadata,
+                    "daily_order_count": reservation.count,
+                    "max_daily_order_count": config.max_daily_order_count,
+                    "day_start": reservation.day_start.isoformat(),
+                },
+            )
+        return ExecutionSafetyDecision(
+            allowed=True,
+            reason="allowed",
+            metadata={
+                **metadata,
+                "daily_order_count": reservation.count,
+                "max_daily_order_count": config.max_daily_order_count,
+                "day_start": reservation.day_start.isoformat(),
+            },
+        )
+
     def _reserve_attempt(
         self,
         *,
@@ -645,8 +749,13 @@ class PaperExecutionBroker:
         attempt_service: ExecutionAttemptService | None = None,
     ):
         self.execution_service = execution_service
-        self.safety_guard = safety_guard or ExecutionSafetyGuard()
+        self.safety_guard = safety_guard or execution_service.safety_guard or ExecutionSafetyGuard()
         self.attempt_service = attempt_service
+        self.execution_service.safety_guard = self.safety_guard
+        if self.execution_service.safety_guard.daily_limit_service is None:
+            self.execution_service.safety_guard.daily_limit_service = ExecutionDailyLimitService(
+                ExecutionAttemptRepository(self.execution_service.repository.db)
+            )
         if self.attempt_service is not None:
             self.execution_service.attempt_service = self.attempt_service
             self.execution_service.safety_rejections_create_order = False

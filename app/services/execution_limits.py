@@ -1,20 +1,29 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime, time, timezone
+from datetime import date, datetime, time, timezone
 from decimal import Decimal
 
 from app.repositories.execution_attempt import ExecutionAttemptRepository
+from app.repositories.execution_daily_quota_usage import ExecutionDailyQuotaUsageRepository
 from app.repositories.paper_accounting import PaperAccountingRepository
 
 
-ORDER_COUNT_STATUSES = {"created", "filled", "order_created"}
 ZERO = Decimal("0")
 
 
 @dataclass(frozen=True)
 class DailyOrderCountSnapshot:
     count: int
+    day_start: datetime
+
+
+@dataclass(frozen=True)
+class DailyQuotaReservation:
+    allowed: bool
+    count: int
+    max_daily_order_count: int | None
+    utc_day: date
     day_start: datetime
 
 
@@ -30,20 +39,52 @@ class ExecutionDailyLimitService:
         self,
         repository: ExecutionAttemptRepository,
         paper_accounting_repository: PaperAccountingRepository | None = None,
+        quota_usage_repository: ExecutionDailyQuotaUsageRepository | None = None,
         now_provider=None,
     ):
         self.repository = repository
         self.paper_accounting_repository = paper_accounting_repository
+        self.quota_usage_repository = quota_usage_repository or ExecutionDailyQuotaUsageRepository(repository.db)
         self.now_provider = now_provider or (lambda: datetime.now(timezone.utc))
 
     def count_successful_orders_today(self, *, bot_id: int | None = None) -> DailyOrderCountSnapshot:
         day_start = self._utc_day_start(self.now_provider())
+        usage = self.quota_usage_repository.get_for_day(bot_id=bot_id, utc_day=day_start.date())
         return DailyOrderCountSnapshot(
-            count=self.repository.count_since(
-                started_at=day_start,
-                bot_id=bot_id,
-                final_statuses=ORDER_COUNT_STATUSES,
-            ),
+            count=usage.accepted_order_count if usage is not None else 0,
+            day_start=day_start,
+        )
+
+    def reserve_accepted_order_quota(
+        self,
+        *,
+        bot_id: int | None,
+        max_daily_order_count: int | None,
+        enforce_limit: bool,
+    ) -> DailyQuotaReservation:
+        day_start = self._utc_day_start(self.now_provider())
+        utc_day = day_start.date()
+        self.quota_usage_repository.ensure_for_day(bot_id=bot_id, utc_day=utc_day)
+        usage = self.quota_usage_repository.get_for_day_for_update(bot_id=bot_id, utc_day=utc_day)
+        if usage is None:
+            raise RuntimeError("Daily execution quota usage row could not be initialized")
+
+        if enforce_limit and max_daily_order_count is not None and max_daily_order_count > 0:
+            if usage.accepted_order_count >= max_daily_order_count:
+                return DailyQuotaReservation(
+                    allowed=False,
+                    count=usage.accepted_order_count,
+                    max_daily_order_count=max_daily_order_count,
+                    utc_day=utc_day,
+                    day_start=day_start,
+                )
+
+        self.quota_usage_repository.increment(usage)
+        return DailyQuotaReservation(
+            allowed=True,
+            count=usage.accepted_order_count,
+            max_daily_order_count=max_daily_order_count,
+            utc_day=utc_day,
             day_start=day_start,
         )
 
