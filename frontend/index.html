@@ -4,7 +4,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Dashboard</title>
-    <link rel="stylesheet" href="/static/styles.css?v=recent-paper-orders-card" />
+    <link rel="stylesheet" href="/static/styles.css?v=execution-safety-card" />
   </head>
   <body>
     <main class="dashboard-shell">
@@ -212,6 +212,20 @@
             </div>
             <div id="recent-paper-orders-content" class="recent-paper-orders-content empty loading">
               Loading recent paper orders...
+            </div>
+          </section>
+
+          <section class="execution-safety-panel" aria-label="Execution Safety">
+            <div class="panel-heading compact-heading">
+              <div>
+                <h2 id="execution-safety-heading">Execution Safety</h2>
+                <p id="execution-safety-help" class="execution-safety-help">
+                  Read-only execution safety state for the selected bot.
+                </p>
+              </div>
+            </div>
+            <div id="execution-safety-content" class="execution-safety-content empty loading">
+              Loading execution safety...
             </div>
           </section>
 
@@ -657,6 +671,6 @@
       </section>
     </div>
 
-    <script src="/static/app.js?v=recent-paper-orders-card"></script>
+    <script src="/static/app.js?v=execution-safety-card"></script>
   </body>
 </html>

@@ -25,12 +25,14 @@ let selectedSummary = null;
 let selectedPerformance = null;
 let paperPortfolio = null;
 let recentPaperOrders = [];
+let executionSafetyStatus = null;
 let latestDecisionExplanation = null;
 let isLoadingBots = true;
 let isLoadingSummary = false;
 let isLoadingPerformance = false;
 let isLoadingPaperPortfolio = true;
 let isLoadingRecentPaperOrders = false;
+let isLoadingExecutionSafety = false;
 let isLoadingStrategies = false;
 let isTogglingPause = false;
 let isRunningNow = false;
@@ -64,6 +66,7 @@ let summaryError = "";
 let performanceError = "";
 let paperPortfolioError = "";
 let recentPaperOrdersError = "";
+let executionSafetyError = "";
 let actionMessage = "";
 let actionMessageType = "";
 let createBotMessage = "";
@@ -214,6 +217,33 @@ const translations = {
     order_mode_label: "Mode",
     order_type_label: "Order type",
     order_strategy_label: "Strategy",
+    execution_safety: "Execution Safety",
+    execution_safety_aria: "Execution Safety",
+    execution_safety_help: "Read-only execution safety state for the selected bot.",
+    execution_safety_loading: "Loading execution safety…",
+    execution_safety_unavailable: "Execution safety unavailable",
+    execution_safety_select_bot: "Select a bot to view execution safety.",
+    execution_safety_allowed: "Allowed",
+    execution_safety_blocked: "Blocked",
+    execution_safety_enabled: "Enabled",
+    execution_safety_disabled: "Disabled",
+    execution_safety_configured: "Configured",
+    execution_safety_not_configured: "Not configured",
+    execution_safety_reason_label: "Reason",
+    execution_safety_metadata_label: "Details",
+    execution_safety_utc_day_start_label: "UTC day start",
+    global_execution_enabled_label: "Global execution",
+    paper_execution_enabled_label: "Paper execution",
+    live_execution_enabled_label: "Live execution",
+    binance_testnet_enabled_label: "Binance testnet",
+    binance_order_submission_enabled_label: "Binance order submission",
+    binance_credentials_configured_label: "Binance credentials",
+    max_order_notional_label: "Max order notional",
+    max_daily_order_count_label: "Max daily orders",
+    current_daily_accepted_order_count_label: "Accepted today",
+    remaining_daily_capacity_label: "Remaining capacity",
+    max_daily_loss_label: "Max daily loss",
+    current_daily_realized_loss_label: "Current daily loss",
     health_label: "Health",
     latest_price_label: "Latest price",
     last_decision_label: "Last decision",
@@ -885,6 +915,33 @@ const translations = {
     order_mode_label: "Ռեժիմ",
     order_type_label: "Order-ի տեսակ",
     order_strategy_label: "Strategy",
+    execution_safety: "Կատարման անվտանգություն",
+    execution_safety_aria: "Կատարման անվտանգություն",
+    execution_safety_help: "Ընտրված Bot-ի կատարման անվտանգության վիճակը՝ միայն դիտելու համար։",
+    execution_safety_loading: "Կատարման անվտանգությունը բեռնվում է…",
+    execution_safety_unavailable: "Կատարման անվտանգությունը հասանելի չէ",
+    execution_safety_select_bot: "Ընտրիր Bot՝ կատարման անվտանգությունը դիտելու համար։",
+    execution_safety_allowed: "Թույլատրված",
+    execution_safety_blocked: "Արգելված",
+    execution_safety_enabled: "Միացված",
+    execution_safety_disabled: "Անջատված",
+    execution_safety_configured: "Կարգավորված",
+    execution_safety_not_configured: "Կարգավորված չէ",
+    execution_safety_reason_label: "Պատճառ",
+    execution_safety_metadata_label: "Մանրամասներ",
+    execution_safety_utc_day_start_label: "UTC օրվա սկիզբ",
+    global_execution_enabled_label: "Ընդհանուր կատարում",
+    paper_execution_enabled_label: "Paper կատարում",
+    live_execution_enabled_label: "Live կատարում",
+    binance_testnet_enabled_label: "Binance testnet",
+    binance_order_submission_enabled_label: "Binance order ուղարկում",
+    binance_credentials_configured_label: "Binance credentials",
+    max_order_notional_label: "Առավելագույն order notional",
+    max_daily_order_count_label: "Օրվա առավելագույն order-ներ",
+    current_daily_accepted_order_count_label: "Այսօր ընդունված",
+    remaining_daily_capacity_label: "Մնացած կարողություն",
+    max_daily_loss_label: "Օրվա առավելագույն կորուստ",
+    current_daily_realized_loss_label: "Օրվա ընթացիկ կորուստ",
     health_label: "Առողջություն",
     latest_price_label: "Վերջին գին",
     last_decision_label: "Վերջին որոշում",
@@ -1575,6 +1632,10 @@ const recentPaperOrdersPanel = document.querySelector(".recent-paper-orders-pane
 const recentPaperOrdersHeading = document.querySelector("#recent-paper-orders-heading");
 const recentPaperOrdersHelp = document.querySelector("#recent-paper-orders-help");
 const recentPaperOrdersContent = document.querySelector("#recent-paper-orders-content");
+const executionSafetyPanel = document.querySelector(".execution-safety-panel");
+const executionSafetyHeading = document.querySelector("#execution-safety-heading");
+const executionSafetyHelp = document.querySelector("#execution-safety-help");
+const executionSafetyContent = document.querySelector("#execution-safety-content");
 const liveMarketPanel = document.querySelector(".live-market-panel");
 const liveMarketHeading = document.querySelector("#live-market-heading");
 const liveMarketHelp = document.querySelector("#live-market-help");
@@ -1916,6 +1977,9 @@ function applyStaticTranslations() {
   recentPaperOrdersPanel?.setAttribute("aria-label", t("recent_paper_orders_aria"));
   recentPaperOrdersHeading.textContent = t("recent_paper_orders");
   recentPaperOrdersHelp.textContent = t("recent_paper_orders_help");
+  executionSafetyPanel?.setAttribute("aria-label", t("execution_safety_aria"));
+  executionSafetyHeading.textContent = t("execution_safety");
+  executionSafetyHelp.textContent = t("execution_safety_help");
   liveMarketPanel?.setAttribute("aria-label", t("live_market_aria"));
   liveMarketHeading.textContent = t("live_market");
   liveMarketHelp.textContent = t("live_market_help");
@@ -2263,6 +2327,54 @@ function normalizePaperOrders(data) {
   return Array.isArray(rawOrders) ? rawOrders.map(normalizePaperOrder) : [];
 }
 
+function normalizeExecutionSafety(rawStatus) {
+  if (!rawStatus || typeof rawStatus !== "object") return null;
+  return {
+    globalExecutionEnabled:
+      rawStatus.global_execution_enabled ?? rawStatus.globalExecutionEnabled ?? null,
+    liveExecutionEnabled: rawStatus.live_execution_enabled ?? rawStatus.liveExecutionEnabled ?? null,
+    paperExecutionAllowed:
+      rawStatus.paper_execution_allowed ?? rawStatus.paperExecutionAllowed ?? null,
+    binanceTestnetBrokerEnabled:
+      rawStatus.binance_testnet_broker_enabled ??
+      rawStatus.binanceTestnetBrokerEnabled ??
+      null,
+    binanceTestnetOrderSubmissionEnabled:
+      rawStatus.binance_testnet_order_submission_enabled ??
+      rawStatus.binanceTestnetOrderSubmissionEnabled ??
+      null,
+    binanceTestnetCredentialsConfigured:
+      rawStatus.binance_testnet_credentials_configured ??
+      rawStatus.binanceTestnetCredentialsConfigured ??
+      null,
+    maxOrderNotional: rawStatus.max_order_notional ?? rawStatus.maxOrderNotional ?? null,
+    maxDailyOrderCount: rawStatus.max_daily_order_count ?? rawStatus.maxDailyOrderCount ?? null,
+    maxDailyLoss: rawStatus.max_daily_loss ?? rawStatus.maxDailyLoss ?? null,
+    utcDayStart: rawStatus.utc_day_start ?? rawStatus.utcDayStart ?? null,
+    currentDailyAcceptedOrderCount:
+      rawStatus.current_daily_attempt_count ??
+      rawStatus.currentDailyAttemptCount ??
+      rawStatus.current_daily_accepted_order_count ??
+      rawStatus.currentDailyAcceptedOrderCount ??
+      null,
+    remainingDailyOrderCapacity:
+      rawStatus.remaining_daily_order_capacity ??
+      rawStatus.remainingDailyOrderCapacity ??
+      null,
+    currentDailyRealizedLoss:
+      rawStatus.current_daily_realized_loss ?? rawStatus.currentDailyRealizedLoss ?? null,
+    isExecutionCurrentlyAllowed:
+      rawStatus.is_execution_currently_allowed ??
+      rawStatus.isExecutionCurrentlyAllowed ??
+      null,
+    blockingReason: rawStatus.blocking_reason ?? rawStatus.blockingReason ?? "",
+    metadata:
+      rawStatus.metadata && typeof rawStatus.metadata === "object" && !Array.isArray(rawStatus.metadata)
+        ? rawStatus.metadata
+        : {},
+  };
+}
+
 function normalizeBacktestResult(rawResult) {
   if (!rawResult || typeof rawResult !== "object") return null;
   return {
@@ -2552,6 +2664,23 @@ function formatDateTime(value) {
   }).formatToParts(parsed);
   const byType = Object.fromEntries(parts.map((part) => [part.type, part.value]));
   return `${byType.year}-${byType.month}-${byType.day} ${byType.hour}:${byType.minute}`;
+}
+
+function formatUtcDateTime(value) {
+  if (!value) return "—";
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return "—";
+  const parts = new Intl.DateTimeFormat([], {
+    timeZone: "UTC",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  }).formatToParts(parsed);
+  const byType = Object.fromEntries(parts.map((part) => [part.type, part.value]));
+  return `${byType.year}-${byType.month}-${byType.day} ${byType.hour}:${byType.minute} UTC`;
 }
 
 function formatTime(value) {
@@ -5527,10 +5656,27 @@ function applyRecentPaperOrdersResult(result) {
   isLoadingRecentPaperOrders = false;
 }
 
+function applyExecutionSafetyResult(result) {
+  if (result.status === "fulfilled") {
+    executionSafetyStatus = normalizeExecutionSafety(result.value);
+    executionSafetyError = "";
+  } else {
+    executionSafetyStatus = null;
+    executionSafetyError = requestErrorMessage(result.reason, t("execution_safety_unavailable"));
+  }
+  isLoadingExecutionSafety = false;
+}
+
 function clearRecentPaperOrders() {
   recentPaperOrders = [];
   recentPaperOrdersError = "";
   isLoadingRecentPaperOrders = false;
+}
+
+function clearExecutionSafety() {
+  executionSafetyStatus = null;
+  executionSafetyError = "";
+  isLoadingExecutionSafety = false;
 }
 
 async function loadExecutionProfile(botId) {
@@ -5667,6 +5813,7 @@ function clearSelectedBotMessages() {
   executionSettingsMessageType = "";
   resetExecutionSettingsForm();
   latestDecisionExplanation = null;
+  clearExecutionSafety();
   strategyParametersMessage = "";
   strategyParametersMessageType = "";
   riskSettingsMessage = "";
@@ -5748,6 +5895,7 @@ async function loadBots() {
       performanceError = "";
       isLoadingPerformance = false;
       clearRecentPaperOrders();
+      clearExecutionSafety();
       await loadBacktestHistory();
     }
   } catch (error) {
@@ -5759,6 +5907,7 @@ async function loadBots() {
     performanceError = "";
     isLoadingPerformance = false;
     clearRecentPaperOrders();
+    clearExecutionSafety();
     isLoadingBots = false;
     botListError = requestErrorMessage(error, t("could_not_load_bots"));
     await loadPaperPortfolio({ silent: true });
@@ -5783,16 +5932,26 @@ async function refreshSelectedData() {
     isLoadingPerformance = true;
     isLoadingPaperPortfolio = true;
     isLoadingRecentPaperOrders = true;
-    const [summaryResult, configResult, performanceResult, portfolioResult, ordersResult] = await Promise.allSettled([
+    isLoadingExecutionSafety = true;
+    const [
+      summaryResult,
+      configResult,
+      performanceResult,
+      portfolioResult,
+      ordersResult,
+      executionSafetyResult,
+    ] = await Promise.allSettled([
       fetchJson(`/api/v1/bots/${selectedBotId}/summary`),
       fetchJson(`/api/v1/bots/${selectedBotId}`),
       fetchJson(`/api/v1/bots/${selectedBotId}/performance`),
       fetchJson("/api/v1/paper-portfolio"),
       fetchJson(`/api/v1/bots/${selectedBotId}/orders?limit=10`),
+      fetchJson(`/api/v1/bots/${selectedBotId}/execution-safety/status`),
     ]);
 
     applyPaperPortfolioResult(portfolioResult);
     applyRecentPaperOrdersResult(ordersResult);
+    applyExecutionSafetyResult(executionSafetyResult);
 
     if (summaryResult.status !== "fulfilled") {
       isLoadingPerformance = false;
@@ -5824,6 +5983,7 @@ async function refreshSelectedData() {
     performanceError = "";
     isLoadingPerformance = false;
     clearRecentPaperOrders();
+    clearExecutionSafety();
   }
   await loadBacktestHistory();
   refreshMessage = "";
@@ -5858,16 +6018,26 @@ async function refreshDashboardData({ silent = false } = {}) {
       isLoadingPerformance = true;
       isLoadingPaperPortfolio = true;
       isLoadingRecentPaperOrders = true;
-      const [summaryResult, configResult, performanceResult, portfolioResult, ordersResult] = await Promise.allSettled([
+      isLoadingExecutionSafety = true;
+      const [
+        summaryResult,
+        configResult,
+        performanceResult,
+        portfolioResult,
+        ordersResult,
+        executionSafetyResult,
+      ] = await Promise.allSettled([
         fetchJson(`/api/v1/bots/${selectedBotId}/summary`),
         fetchJson(`/api/v1/bots/${selectedBotId}`),
         fetchJson(`/api/v1/bots/${selectedBotId}/performance`),
         fetchJson("/api/v1/paper-portfolio"),
         fetchJson(`/api/v1/bots/${selectedBotId}/orders?limit=10`),
+        fetchJson(`/api/v1/bots/${selectedBotId}/execution-safety/status`),
       ]);
 
       applyPaperPortfolioResult(portfolioResult);
       applyRecentPaperOrdersResult(ordersResult);
+      applyExecutionSafetyResult(executionSafetyResult);
 
       if (summaryResult.status !== "fulfilled") {
         isLoadingPerformance = false;
@@ -5899,6 +6069,7 @@ async function refreshDashboardData({ silent = false } = {}) {
       performanceError = "";
       isLoadingPerformance = false;
       clearRecentPaperOrders();
+      clearExecutionSafety();
       summaryError = "";
     }
     await loadBacktestHistory();
@@ -5915,6 +6086,7 @@ async function refreshDashboardData({ silent = false } = {}) {
     isLoadingPerformance = false;
     isLoadingPaperPortfolio = false;
     isLoadingRecentPaperOrders = false;
+    isLoadingExecutionSafety = false;
     render();
   }
 }
@@ -7653,6 +7825,7 @@ async function loadSelectedSummary(botId) {
   isLoadingPerformance = true;
   isLoadingPaperPortfolio = true;
   isLoadingRecentPaperOrders = true;
+  isLoadingExecutionSafety = true;
   selectedSummary = null;
   selectedPerformance = null;
   selectedBotConfig = null;
@@ -7660,17 +7833,27 @@ async function loadSelectedSummary(botId) {
   render();
 
   try {
-    const [summaryResult, configResult, profileResult, performanceResult, portfolioResult, ordersResult] = await Promise.allSettled([
+    const [
+      summaryResult,
+      configResult,
+      profileResult,
+      performanceResult,
+      portfolioResult,
+      ordersResult,
+      executionSafetyResult,
+    ] = await Promise.allSettled([
       fetchJson(`/api/v1/bots/${botId}/summary`),
       fetchJson(`/api/v1/bots/${botId}`),
       fetchJson(`/api/v1/bots/${botId}/execution-profile`),
       fetchJson(`/api/v1/bots/${botId}/performance`),
       fetchJson("/api/v1/paper-portfolio"),
       fetchJson(`/api/v1/bots/${botId}/orders?limit=10`),
+      fetchJson(`/api/v1/bots/${botId}/execution-safety/status`),
     ]);
 
     applyPaperPortfolioResult(portfolioResult);
     applyRecentPaperOrdersResult(ordersResult);
+    applyExecutionSafetyResult(executionSafetyResult);
 
     if (summaryResult.status !== "fulfilled") {
       throw summaryResult.reason;
@@ -7694,12 +7877,14 @@ async function loadSelectedSummary(botId) {
     selectedBotConfig = null;
     selectedExecutionProfile = null;
     clearRecentPaperOrders();
+    clearExecutionSafety();
     summaryError = requestErrorMessage(error, t("could_not_load_bot_details"));
   } finally {
     isLoadingSummary = false;
     isLoadingPerformance = false;
     isLoadingPaperPortfolio = false;
     isLoadingRecentPaperOrders = false;
+    isLoadingExecutionSafety = false;
   }
 
   render();
@@ -8455,6 +8640,212 @@ function renderRecentPaperOrders() {
   }
 }
 
+function executionSafetyStateLabel(value) {
+  if (value === true) return t("execution_safety_allowed");
+  if (value === false) return t("execution_safety_blocked");
+  return "—";
+}
+
+function executionSafetyStateClass(value) {
+  if (value === true) return "execution-safety-state-badge allowed";
+  if (value === false) return "execution-safety-state-badge blocked";
+  return "execution-safety-state-badge";
+}
+
+function executionSafetyEnabledLabel(value) {
+  if (value === true) return t("execution_safety_enabled");
+  if (value === false) return t("execution_safety_disabled");
+  return "—";
+}
+
+function executionSafetyConfiguredLabel(value) {
+  if (value === true) return t("execution_safety_configured");
+  if (value === false) return t("execution_safety_not_configured");
+  return "—";
+}
+
+function executionSafetyLimitValue(value, formatter) {
+  if (value === null || value === undefined || value === "") return t("execution_safety_disabled");
+  return formatter(value);
+}
+
+function executionSafetyLossClass(value) {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed) || parsed === 0) return "pnl-neutral";
+  return parsed > 0 ? "pnl-negative" : "pnl-positive";
+}
+
+function isSafeExecutionSafetyMetadataKey(key) {
+  const normalized = normalizeStrategyType(key);
+  if (
+    normalized.includes("key") ||
+    normalized.includes("secret") ||
+    normalized.includes("token") ||
+    normalized.includes("credential") ||
+    normalized.includes("password") ||
+    normalized.includes("signature") ||
+    normalized.includes("api")
+  ) {
+    return false;
+  }
+  return new Set([
+    "broker",
+    "mode",
+    "symbol",
+    "side",
+    "bot_id",
+    "strategy_id",
+    "order_id",
+    "order_type",
+    "notional",
+    "max_order_notional",
+    "daily_order_count",
+    "accepted_order_count",
+    "max_daily_order_count",
+    "remaining_daily_order_capacity",
+    "day_start",
+    "utc_day_start",
+    "current_daily_realized_loss",
+    "max_daily_loss",
+    "remaining_daily_loss_capacity",
+    "paper_execution_allowed",
+    "live_execution_enabled",
+    "risk_reducing_exits_allowed",
+  ]).has(normalized);
+}
+
+function executionSafetyMetadataValue(value) {
+  if (typeof value === "boolean") return value ? t("yes") : t("no");
+  if (typeof value === "number" || typeof value === "bigint") return formatDecimal(value);
+  if (typeof value === "string") return humanizeMessage(value, value);
+  return "";
+}
+
+function safeExecutionSafetyMetadata(metadata) {
+  if (!metadata || typeof metadata !== "object") return [];
+  return Object.entries(metadata)
+    .filter(([key, value]) => {
+      if (!isSafeExecutionSafetyMetadataKey(key)) return false;
+      return ["string", "number", "boolean", "bigint"].includes(typeof value);
+    })
+    .slice(0, 6)
+    .map(([key, value]) => ({
+      label: humanizeMessage(key, key),
+      value: executionSafetyMetadataValue(value),
+    }))
+    .filter((item) => item.value);
+}
+
+function renderExecutionSafety() {
+  executionSafetyContent.innerHTML = "";
+
+  if (!selectedBotId) {
+    executionSafetyContent.textContent = t("execution_safety_select_bot");
+    executionSafetyContent.className = "execution-safety-content empty";
+    return;
+  }
+
+  if (isLoadingExecutionSafety && !executionSafetyStatus) {
+    executionSafetyContent.textContent = t("execution_safety_loading");
+    executionSafetyContent.className = "execution-safety-content empty loading";
+    return;
+  }
+
+  if (executionSafetyError && !executionSafetyStatus) {
+    executionSafetyContent.textContent = executionSafetyError;
+    executionSafetyContent.className = "execution-safety-content empty error";
+    return;
+  }
+
+  if (!executionSafetyStatus) {
+    executionSafetyContent.textContent = t("execution_safety_unavailable");
+    executionSafetyContent.className = "execution-safety-content empty";
+    return;
+  }
+
+  const status = executionSafetyStatus;
+  const allowed = status.isExecutionCurrentlyAllowed;
+  const reason = status.blockingReason
+    ? humanizeMessage(status.blockingReason, status.blockingReason)
+    : executionSafetyStateLabel(allowed);
+  const metrics = [
+    { label: t("global_execution_enabled_label"), value: executionSafetyEnabledLabel(status.globalExecutionEnabled) },
+    { label: t("paper_execution_enabled_label"), value: executionSafetyEnabledLabel(status.paperExecutionAllowed) },
+    { label: t("live_execution_enabled_label"), value: executionSafetyEnabledLabel(status.liveExecutionEnabled) },
+    {
+      label: t("binance_testnet_enabled_label"),
+      value: executionSafetyEnabledLabel(status.binanceTestnetBrokerEnabled),
+    },
+    {
+      label: t("binance_order_submission_enabled_label"),
+      value: executionSafetyEnabledLabel(status.binanceTestnetOrderSubmissionEnabled),
+    },
+    {
+      label: t("binance_credentials_configured_label"),
+      value: executionSafetyConfiguredLabel(status.binanceTestnetCredentialsConfigured),
+    },
+    {
+      label: t("max_order_notional_label"),
+      value: executionSafetyLimitValue(status.maxOrderNotional, (value) => formatCompactMoney(value, "USD")),
+    },
+    {
+      label: t("max_daily_order_count_label"),
+      value: executionSafetyLimitValue(status.maxDailyOrderCount, (value) => formatDecimal(value, "0")),
+    },
+    {
+      label: t("current_daily_accepted_order_count_label"),
+      value: formatDecimal(status.currentDailyAcceptedOrderCount),
+    },
+    {
+      label: t("remaining_daily_capacity_label"),
+      value: formatDecimal(status.remainingDailyOrderCapacity),
+    },
+    {
+      label: t("max_daily_loss_label"),
+      value: executionSafetyLimitValue(status.maxDailyLoss, (value) => formatCompactMoney(value, "USD")),
+    },
+    {
+      label: t("current_daily_realized_loss_label"),
+      value: formatCompactMoney(status.currentDailyRealizedLoss, "USD"),
+      valueClass: executionSafetyLossClass(status.currentDailyRealizedLoss),
+    },
+    { label: t("execution_safety_utc_day_start_label"), value: formatUtcDateTime(status.utcDayStart) },
+  ];
+  const safeMetadata = safeExecutionSafetyMetadata(status.metadata);
+
+  const state = document.createElement("div");
+  state.className = "execution-safety-state";
+  const badge = document.createElement("span");
+  badge.className = executionSafetyStateClass(allowed);
+  badge.textContent = executionSafetyStateLabel(allowed);
+  const reasonEl = document.createElement("p");
+  reasonEl.className = "execution-safety-reason";
+  reasonEl.textContent = `${t("execution_safety_reason_label")}: ${reason}`;
+  state.append(badge, reasonEl);
+
+  const grid = document.createElement("dl");
+  grid.className = "execution-safety-grid";
+  metrics.forEach((item) => appendMetric(grid, item));
+
+  executionSafetyContent.className = "execution-safety-content";
+  executionSafetyContent.append(state, grid);
+
+  if (safeMetadata.length > 0) {
+    const metadata = document.createElement("p");
+    metadata.className = "execution-safety-metadata";
+    const details = safeMetadata.map((item) => `${item.label}: ${item.value}`).join(" · ");
+    metadata.textContent = `${t("execution_safety_metadata_label")}: ${details}`;
+    executionSafetyContent.append(metadata);
+  }
+
+  if (executionSafetyError) {
+    const error = document.createElement("p");
+    error.className = "execution-safety-note error";
+    error.textContent = executionSafetyError;
+    executionSafetyContent.append(error);
+  }
+}
+
 function renderLiveMarket() {
   liveMarketAutoRefresh.checked = liveMarketAutoRefreshEnabled;
   liveMarketRefresh.textContent = isRefreshingLiveMarket
@@ -8876,6 +9267,7 @@ function render() {
   renderBotPerformance();
   renderPaperPortfolio();
   renderRecentPaperOrders();
+  renderExecutionSafety();
   renderLiveMarket();
   renderDecisionExplanation();
   renderStrategyParametersForm();

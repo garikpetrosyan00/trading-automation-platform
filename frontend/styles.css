@@ -1151,7 +1151,7 @@ dd {
   border-radius: 8px;
   background: rgba(255, 255, 255, 0.96);
   box-shadow: 0 10px 26px rgba(23, 33, 28, 0.16);
-  color: var(--text);
+  color: var(--ink);
   padding: 8px 9px;
   pointer-events: none;
 }
@@ -1279,6 +1279,7 @@ dd {
 .bot-performance-panel,
 .paper-portfolio-panel,
 .recent-paper-orders-panel,
+.execution-safety-panel,
 .execution-settings-panel,
 .strategy-parameters-panel,
 .create-strategy-panel,
@@ -1306,6 +1307,7 @@ dd {
 .bot-performance-content,
 .paper-portfolio-content,
 .recent-paper-orders-content,
+.execution-safety-content,
 .strategy-parameters-content,
 .backtest-result,
 .backtest-history {
@@ -1319,6 +1321,7 @@ dd {
 .bot-performance-content.empty,
 .paper-portfolio-content.empty,
 .recent-paper-orders-content.empty,
+.execution-safety-content.empty,
 .strategy-parameters-content.empty,
 .backtest-result.empty,
 .backtest-history.empty {
@@ -1331,6 +1334,7 @@ dd {
 .bot-performance-content.error,
 .paper-portfolio-content.error,
 .recent-paper-orders-content.error,
+.execution-safety-content.error,
 .strategy-parameters-content.error,
 .backtest-history.error {
   background: var(--danger-soft);
@@ -1341,6 +1345,7 @@ dd {
 .bot-performance-content.loading,
 .paper-portfolio-content.loading,
 .recent-paper-orders-content.loading,
+.execution-safety-content.loading,
 .strategy-parameters-content.loading,
 .backtest-result.loading,
 .backtest-history.loading {
@@ -1352,6 +1357,7 @@ dd {
 .paper-portfolio-summary,
 .paper-portfolio-position-grid,
 .recent-paper-order-grid,
+.execution-safety-grid,
 .strategy-parameters-grid,
 .backtest-result-grid {
   display: grid;
@@ -1365,6 +1371,7 @@ dd {
 .paper-portfolio-summary div,
 .paper-portfolio-position-grid div,
 .recent-paper-order-grid div,
+.execution-safety-grid div,
 .strategy-parameters-grid div,
 .backtest-result-grid div {
   display: grid;
@@ -1377,6 +1384,7 @@ dd {
 .paper-portfolio-summary dd,
 .paper-portfolio-position-grid dd,
 .recent-paper-order-grid dd,
+.execution-safety-grid dd,
 .strategy-parameters-grid dd {
   overflow-wrap: break-word;
 }
@@ -1599,6 +1607,74 @@ dd {
 }
 
 .recent-paper-orders-note.error {
+  color: var(--danger);
+}
+
+.execution-safety-help {
+  margin: 4px 0 0;
+  color: var(--muted);
+  font-size: 0.78rem;
+  font-weight: 750;
+}
+
+.execution-safety-state {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+  min-width: 0;
+}
+
+.execution-safety-state-badge {
+  flex: 0 0 auto;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: #ffffff;
+  color: var(--muted);
+  padding: 5px 9px;
+  font-size: 0.72rem;
+  font-weight: 850;
+  line-height: 1;
+}
+
+.execution-safety-state-badge.allowed {
+  border-color: var(--green);
+  background: var(--green-soft);
+  color: var(--green);
+}
+
+.execution-safety-state-badge.blocked {
+  border-color: var(--danger);
+  background: var(--danger-soft);
+  color: var(--danger);
+}
+
+.execution-safety-reason {
+  flex: 1 1 auto;
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.82rem;
+  font-weight: 800;
+  overflow-wrap: anywhere;
+  text-align: right;
+}
+
+.execution-safety-grid {
+  grid-template-columns: repeat(auto-fit, minmax(132px, 1fr));
+  gap: 8px;
+}
+
+.execution-safety-metadata,
+.execution-safety-note {
+  margin: 12px 0 0;
+  color: var(--muted);
+  font-size: 0.82rem;
+  font-weight: 800;
+  overflow-wrap: anywhere;
+}
+
+.execution-safety-note.error {
   color: var(--danger);
 }
 
@@ -2913,6 +2989,15 @@ dd {
 
   .live-market-controls {
     justify-content: flex-start;
+  }
+
+  .execution-safety-state {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .execution-safety-reason {
+    text-align: left;
   }
 
   .candle-modal {
