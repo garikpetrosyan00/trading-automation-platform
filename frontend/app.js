@@ -23,10 +23,12 @@ let strategies = [];
 let selectedBotId = null;
 let selectedSummary = null;
 let selectedPerformance = null;
+let paperPortfolio = null;
 let latestDecisionExplanation = null;
 let isLoadingBots = true;
 let isLoadingSummary = false;
 let isLoadingPerformance = false;
+let isLoadingPaperPortfolio = true;
 let isLoadingStrategies = false;
 let isTogglingPause = false;
 let isRunningNow = false;
@@ -58,6 +60,7 @@ let symbolTouched = false;
 let botListError = "";
 let summaryError = "";
 let performanceError = "";
+let paperPortfolioError = "";
 let actionMessage = "";
 let actionMessageType = "";
 let createBotMessage = "";
@@ -167,6 +170,21 @@ const translations = {
     bot_performance_loading: "Loading performance…",
     bot_performance_select_bot: "Select a bot to view performance.",
     bot_performance_no_activity: "No activity recorded yet.",
+    draft_balance: "Draft Balance",
+    draft_balance_aria: "Draft Balance",
+    draft_balance_help: "Paper balance only. Not real exchange funds.",
+    paper_portfolio_loading: "Loading paper portfolio…",
+    paper_portfolio_unavailable: "Paper portfolio unavailable",
+    paper_portfolio_empty: "No paper account activity yet.",
+    paper_portfolio_no_open_positions: "No open positions.",
+    starting_balance_label: "Starting balance",
+    positions_value_label: "Positions value",
+    total_equity_label: "Total equity",
+    open_positions_label: "Open positions",
+    average_entry_label: "Average entry",
+    market_value_label: "Market value",
+    unrealized_pnl_percent_label: "Unrealized %",
+    price_unavailable: "Price unavailable",
     health_label: "Health",
     latest_price_label: "Latest price",
     last_decision_label: "Last decision",
@@ -797,6 +815,21 @@ const translations = {
     bot_performance_loading: "Արդյունավետությունը բեռնվում է…",
     bot_performance_select_bot: "Ընտրիր Bot՝ արդյունավետությունը դիտելու համար։",
     bot_performance_no_activity: "Activity դեռ չի գրանցվել։",
+    draft_balance: "Փորձնական հաշվեկշիռ",
+    draft_balance_aria: "Փորձնական հաշվեկշիռ",
+    draft_balance_help: "Միայն paper հաշվեկշիռ է։ Իրական բորսայի միջոցներ չեն։",
+    paper_portfolio_loading: "Paper պորտֆելը բեռնվում է…",
+    paper_portfolio_unavailable: "Paper պորտֆելը հասանելի չէ",
+    paper_portfolio_empty: "Paper հաշվում activity դեռ չկա։",
+    paper_portfolio_no_open_positions: "Բաց position-ներ չկան։",
+    starting_balance_label: "Սկզբնական հաշվեկշիռ",
+    positions_value_label: "Position-ների արժեք",
+    total_equity_label: "Ընդհանուր equity",
+    open_positions_label: "Բաց position-ներ",
+    average_entry_label: "Միջին մուտք",
+    market_value_label: "Շուկայական արժեք",
+    unrealized_pnl_percent_label: "Չիրացված %",
+    price_unavailable: "Գինը հասանելի չէ",
     health_label: "Առողջություն",
     latest_price_label: "Վերջին գին",
     last_decision_label: "Վերջին որոշում",
@@ -1133,7 +1166,7 @@ const translations = {
     open_position_help: "Ցույց է տալիս՝ simulation-ի վերջում position մնացե՞լ է բաց։",
     backtest_trade_actions: "Backtest գործարքներ",
     action_time_label: "Ժամանակ",
-    cash_balance_label: "Կանխիկ balance",
+    cash_balance_label: "Կանխիկ հաշվեկշիռ",
     entry_price_label: "Մուտքի գին",
     open_position_qty_label: "Բաց position-ի քանակ",
     reason_label: "Պատճառ",
@@ -1479,6 +1512,10 @@ const selectedLastRunLabel = document.querySelector("#selected-last-run-label");
 const botPerformancePanel = document.querySelector(".bot-performance-panel");
 const botPerformanceHeading = document.querySelector("#bot-performance-heading");
 const botPerformanceContent = document.querySelector("#bot-performance-content");
+const paperPortfolioPanel = document.querySelector(".paper-portfolio-panel");
+const paperPortfolioHeading = document.querySelector("#paper-portfolio-heading");
+const paperPortfolioHelp = document.querySelector("#paper-portfolio-help");
+const paperPortfolioContent = document.querySelector("#paper-portfolio-content");
 const liveMarketPanel = document.querySelector(".live-market-panel");
 const liveMarketHeading = document.querySelector("#live-market-heading");
 const liveMarketHelp = document.querySelector("#live-market-help");
@@ -1814,6 +1851,9 @@ function applyStaticTranslations() {
   selectedLastRunLabel.textContent = t("selected_last_run_label");
   botPerformancePanel?.setAttribute("aria-label", t("bot_performance_aria"));
   botPerformanceHeading.textContent = t("bot_performance");
+  paperPortfolioPanel?.setAttribute("aria-label", t("draft_balance_aria"));
+  paperPortfolioHeading.textContent = t("draft_balance");
+  paperPortfolioHelp.textContent = t("draft_balance_help");
   liveMarketPanel?.setAttribute("aria-label", t("live_market_aria"));
   liveMarketHeading.textContent = t("live_market");
   liveMarketHelp.textContent = t("live_market_help");
@@ -2074,6 +2114,55 @@ function normalizePerformance(rawPerformance) {
     realizedPnl: rawPerformance.realized_pnl ?? rawPerformance.realizedPnl ?? null,
     unrealizedPnl: rawPerformance.unrealized_pnl ?? rawPerformance.unrealizedPnl ?? null,
     health: normalizeRiskReason(rawPerformance.health || "unknown"),
+  };
+}
+
+function normalizePaperPortfolioPosition(rawPosition) {
+  return {
+    symbol: rawPosition.symbol ?? "",
+    quantity: rawPosition.quantity ?? null,
+    averageEntryPrice: rawPosition.average_entry_price ?? rawPosition.averageEntryPrice ?? null,
+    latestMarketPrice:
+      rawPosition.latest_market_price ??
+      rawPosition.latestMarketPrice ??
+      rawPosition.latest_price ??
+      rawPosition.latestPrice ??
+      null,
+    marketValue: rawPosition.market_value ?? rawPosition.marketValue ?? null,
+    realizedPnl: rawPosition.realized_pnl ?? rawPosition.realizedPnl ?? null,
+    unrealizedPnl: rawPosition.unrealized_pnl ?? rawPosition.unrealizedPnl ?? null,
+    unrealizedPnlPercent:
+      rawPosition.unrealized_pnl_percent ?? rawPosition.unrealizedPnlPercent ?? null,
+    priceAvailable: Boolean(rawPosition.price_available ?? rawPosition.priceAvailable),
+    updatedAt: rawPosition.updated_at ?? rawPosition.updatedAt ?? null,
+  };
+}
+
+function normalizePaperPortfolio(rawPortfolio) {
+  if (!rawPortfolio || typeof rawPortfolio !== "object") return null;
+  const currency =
+    rawPortfolio.account_currency ??
+    rawPortfolio.accountCurrency ??
+    rawPortfolio.base_currency ??
+    rawPortfolio.baseCurrency ??
+    "USDT";
+  const rawPositions = Array.isArray(rawPortfolio.positions) ? rawPortfolio.positions : [];
+  return {
+    accountCurrency: currency,
+    startingBalance: rawPortfolio.starting_balance ?? rawPortfolio.startingBalance ?? null,
+    cashBalance: rawPortfolio.cash_balance ?? rawPortfolio.cashBalance ?? null,
+    positionsMarketValue:
+      rawPortfolio.positions_market_value ??
+      rawPortfolio.positionsMarketValue ??
+      rawPortfolio.total_market_value ??
+      rawPortfolio.totalMarketValue ??
+      null,
+    totalEquity: rawPortfolio.total_equity ?? rawPortfolio.totalEquity ?? null,
+    totalRealizedPnl: rawPortfolio.total_realized_pnl ?? rawPortfolio.totalRealizedPnl ?? null,
+    totalUnrealizedPnl: rawPortfolio.total_unrealized_pnl ?? rawPortfolio.totalUnrealizedPnl ?? null,
+    openPositionCount: rawPortfolio.open_position_count ?? rawPortfolio.openPositionCount ?? rawPositions.length,
+    updatedAt: rawPortfolio.updated_at ?? rawPortfolio.updatedAt ?? null,
+    positions: rawPositions.map(normalizePaperPortfolioPosition),
   };
 }
 
@@ -2451,6 +2540,18 @@ function formatPnlDecimal(value, fallback = "—") {
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
   }).format(parsed);
+}
+
+function formatMoney(value, currency, fallback = "—") {
+  const formatted = formatDecimal(value, fallback);
+  if (formatted === fallback) return fallback;
+  return currency ? `${formatted} ${currency}` : formatted;
+}
+
+function formatPnlMoney(value, currency, fallback = "—") {
+  const formatted = formatPnlDecimal(value, fallback);
+  if (formatted === fallback) return fallback;
+  return currency ? `${formatted} ${currency}` : formatted;
 }
 
 function formatPercent(value, fallback = "—") {
@@ -5266,6 +5367,36 @@ async function loadStrategies() {
   }
 }
 
+async function loadPaperPortfolio({ silent = false } = {}) {
+  isLoadingPaperPortfolio = true;
+  if (!silent) {
+    paperPortfolioError = "";
+  }
+  render();
+
+  try {
+    paperPortfolio = normalizePaperPortfolio(await fetchJson("/api/v1/paper-portfolio"));
+    paperPortfolioError = "";
+  } catch (error) {
+    paperPortfolio = null;
+    paperPortfolioError = requestErrorMessage(error, t("paper_portfolio_unavailable"));
+  } finally {
+    isLoadingPaperPortfolio = false;
+    render();
+  }
+}
+
+function applyPaperPortfolioResult(result) {
+  if (result.status === "fulfilled") {
+    paperPortfolio = normalizePaperPortfolio(result.value);
+    paperPortfolioError = "";
+  } else {
+    paperPortfolio = null;
+    paperPortfolioError = requestErrorMessage(result.reason, t("paper_portfolio_unavailable"));
+  }
+  isLoadingPaperPortfolio = false;
+}
+
 async function loadExecutionProfile(botId) {
   try {
     const data = await fetchJson(`/api/v1/bots/${botId}/execution-profile`);
@@ -5472,6 +5603,7 @@ async function loadBots() {
     lastRefreshedAt = new Date();
     isLoadingBots = false;
     render();
+    await loadPaperPortfolio({ silent: true });
     if (selectedBotId) {
       await loadSelectedSummary(selectedBotId);
     } else {
@@ -5490,6 +5622,7 @@ async function loadBots() {
     isLoadingPerformance = false;
     isLoadingBots = false;
     botListError = requestErrorMessage(error, t("could_not_load_bots"));
+    await loadPaperPortfolio({ silent: true });
     render();
   }
 }
@@ -5509,11 +5642,15 @@ async function refreshSelectedData() {
 
   if (selectedBotId) {
     isLoadingPerformance = true;
-    const [summaryResult, configResult, performanceResult] = await Promise.allSettled([
+    isLoadingPaperPortfolio = true;
+    const [summaryResult, configResult, performanceResult, portfolioResult] = await Promise.allSettled([
       fetchJson(`/api/v1/bots/${selectedBotId}/summary`),
       fetchJson(`/api/v1/bots/${selectedBotId}`),
       fetchJson(`/api/v1/bots/${selectedBotId}/performance`),
+      fetchJson("/api/v1/paper-portfolio"),
     ]);
+
+    applyPaperPortfolioResult(portfolioResult);
 
     if (summaryResult.status !== "fulfilled") {
       isLoadingPerformance = false;
@@ -5541,6 +5678,7 @@ async function refreshSelectedData() {
     selectedBotConfig = null;
     selectedExecutionProfile = null;
     selectedPerformance = null;
+    await loadPaperPortfolio({ silent: true });
     performanceError = "";
     isLoadingPerformance = false;
   }
@@ -5575,11 +5713,15 @@ async function refreshDashboardData({ silent = false } = {}) {
 
     if (selectedBotId) {
       isLoadingPerformance = true;
-      const [summaryResult, configResult, performanceResult] = await Promise.allSettled([
+      isLoadingPaperPortfolio = true;
+      const [summaryResult, configResult, performanceResult, portfolioResult] = await Promise.allSettled([
         fetchJson(`/api/v1/bots/${selectedBotId}/summary`),
         fetchJson(`/api/v1/bots/${selectedBotId}`),
         fetchJson(`/api/v1/bots/${selectedBotId}/performance`),
+        fetchJson("/api/v1/paper-portfolio"),
       ]);
+
+      applyPaperPortfolioResult(portfolioResult);
 
       if (summaryResult.status !== "fulfilled") {
         isLoadingPerformance = false;
@@ -5607,6 +5749,7 @@ async function refreshDashboardData({ silent = false } = {}) {
       selectedBotConfig = null;
       selectedExecutionProfile = null;
       selectedPerformance = null;
+      await loadPaperPortfolio({ silent: true });
       performanceError = "";
       isLoadingPerformance = false;
       summaryError = "";
@@ -5623,6 +5766,7 @@ async function refreshDashboardData({ silent = false } = {}) {
   } finally {
     isRefreshing = false;
     isLoadingPerformance = false;
+    isLoadingPaperPortfolio = false;
     render();
   }
 }
@@ -7292,6 +7436,8 @@ async function updateMarketPrice(event) {
 
     if (selectedBotId) {
       await refreshSelectedData();
+    } else {
+      await loadPaperPortfolio({ silent: true });
     }
   } catch (error) {
     priceMessage = validationMessage(error);
@@ -7357,6 +7503,7 @@ async function loadSelectedSummary(botId) {
   actionMessageType = "";
   isLoadingSummary = true;
   isLoadingPerformance = true;
+  isLoadingPaperPortfolio = true;
   selectedSummary = null;
   selectedPerformance = null;
   selectedBotConfig = null;
@@ -7364,12 +7511,15 @@ async function loadSelectedSummary(botId) {
   render();
 
   try {
-    const [summaryResult, configResult, profileResult, performanceResult] = await Promise.allSettled([
+    const [summaryResult, configResult, profileResult, performanceResult, portfolioResult] = await Promise.allSettled([
       fetchJson(`/api/v1/bots/${botId}/summary`),
       fetchJson(`/api/v1/bots/${botId}`),
       fetchJson(`/api/v1/bots/${botId}/execution-profile`),
       fetchJson(`/api/v1/bots/${botId}/performance`),
+      fetchJson("/api/v1/paper-portfolio"),
     ]);
+
+    applyPaperPortfolioResult(portfolioResult);
 
     if (summaryResult.status !== "fulfilled") {
       throw summaryResult.reason;
@@ -7396,6 +7546,7 @@ async function loadSelectedSummary(botId) {
   } finally {
     isLoadingSummary = false;
     isLoadingPerformance = false;
+    isLoadingPaperPortfolio = false;
   }
 
   render();
@@ -7836,6 +7987,153 @@ function renderBotPerformance() {
   }
 }
 
+function appendMetric(grid, item) {
+  const row = document.createElement("div");
+  const label = document.createElement("dt");
+  const value = document.createElement("dd");
+  if (item.className) row.className = item.className;
+  label.textContent = item.label;
+  value.textContent = item.value;
+  if (item.valueClass) value.className = item.valueClass;
+  row.append(label, value);
+  grid.append(row);
+}
+
+function renderPaperPortfolio() {
+  paperPortfolioContent.innerHTML = "";
+
+  if (isLoadingPaperPortfolio && !paperPortfolio) {
+    paperPortfolioContent.textContent = t("paper_portfolio_loading");
+    paperPortfolioContent.className = "paper-portfolio-content empty loading";
+    return;
+  }
+
+  if (paperPortfolioError && !paperPortfolio) {
+    paperPortfolioContent.textContent = paperPortfolioError;
+    paperPortfolioContent.className = "paper-portfolio-content empty error";
+    return;
+  }
+
+  if (!paperPortfolio) {
+    paperPortfolioContent.textContent = t("paper_portfolio_unavailable");
+    paperPortfolioContent.className = "paper-portfolio-content empty";
+    return;
+  }
+
+  const currency = paperPortfolio.accountCurrency || "USDT";
+  const summaryRows = [
+    { label: t("starting_balance_label"), value: formatMoney(paperPortfolio.startingBalance, currency) },
+    { label: t("cash_balance_label"), value: formatMoney(paperPortfolio.cashBalance, currency) },
+    { label: t("positions_value_label"), value: formatMoney(paperPortfolio.positionsMarketValue, currency) },
+    { label: t("total_equity_label"), value: formatMoney(paperPortfolio.totalEquity, currency) },
+    {
+      label: t("realized_pnl_label"),
+      value: formatPnlMoney(paperPortfolio.totalRealizedPnl, currency),
+      valueClass: pnlClass(paperPortfolio.totalRealizedPnl),
+    },
+    {
+      label: t("unrealized_pnl_label"),
+      value: formatPnlMoney(paperPortfolio.totalUnrealizedPnl, currency),
+      valueClass: pnlClass(paperPortfolio.totalUnrealizedPnl),
+    },
+    { label: t("open_positions_label"), value: formatDecimal(paperPortfolio.openPositionCount, "0") },
+  ];
+
+  const summaryGrid = document.createElement("dl");
+  summaryGrid.className = "paper-portfolio-summary";
+  summaryRows.forEach((item) => appendMetric(summaryGrid, item));
+
+  paperPortfolioContent.className = "paper-portfolio-content";
+  paperPortfolioContent.append(summaryGrid);
+
+  if (!paperPortfolio.updatedAt && Number(paperPortfolio.openPositionCount || 0) === 0) {
+    const emptyNote = document.createElement("p");
+    emptyNote.className = "paper-portfolio-note";
+    emptyNote.textContent = t("paper_portfolio_empty");
+    paperPortfolioContent.append(emptyNote);
+  }
+
+  const positionsSection = document.createElement("div");
+  positionsSection.className = "paper-portfolio-positions";
+
+  const positionsHeading = document.createElement("h3");
+  positionsHeading.textContent = t("open_positions_label");
+  positionsSection.append(positionsHeading);
+
+  if (!paperPortfolio.positions.length) {
+    const empty = document.createElement("p");
+    empty.className = "paper-portfolio-note";
+    empty.textContent = t("paper_portfolio_no_open_positions");
+    positionsSection.append(empty);
+    paperPortfolioContent.append(positionsSection);
+    return;
+  }
+
+  const list = document.createElement("div");
+  list.className = "paper-portfolio-position-list";
+
+  paperPortfolio.positions.forEach((position) => {
+    const item = document.createElement("article");
+    item.className = "paper-portfolio-position";
+
+    const header = document.createElement("div");
+    header.className = "paper-portfolio-position-header";
+    const symbol = document.createElement("strong");
+    symbol.textContent = formatValue(position.symbol);
+    header.append(symbol);
+    if (!position.priceAvailable) {
+      const badge = document.createElement("span");
+      badge.className = "paper-portfolio-price-status";
+      badge.textContent = t("price_unavailable");
+      header.append(badge);
+    }
+
+    const metrics = document.createElement("dl");
+    metrics.className = "paper-portfolio-position-grid";
+    const marketPrice = position.priceAvailable
+      ? formatMoney(position.latestMarketPrice, currency)
+      : t("price_unavailable");
+    const valuation = (value) => (position.priceAvailable ? formatMoney(value, currency) : "—");
+    const pnlValue = (value) => (position.priceAvailable ? formatPnlMoney(value, currency) : "—");
+    const percentValue = position.priceAvailable ? formatPercent(position.unrealizedPnlPercent) : "—";
+
+    [
+      { label: t("quantity"), value: formatDecimal(position.quantity) },
+      { label: t("average_entry_label"), value: formatMoney(position.averageEntryPrice, currency) },
+      { label: t("latest_price_label"), value: marketPrice },
+      { label: t("market_value_label"), value: valuation(position.marketValue) },
+      {
+        label: t("realized_pnl_label"),
+        value: formatPnlMoney(position.realizedPnl, currency),
+        valueClass: pnlClass(position.realizedPnl),
+      },
+      {
+        label: t("unrealized_pnl_label"),
+        value: pnlValue(position.unrealizedPnl),
+        valueClass: position.priceAvailable ? pnlClass(position.unrealizedPnl) : "pnl-neutral",
+      },
+      {
+        label: t("unrealized_pnl_percent_label"),
+        value: percentValue,
+        valueClass: position.priceAvailable ? pnlClass(position.unrealizedPnlPercent) : "pnl-neutral",
+      },
+    ].forEach((metric) => appendMetric(metrics, metric));
+
+    item.append(header, metrics);
+    list.append(item);
+  });
+
+  positionsSection.append(list);
+  paperPortfolioContent.append(positionsSection);
+
+  if (paperPortfolioError) {
+    const error = document.createElement("p");
+    error.className = "paper-portfolio-note error";
+    error.textContent = paperPortfolioError;
+    paperPortfolioContent.append(error);
+  }
+}
+
 function renderLiveMarket() {
   liveMarketAutoRefresh.checked = liveMarketAutoRefreshEnabled;
   liveMarketRefresh.textContent = isRefreshingLiveMarket
@@ -8255,6 +8553,7 @@ function render() {
   renderBotList();
   renderSummary();
   renderBotPerformance();
+  renderPaperPortfolio();
   renderLiveMarket();
   renderDecisionExplanation();
   renderStrategyParametersForm();

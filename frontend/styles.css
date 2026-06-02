@@ -1277,6 +1277,7 @@ dd {
 
 .bot-settings-panel,
 .bot-performance-panel,
+.paper-portfolio-panel,
 .execution-settings-panel,
 .strategy-parameters-panel,
 .create-strategy-panel,
@@ -1302,6 +1303,7 @@ dd {
 
 .bot-settings-content,
 .bot-performance-content,
+.paper-portfolio-content,
 .strategy-parameters-content,
 .backtest-result,
 .backtest-history {
@@ -1313,6 +1315,7 @@ dd {
 
 .bot-settings-content.empty,
 .bot-performance-content.empty,
+.paper-portfolio-content.empty,
 .strategy-parameters-content.empty,
 .backtest-result.empty,
 .backtest-history.empty {
@@ -1323,6 +1326,7 @@ dd {
 
 .bot-settings-content.error,
 .bot-performance-content.error,
+.paper-portfolio-content.error,
 .strategy-parameters-content.error,
 .backtest-history.error {
   background: var(--danger-soft);
@@ -1331,6 +1335,7 @@ dd {
 
 .bot-settings-content.loading,
 .bot-performance-content.loading,
+.paper-portfolio-content.loading,
 .strategy-parameters-content.loading,
 .backtest-result.loading,
 .backtest-history.loading {
@@ -1339,6 +1344,8 @@ dd {
 
 .bot-settings-grid,
 .bot-performance-grid,
+.paper-portfolio-summary,
+.paper-portfolio-position-grid,
 .strategy-parameters-grid,
 .backtest-result-grid {
   display: grid;
@@ -1349,6 +1356,8 @@ dd {
 
 .bot-settings-grid div,
 .bot-performance-grid div,
+.paper-portfolio-summary div,
+.paper-portfolio-position-grid div,
 .strategy-parameters-grid div,
 .backtest-result-grid div {
   display: grid;
@@ -1358,6 +1367,8 @@ dd {
 
 .bot-settings-grid dd,
 .bot-performance-grid dd,
+.paper-portfolio-summary dd,
+.paper-portfolio-position-grid dd,
 .strategy-parameters-grid dd {
   overflow-wrap: break-word;
 }
@@ -1386,6 +1397,85 @@ dd {
 
 .bot-performance-note.error {
   color: var(--danger);
+}
+
+.paper-portfolio-help {
+  margin: 4px 0 0;
+  color: var(--muted);
+  font-size: 0.78rem;
+  font-weight: 750;
+}
+
+.paper-portfolio-summary {
+  grid-template-columns: repeat(auto-fit, minmax(128px, 1fr));
+}
+
+.paper-portfolio-note {
+  margin: 12px 0 0;
+  color: var(--muted);
+  font-size: 0.84rem;
+  font-weight: 800;
+}
+
+.paper-portfolio-note.error {
+  color: var(--danger);
+}
+
+.paper-portfolio-positions {
+  display: grid;
+  gap: 10px;
+  margin-top: 14px;
+}
+
+.paper-portfolio-positions h3 {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.82rem;
+  font-weight: 850;
+  text-transform: uppercase;
+}
+
+.paper-portfolio-position-list {
+  display: grid;
+  gap: 10px;
+}
+
+.paper-portfolio-position {
+  display: grid;
+  gap: 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #ffffff;
+  padding: 12px;
+}
+
+.paper-portfolio-position-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  min-width: 0;
+}
+
+.paper-portfolio-position-header strong {
+  overflow-wrap: anywhere;
+  font-size: 0.92rem;
+}
+
+.paper-portfolio-price-status {
+  flex: 0 0 auto;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  color: var(--muted);
+  background: #f4f6f2;
+  padding: 4px 8px;
+  font-size: 0.72rem;
+  font-weight: 850;
+}
+
+.paper-portfolio-position-grid {
+  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+  gap: 8px;
 }
 
 .strategy-parameters-empty {

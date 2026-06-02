@@ -4,7 +4,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Dashboard</title>
-    <link rel="stylesheet" href="/static/styles.css?v=bot-performance-pnl" />
+    <link rel="stylesheet" href="/static/styles.css?v=paper-portfolio-card" />
   </head>
   <body>
     <main class="dashboard-shell">
@@ -184,6 +184,20 @@
             </div>
             <div id="bot-performance-content" class="bot-performance-content empty loading">
               Loading performance...
+            </div>
+          </section>
+
+          <section class="paper-portfolio-panel" aria-label="Draft Balance">
+            <div class="panel-heading compact-heading">
+              <div>
+                <h2 id="paper-portfolio-heading">Draft Balance</h2>
+                <p id="paper-portfolio-help" class="paper-portfolio-help">
+                  Paper balance only. Not real exchange funds.
+                </p>
+              </div>
+            </div>
+            <div id="paper-portfolio-content" class="paper-portfolio-content empty loading">
+              Loading paper portfolio...
             </div>
           </section>
 
@@ -629,6 +643,6 @@
       </section>
     </div>
 
-    <script src="/static/app.js?v=bot-performance-pnl"></script>
+    <script src="/static/app.js?v=paper-portfolio-card"></script>
   </body>
 </html>
