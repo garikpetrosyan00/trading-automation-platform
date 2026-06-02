@@ -37,22 +37,28 @@ class PaperPortfolioPositionRead(BaseModel):
     quantity: Decimal
     average_entry_price: Decimal
     latest_price: Decimal | None = None
+    latest_market_price: Decimal | None = None
     market_value: Decimal | None = None
     unrealized_pnl: Decimal | None = None
+    unrealized_pnl_percent: Decimal | None = None
     realized_pnl: Decimal
+    price_available: bool = False
     updated_at: datetime
 
 
 class PaperPortfolioSnapshotRead(BaseModel):
     base_currency: str
+    account_currency: str
     starting_balance: Decimal
     cash_balance: Decimal
     total_realized_pnl: Decimal
     positions: list[PaperPortfolioPositionRead]
+    positions_market_value: Decimal
     total_market_value: Decimal | None = None
     total_unrealized_pnl: Decimal | None = None
     total_equity: Decimal | None = None
-    updated_at: datetime
+    open_position_count: int
+    updated_at: datetime | None = None
 
 
 class PaperPortfolioResetRequest(BaseModel):

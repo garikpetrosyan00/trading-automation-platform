@@ -14,6 +14,8 @@ from app.schemas.portfolio import (
 )
 
 ZERO = Decimal("0")
+MONEY_QUANTUM = Decimal("0.00000001")
+DEFAULT_PAPER_ACCOUNT_CURRENCY = "USDT"
 
 
 class PortfolioService:
@@ -64,13 +66,12 @@ class PortfolioService:
         )
 
     def get_paper_snapshot(self) -> PaperPortfolioSnapshotRead:
-        account = self.get_account()
+        account = self.repository.get_account()
         positions = self.repository.list_positions(include_closed=False)
         position_reads: list[PaperPortfolioPositionRead] = []
         total_realized_pnl = ZERO
         total_market_value = ZERO
         total_unrealized_pnl = ZERO
-        all_market_values_available = True
 
         for position in self.repository.list_positions(include_closed=True):
             total_realized_pnl += position.realized_pnl
@@ -79,11 +80,16 @@ class PortfolioService:
             latest_price = self._get_latest_price(position.symbol)
             market_value = None
             unrealized_pnl = None
+            unrealized_pnl_percent = None
             if latest_price is None:
-                all_market_values_available = False
+                price_available = False
             else:
-                market_value = position.quantity * latest_price
-                unrealized_pnl = market_value - (position.quantity * position.average_entry_price)
+                price_available = True
+                market_value = self._quantize_money(position.quantity * latest_price)
+                cost_basis = position.quantity * position.average_entry_price
+                unrealized_pnl = self._quantize_money(market_value - cost_basis)
+                if cost_basis > ZERO:
+                    unrealized_pnl_percent = (unrealized_pnl / cost_basis) * Decimal("100")
                 total_market_value += market_value
                 total_unrealized_pnl += unrealized_pnl
 
@@ -93,23 +99,34 @@ class PortfolioService:
                     quantity=position.quantity,
                     average_entry_price=position.average_entry_price,
                     latest_price=latest_price,
+                    latest_market_price=latest_price,
                     market_value=market_value,
                     unrealized_pnl=unrealized_pnl,
+                    unrealized_pnl_percent=unrealized_pnl_percent,
                     realized_pnl=position.realized_pnl,
+                    price_available=price_available,
                     updated_at=position.updated_at,
                 )
             )
 
+        account_currency = account.base_currency if account is not None else DEFAULT_PAPER_ACCOUNT_CURRENCY
+        cash_balance = account.cash_balance if account is not None else ZERO
+        starting_balance = account.starting_cash if account is not None else ZERO
+        updated_at = account.updated_at if account is not None else None
+
         return PaperPortfolioSnapshotRead(
-            base_currency=account.base_currency,
-            starting_balance=account.starting_cash,
-            cash_balance=account.cash_balance,
+            base_currency=account_currency,
+            account_currency=account_currency,
+            starting_balance=starting_balance,
+            cash_balance=cash_balance,
             total_realized_pnl=total_realized_pnl,
             positions=position_reads,
-            total_market_value=total_market_value if all_market_values_available else None,
-            total_unrealized_pnl=total_unrealized_pnl if all_market_values_available else None,
-            total_equity=account.cash_balance + total_market_value if all_market_values_available else None,
-            updated_at=account.updated_at,
+            positions_market_value=self._quantize_money(total_market_value),
+            total_market_value=self._quantize_money(total_market_value),
+            total_unrealized_pnl=self._quantize_money(total_unrealized_pnl),
+            total_equity=self._quantize_money(cash_balance + total_market_value),
+            open_position_count=len(position_reads),
+            updated_at=updated_at,
         )
 
     def reset_paper_portfolio(self, starting_balance: Decimal) -> PaperPortfolioResetRead:
@@ -167,3 +184,9 @@ class PortfolioService:
         if latest is None or not isinstance(latest, MarketEvent):
             return None
         return latest.price or latest.close
+
+    @staticmethod
+    def _quantize_money(value: Decimal) -> Decimal:
+        if value == ZERO:
+            return ZERO
+        return value.quantize(MONEY_QUANTUM)

@@ -549,14 +549,19 @@ def test_paper_snapshot_returns_nullable_market_values_when_price_missing(
 
     assert snapshot.starting_balance == Decimal("1000.00000000")
     assert snapshot.cash_balance == Decimal("800.00000000")
-    assert snapshot.total_equity is None
-    assert snapshot.total_market_value is None
+    assert snapshot.positions_market_value == Decimal("0")
+    assert snapshot.total_equity == Decimal("800.00000000")
+    assert snapshot.total_market_value == Decimal("0")
+    assert snapshot.total_unrealized_pnl == Decimal("0")
     assert snapshot.positions[0].symbol == "BTCUSDT"
     assert snapshot.positions[0].quantity == Decimal("2.00000000")
     assert snapshot.positions[0].average_entry_price == Decimal("100.00000000")
     assert snapshot.positions[0].latest_price is None
+    assert snapshot.positions[0].latest_market_price is None
     assert snapshot.positions[0].market_value is None
     assert snapshot.positions[0].unrealized_pnl is None
+    assert snapshot.positions[0].unrealized_pnl_percent is None
+    assert snapshot.positions[0].price_available is False
 
 
 def test_paper_snapshot_returns_equity_when_prices_are_available(
@@ -573,6 +578,7 @@ def test_paper_snapshot_returns_equity_when_prices_are_available(
 
     assert snapshot.starting_balance == Decimal("1000.00000000")
     assert snapshot.cash_balance == Decimal("800.00000000")
+    assert snapshot.positions_market_value == Decimal("250.00000000")
     assert snapshot.total_market_value == Decimal("250.00000000")
     assert snapshot.total_unrealized_pnl == Decimal("50.00000000")
     assert snapshot.total_equity == Decimal("1050.00000000")
