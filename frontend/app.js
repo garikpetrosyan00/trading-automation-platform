@@ -2554,6 +2554,28 @@ function formatPnlMoney(value, currency, fallback = "—") {
   return currency ? `${formatted} ${currency}` : formatted;
 }
 
+function formatCompactMoney(value, currency, fallback = "—") {
+  if (value === null || value === undefined || value === "") return fallback;
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) return String(value);
+  const formatted = new Intl.NumberFormat([], {
+    minimumFractionDigits: 0,
+    maximumFractionDigits: 2,
+  }).format(parsed);
+  return currency ? `${formatted} ${currency}` : formatted;
+}
+
+function formatCompactPnlMoney(value, currency, fallback = "—") {
+  if (value === null || value === undefined || value === "") return fallback;
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) return String(value);
+  const formatted = new Intl.NumberFormat([], {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  }).format(parsed);
+  return currency ? `${formatted} ${currency}` : formatted;
+}
+
 function formatPercent(value, fallback = "—") {
   if (value === null || value === undefined || value === "") return fallback;
   const parsed = Number(value);
@@ -8022,18 +8044,18 @@ function renderPaperPortfolio() {
 
   const currency = paperPortfolio.accountCurrency || "USDT";
   const summaryRows = [
-    { label: t("starting_balance_label"), value: formatMoney(paperPortfolio.startingBalance, currency) },
-    { label: t("cash_balance_label"), value: formatMoney(paperPortfolio.cashBalance, currency) },
-    { label: t("positions_value_label"), value: formatMoney(paperPortfolio.positionsMarketValue, currency) },
-    { label: t("total_equity_label"), value: formatMoney(paperPortfolio.totalEquity, currency) },
+    { label: t("starting_balance_label"), value: formatCompactMoney(paperPortfolio.startingBalance, currency) },
+    { label: t("cash_balance_label"), value: formatCompactMoney(paperPortfolio.cashBalance, currency) },
+    { label: t("positions_value_label"), value: formatCompactMoney(paperPortfolio.positionsMarketValue, currency) },
+    { label: t("total_equity_label"), value: formatCompactMoney(paperPortfolio.totalEquity, currency) },
     {
       label: t("realized_pnl_label"),
-      value: formatPnlMoney(paperPortfolio.totalRealizedPnl, currency),
+      value: formatCompactPnlMoney(paperPortfolio.totalRealizedPnl, currency),
       valueClass: pnlClass(paperPortfolio.totalRealizedPnl),
     },
     {
       label: t("unrealized_pnl_label"),
-      value: formatPnlMoney(paperPortfolio.totalUnrealizedPnl, currency),
+      value: formatCompactPnlMoney(paperPortfolio.totalUnrealizedPnl, currency),
       valueClass: pnlClass(paperPortfolio.totalUnrealizedPnl),
     },
     { label: t("open_positions_label"), value: formatDecimal(paperPortfolio.openPositionCount, "0") },
