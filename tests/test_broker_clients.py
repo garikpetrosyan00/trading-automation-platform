@@ -5,6 +5,7 @@ from urllib.parse import parse_qs
 
 import httpx
 from app.models.execution_attempt import ExecutionAttempt
+from app.models.execution_daily_quota_usage import ExecutionDailyQuotaUsage
 from app.models.paper_accounting_event import PaperAccountingEvent
 from app.repositories.paper_accounting import PaperAccountingRepository
 from app.repositories.portfolio import PortfolioRepository
@@ -91,6 +92,17 @@ def add_attempt(
             created_at=created_at,
         )
     )
+    session.commit()
+    usage_day = created_at.astimezone(timezone.utc).date()
+    usage = (
+        session.query(ExecutionDailyQuotaUsage)
+        .filter(ExecutionDailyQuotaUsage.bot_id == bot_id, ExecutionDailyQuotaUsage.utc_day == usage_day)
+        .one_or_none()
+    )
+    if usage is None:
+        usage = ExecutionDailyQuotaUsage(bot_id=bot_id, utc_day=usage_day, accepted_order_count=0)
+    usage.accepted_order_count += 1
+    session.add(usage)
     session.commit()
 
 
@@ -210,7 +222,10 @@ def test_paper_execution_broker_buy_and_sell_consume_daily_slots(
     blocked = broker.submit_market_order(BrokerOrderIntent(bot_id=7, symbol="BTCUSDT", side="buy", quantity=Decimal("1")))
 
     attempts = ExecutionAttemptRepository(db_session).list_filtered(bot_id=7, limit=10)
-    count = ExecutionDailyLimitService(ExecutionAttemptRepository(db_session)).count_successful_orders_today(bot_id=7)
+    count = ExecutionDailyLimitService(
+        ExecutionAttemptRepository(db_session),
+        now_provider=lambda: FIXED_NOW,
+    ).count_successful_orders_today(bot_id=7)
     assert buy.accepted is True
     assert sell.accepted is True
     assert blocked.accepted is False

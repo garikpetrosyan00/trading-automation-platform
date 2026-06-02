@@ -5,6 +5,7 @@ from fastapi.testclient import TestClient
 
 from app.core.config import Settings
 from app.main import app
+from app.models.execution_daily_quota_usage import ExecutionDailyQuotaUsage
 from app.models.execution_attempt import ExecutionAttempt
 from app.models.paper_accounting_event import PaperAccountingEvent
 from app.repositories.execution_attempt import ExecutionAttemptRepository
@@ -37,6 +38,17 @@ def add_execution_attempt(
             created_at=created_at or datetime.now(timezone.utc),
         )
     )
+    session.commit()
+    usage_day = (created_at or datetime.now(timezone.utc)).astimezone(timezone.utc).date()
+    usage = (
+        session.query(ExecutionDailyQuotaUsage)
+        .filter(ExecutionDailyQuotaUsage.bot_id == bot_id, ExecutionDailyQuotaUsage.utc_day == usage_day)
+        .one_or_none()
+    )
+    if usage is None:
+        usage = ExecutionDailyQuotaUsage(bot_id=bot_id, utc_day=usage_day, accepted_order_count=0)
+    usage.accepted_order_count += 1
+    session.add(usage)
     session.commit()
 
 
