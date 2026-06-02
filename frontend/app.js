@@ -24,11 +24,13 @@ let selectedBotId = null;
 let selectedSummary = null;
 let selectedPerformance = null;
 let paperPortfolio = null;
+let recentPaperOrders = [];
 let latestDecisionExplanation = null;
 let isLoadingBots = true;
 let isLoadingSummary = false;
 let isLoadingPerformance = false;
 let isLoadingPaperPortfolio = true;
+let isLoadingRecentPaperOrders = false;
 let isLoadingStrategies = false;
 let isTogglingPause = false;
 let isRunningNow = false;
@@ -61,6 +63,7 @@ let botListError = "";
 let summaryError = "";
 let performanceError = "";
 let paperPortfolioError = "";
+let recentPaperOrdersError = "";
 let actionMessage = "";
 let actionMessageType = "";
 let createBotMessage = "";
@@ -185,6 +188,32 @@ const translations = {
     market_value_label: "Market value",
     unrealized_pnl_percent_label: "Unrealized %",
     price_unavailable: "Price unavailable",
+    recent_paper_orders: "Recent Paper Orders",
+    recent_paper_orders_aria: "Recent Paper Orders",
+    recent_paper_orders_help: "Read-only paper execution audit for the selected bot.",
+    recent_paper_orders_loading: "Loading recent paper orders…",
+    recent_paper_orders_unavailable: "Recent paper orders unavailable",
+    recent_paper_orders_select_bot: "Select a bot to view recent paper orders.",
+    recent_paper_orders_empty: "No recent paper orders for this bot.",
+    order_side_buy: "Buy",
+    order_side_sell: "Sell",
+    order_status_created: "Created",
+    order_status_submitted: "Submitted",
+    order_status_filled: "Filled",
+    order_status_rejected: "Rejected",
+    order_status_cancelled: "Cancelled",
+    order_status_blocked: "Blocked",
+    order_status_pending: "Pending",
+    order_status_unknown: "Unknown",
+    order_quantity_label: "Quantity",
+    order_filled_quantity_label: "Filled qty",
+    order_fill_count_label: "Fills",
+    order_price_label: "Price",
+    order_reason_label: "Reason",
+    order_created_time_label: "Created",
+    order_mode_label: "Mode",
+    order_type_label: "Order type",
+    order_strategy_label: "Strategy",
     health_label: "Health",
     latest_price_label: "Latest price",
     last_decision_label: "Last decision",
@@ -830,6 +859,32 @@ const translations = {
     market_value_label: "Շուկայական արժեք",
     unrealized_pnl_percent_label: "Չիրացված %",
     price_unavailable: "Գինը հասանելի չէ",
+    recent_paper_orders: "Վերջին փորձնական պատվերներ",
+    recent_paper_orders_aria: "Վերջին փորձնական պատվերներ",
+    recent_paper_orders_help: "Ընտրված Bot-ի paper execution audit-ը՝ միայն դիտելու համար։",
+    recent_paper_orders_loading: "Վերջին paper պատվերները բեռնվում են…",
+    recent_paper_orders_unavailable: "Վերջին paper պատվերները հասանելի չեն",
+    recent_paper_orders_select_bot: "Ընտրիր Bot՝ վերջին paper պատվերները դիտելու համար։",
+    recent_paper_orders_empty: "Այս Bot-ի համար վերջին paper պատվերներ չկան։",
+    order_side_buy: "Գնում",
+    order_side_sell: "Վաճառք",
+    order_status_created: "Ստեղծված",
+    order_status_submitted: "Ուղարկված",
+    order_status_filled: "Լրացված",
+    order_status_rejected: "Մերժված",
+    order_status_cancelled: "Չեղարկված",
+    order_status_blocked: "Արգելված",
+    order_status_pending: "Սպասող",
+    order_status_unknown: "Անհայտ",
+    order_quantity_label: "Քանակ",
+    order_filled_quantity_label: "Լրացված քանակ",
+    order_fill_count_label: "Fill-եր",
+    order_price_label: "Գին",
+    order_reason_label: "Պատճառ",
+    order_created_time_label: "Ստեղծվել է",
+    order_mode_label: "Ռեժիմ",
+    order_type_label: "Order-ի տեսակ",
+    order_strategy_label: "Strategy",
     health_label: "Առողջություն",
     latest_price_label: "Վերջին գին",
     last_decision_label: "Վերջին որոշում",
@@ -1516,6 +1571,10 @@ const paperPortfolioPanel = document.querySelector(".paper-portfolio-panel");
 const paperPortfolioHeading = document.querySelector("#paper-portfolio-heading");
 const paperPortfolioHelp = document.querySelector("#paper-portfolio-help");
 const paperPortfolioContent = document.querySelector("#paper-portfolio-content");
+const recentPaperOrdersPanel = document.querySelector(".recent-paper-orders-panel");
+const recentPaperOrdersHeading = document.querySelector("#recent-paper-orders-heading");
+const recentPaperOrdersHelp = document.querySelector("#recent-paper-orders-help");
+const recentPaperOrdersContent = document.querySelector("#recent-paper-orders-content");
 const liveMarketPanel = document.querySelector(".live-market-panel");
 const liveMarketHeading = document.querySelector("#live-market-heading");
 const liveMarketHelp = document.querySelector("#live-market-help");
@@ -1854,6 +1913,9 @@ function applyStaticTranslations() {
   paperPortfolioPanel?.setAttribute("aria-label", t("draft_balance_aria"));
   paperPortfolioHeading.textContent = t("draft_balance");
   paperPortfolioHelp.textContent = t("draft_balance_help");
+  recentPaperOrdersPanel?.setAttribute("aria-label", t("recent_paper_orders_aria"));
+  recentPaperOrdersHeading.textContent = t("recent_paper_orders");
+  recentPaperOrdersHelp.textContent = t("recent_paper_orders_help");
   liveMarketPanel?.setAttribute("aria-label", t("live_market_aria"));
   liveMarketHeading.textContent = t("live_market");
   liveMarketHelp.textContent = t("live_market_help");
@@ -2164,6 +2226,41 @@ function normalizePaperPortfolio(rawPortfolio) {
     updatedAt: rawPortfolio.updated_at ?? rawPortfolio.updatedAt ?? null,
     positions: rawPositions.map(normalizePaperPortfolioPosition),
   };
+}
+
+function normalizePaperOrder(rawOrder) {
+  const fills = Array.isArray(rawOrder.fills) ? rawOrder.fills : [];
+  return {
+    id: rawOrder.id ?? null,
+    botId: rawOrder.bot_id ?? rawOrder.botId ?? null,
+    strategyId: rawOrder.strategy_id ?? rawOrder.strategyId ?? null,
+    symbol: rawOrder.symbol ?? "",
+    side: rawOrder.side ?? "",
+    status: rawOrder.status ?? "",
+    mode: rawOrder.mode ?? "",
+    orderType: rawOrder.order_type ?? rawOrder.orderType ?? "",
+    quantity: rawOrder.quantity ?? null,
+    requestedPrice:
+      rawOrder.requested_price ??
+      rawOrder.requestedPrice ??
+      rawOrder.requested_price_snapshot ??
+      rawOrder.requestedPriceSnapshot ??
+      null,
+    rejectionReason: rawOrder.rejection_reason ?? rawOrder.rejectionReason ?? "",
+    decisionReason: rawOrder.decision_reason ?? rawOrder.decisionReason ?? "",
+    fillCount: rawOrder.fill_count ?? rawOrder.fillCount ?? fills.length,
+    fills: fills.map((fill) => ({
+      fillPrice: fill.fill_price ?? fill.fillPrice ?? null,
+      fillQuantity: fill.fill_quantity ?? fill.fillQuantity ?? null,
+    })),
+    createdAt: rawOrder.created_at ?? rawOrder.createdAt ?? null,
+    updatedAt: rawOrder.updated_at ?? rawOrder.updatedAt ?? null,
+  };
+}
+
+function normalizePaperOrders(data) {
+  const rawOrders = Array.isArray(data) ? data : data?.items ?? [];
+  return Array.isArray(rawOrders) ? rawOrders.map(normalizePaperOrder) : [];
 }
 
 function normalizeBacktestResult(rawResult) {
@@ -5419,6 +5516,23 @@ function applyPaperPortfolioResult(result) {
   isLoadingPaperPortfolio = false;
 }
 
+function applyRecentPaperOrdersResult(result) {
+  if (result.status === "fulfilled") {
+    recentPaperOrders = normalizePaperOrders(result.value);
+    recentPaperOrdersError = "";
+  } else {
+    recentPaperOrders = [];
+    recentPaperOrdersError = requestErrorMessage(result.reason, t("recent_paper_orders_unavailable"));
+  }
+  isLoadingRecentPaperOrders = false;
+}
+
+function clearRecentPaperOrders() {
+  recentPaperOrders = [];
+  recentPaperOrdersError = "";
+  isLoadingRecentPaperOrders = false;
+}
+
 async function loadExecutionProfile(botId) {
   try {
     const data = await fetchJson(`/api/v1/bots/${botId}/execution-profile`);
@@ -5574,6 +5688,7 @@ function clearSelectedBotMessages() {
   selectedPerformance = null;
   performanceError = "";
   isLoadingPerformance = false;
+  clearRecentPaperOrders();
   backtestStrategyTouched = false;
   isEditingStrategyParameters = false;
 }
@@ -5632,6 +5747,7 @@ async function loadBots() {
       selectedPerformance = null;
       performanceError = "";
       isLoadingPerformance = false;
+      clearRecentPaperOrders();
       await loadBacktestHistory();
     }
   } catch (error) {
@@ -5642,6 +5758,7 @@ async function loadBots() {
     selectedExecutionProfile = null;
     performanceError = "";
     isLoadingPerformance = false;
+    clearRecentPaperOrders();
     isLoadingBots = false;
     botListError = requestErrorMessage(error, t("could_not_load_bots"));
     await loadPaperPortfolio({ silent: true });
@@ -5665,14 +5782,17 @@ async function refreshSelectedData() {
   if (selectedBotId) {
     isLoadingPerformance = true;
     isLoadingPaperPortfolio = true;
-    const [summaryResult, configResult, performanceResult, portfolioResult] = await Promise.allSettled([
+    isLoadingRecentPaperOrders = true;
+    const [summaryResult, configResult, performanceResult, portfolioResult, ordersResult] = await Promise.allSettled([
       fetchJson(`/api/v1/bots/${selectedBotId}/summary`),
       fetchJson(`/api/v1/bots/${selectedBotId}`),
       fetchJson(`/api/v1/bots/${selectedBotId}/performance`),
       fetchJson("/api/v1/paper-portfolio"),
+      fetchJson(`/api/v1/bots/${selectedBotId}/orders?limit=10`),
     ]);
 
     applyPaperPortfolioResult(portfolioResult);
+    applyRecentPaperOrdersResult(ordersResult);
 
     if (summaryResult.status !== "fulfilled") {
       isLoadingPerformance = false;
@@ -5703,6 +5823,7 @@ async function refreshSelectedData() {
     await loadPaperPortfolio({ silent: true });
     performanceError = "";
     isLoadingPerformance = false;
+    clearRecentPaperOrders();
   }
   await loadBacktestHistory();
   refreshMessage = "";
@@ -5736,14 +5857,17 @@ async function refreshDashboardData({ silent = false } = {}) {
     if (selectedBotId) {
       isLoadingPerformance = true;
       isLoadingPaperPortfolio = true;
-      const [summaryResult, configResult, performanceResult, portfolioResult] = await Promise.allSettled([
+      isLoadingRecentPaperOrders = true;
+      const [summaryResult, configResult, performanceResult, portfolioResult, ordersResult] = await Promise.allSettled([
         fetchJson(`/api/v1/bots/${selectedBotId}/summary`),
         fetchJson(`/api/v1/bots/${selectedBotId}`),
         fetchJson(`/api/v1/bots/${selectedBotId}/performance`),
         fetchJson("/api/v1/paper-portfolio"),
+        fetchJson(`/api/v1/bots/${selectedBotId}/orders?limit=10`),
       ]);
 
       applyPaperPortfolioResult(portfolioResult);
+      applyRecentPaperOrdersResult(ordersResult);
 
       if (summaryResult.status !== "fulfilled") {
         isLoadingPerformance = false;
@@ -5774,6 +5898,7 @@ async function refreshDashboardData({ silent = false } = {}) {
       await loadPaperPortfolio({ silent: true });
       performanceError = "";
       isLoadingPerformance = false;
+      clearRecentPaperOrders();
       summaryError = "";
     }
     await loadBacktestHistory();
@@ -5789,6 +5914,7 @@ async function refreshDashboardData({ silent = false } = {}) {
     isRefreshing = false;
     isLoadingPerformance = false;
     isLoadingPaperPortfolio = false;
+    isLoadingRecentPaperOrders = false;
     render();
   }
 }
@@ -7526,6 +7652,7 @@ async function loadSelectedSummary(botId) {
   isLoadingSummary = true;
   isLoadingPerformance = true;
   isLoadingPaperPortfolio = true;
+  isLoadingRecentPaperOrders = true;
   selectedSummary = null;
   selectedPerformance = null;
   selectedBotConfig = null;
@@ -7533,15 +7660,17 @@ async function loadSelectedSummary(botId) {
   render();
 
   try {
-    const [summaryResult, configResult, profileResult, performanceResult, portfolioResult] = await Promise.allSettled([
+    const [summaryResult, configResult, profileResult, performanceResult, portfolioResult, ordersResult] = await Promise.allSettled([
       fetchJson(`/api/v1/bots/${botId}/summary`),
       fetchJson(`/api/v1/bots/${botId}`),
       fetchJson(`/api/v1/bots/${botId}/execution-profile`),
       fetchJson(`/api/v1/bots/${botId}/performance`),
       fetchJson("/api/v1/paper-portfolio"),
+      fetchJson(`/api/v1/bots/${botId}/orders?limit=10`),
     ]);
 
     applyPaperPortfolioResult(portfolioResult);
+    applyRecentPaperOrdersResult(ordersResult);
 
     if (summaryResult.status !== "fulfilled") {
       throw summaryResult.reason;
@@ -7564,11 +7693,13 @@ async function loadSelectedSummary(botId) {
     selectedPerformance = null;
     selectedBotConfig = null;
     selectedExecutionProfile = null;
+    clearRecentPaperOrders();
     summaryError = requestErrorMessage(error, t("could_not_load_bot_details"));
   } finally {
     isLoadingSummary = false;
     isLoadingPerformance = false;
     isLoadingPaperPortfolio = false;
+    isLoadingRecentPaperOrders = false;
   }
 
   render();
@@ -8156,6 +8287,174 @@ function renderPaperPortfolio() {
   }
 }
 
+function orderSideLabel(side) {
+  const normalized = normalizeStrategyType(side);
+  if (normalized === "buy") return t("order_side_buy");
+  if (normalized === "sell") return t("order_side_sell");
+  return formatValue(side);
+}
+
+function orderSideClass(side) {
+  const normalized = normalizeStrategyType(side);
+  if (normalized === "buy") return "recent-order-side buy";
+  if (normalized === "sell") return "recent-order-side sell";
+  return "recent-order-side";
+}
+
+function orderStatusLabel(status, reason = "") {
+  const normalized = normalizeStrategyType(status);
+  const normalizedReason = normalizeStrategyType(reason);
+  if (normalizedReason.includes("blocked")) return t("order_status_blocked");
+  const labels = {
+    created: "order_status_created",
+    submitted: "order_status_submitted",
+    filled: "order_status_filled",
+    rejected: "order_status_rejected",
+    cancelled: "order_status_cancelled",
+    pending: "order_status_pending",
+  };
+  return t(labels[normalized] || "order_status_unknown");
+}
+
+function orderStatusClass(status, reason = "") {
+  const normalized = normalizeStrategyType(status);
+  const normalizedReason = normalizeStrategyType(reason);
+  if (normalizedReason.includes("blocked")) return "recent-order-status blocked";
+  if (normalized === "filled") return "recent-order-status filled";
+  if (normalized === "rejected" || normalized === "cancelled") return "recent-order-status rejected";
+  if (normalized === "created" || normalized === "submitted" || normalized === "pending") {
+    return "recent-order-status pending";
+  }
+  return "recent-order-status";
+}
+
+function orderReason(order) {
+  return firstAvailable(order.rejectionReason, order.decisionReason, "");
+}
+
+function orderFilledQuantity(order) {
+  if (!Array.isArray(order.fills) || order.fills.length === 0) return null;
+  let hasQuantity = false;
+  const total = order.fills.reduce((sum, fill) => {
+    const quantity = Number(fill.fillQuantity);
+    if (!Number.isFinite(quantity)) return sum;
+    hasQuantity = true;
+    return sum + quantity;
+  }, 0);
+  return hasQuantity ? total : null;
+}
+
+function orderAverageFillPrice(order) {
+  if (!Array.isArray(order.fills) || order.fills.length === 0) return null;
+  let totalQuantity = 0;
+  let totalNotional = 0;
+  order.fills.forEach((fill) => {
+    const quantity = Number(fill.fillQuantity);
+    const price = Number(fill.fillPrice);
+    if (Number.isFinite(quantity) && Number.isFinite(price) && quantity > 0) {
+      totalQuantity += quantity;
+      totalNotional += quantity * price;
+    }
+  });
+  if (totalQuantity <= 0) return null;
+  return totalNotional / totalQuantity;
+}
+
+function renderRecentPaperOrders() {
+  recentPaperOrdersContent.innerHTML = "";
+
+  if (!selectedBotId) {
+    recentPaperOrdersContent.textContent = t("recent_paper_orders_select_bot");
+    recentPaperOrdersContent.className = "recent-paper-orders-content empty";
+    return;
+  }
+
+  if (isLoadingRecentPaperOrders && recentPaperOrders.length === 0) {
+    recentPaperOrdersContent.textContent = t("recent_paper_orders_loading");
+    recentPaperOrdersContent.className = "recent-paper-orders-content empty loading";
+    return;
+  }
+
+  if (recentPaperOrdersError && recentPaperOrders.length === 0) {
+    recentPaperOrdersContent.textContent = recentPaperOrdersError;
+    recentPaperOrdersContent.className = "recent-paper-orders-content empty error";
+    return;
+  }
+
+  if (recentPaperOrders.length === 0) {
+    recentPaperOrdersContent.textContent = t("recent_paper_orders_empty");
+    recentPaperOrdersContent.className = "recent-paper-orders-content empty";
+    return;
+  }
+
+  recentPaperOrdersContent.className = "recent-paper-orders-content";
+  const list = document.createElement("div");
+  list.className = "recent-paper-orders-list";
+
+  recentPaperOrders.forEach((order) => {
+    const reason = orderReason(order);
+    const card = document.createElement("article");
+    card.className = "recent-paper-order";
+
+    const header = document.createElement("div");
+    header.className = "recent-paper-order-header";
+    const identity = document.createElement("div");
+    const symbol = document.createElement("strong");
+    const timestamp = document.createElement("span");
+    symbol.textContent = formatValue(order.symbol);
+    timestamp.textContent = formatDateTime(order.createdAt);
+    identity.append(symbol, timestamp);
+
+    const badges = document.createElement("div");
+    badges.className = "recent-paper-order-badges";
+    const sideBadge = document.createElement("span");
+    sideBadge.className = orderSideClass(order.side);
+    sideBadge.textContent = orderSideLabel(order.side);
+    const statusBadge = document.createElement("span");
+    statusBadge.className = orderStatusClass(order.status, reason);
+    statusBadge.textContent = orderStatusLabel(order.status, reason);
+    badges.append(sideBadge, statusBadge);
+    header.append(identity, badges);
+
+    const averageFillPrice = orderAverageFillPrice(order);
+    const executionPrice = firstAvailable(averageFillPrice, order.requestedPrice);
+    const filledQuantity = orderFilledQuantity(order);
+    const rows = [
+      { label: t("order_created_time_label"), value: formatDateTime(order.createdAt) },
+      { label: t("order_mode_label"), value: humanizeMessage(order.mode, "—") },
+      { label: t("order_type_label"), value: humanizeMessage(order.orderType, "—") },
+      { label: t("order_quantity_label"), value: formatDecimal(order.quantity) },
+      { label: t("order_filled_quantity_label"), value: formatDecimal(filledQuantity) },
+      { label: t("order_price_label"), value: formatDecimal(executionPrice) },
+      { label: t("order_fill_count_label"), value: formatDecimal(order.fillCount, "0") },
+    ];
+    if (order.strategyId) {
+      rows.push({ label: t("order_strategy_label"), value: `#${formatValue(order.strategyId)}` });
+    }
+
+    const grid = document.createElement("dl");
+    grid.className = "recent-paper-order-grid";
+    rows.forEach((row) => appendMetric(grid, row));
+
+    card.append(header, grid);
+    if (reason) {
+      const reasonEl = document.createElement("p");
+      reasonEl.className = "recent-paper-order-reason";
+      reasonEl.textContent = `${t("order_reason_label")}: ${humanizeMessage(reason, reason)}`;
+      card.append(reasonEl);
+    }
+    list.append(card);
+  });
+
+  recentPaperOrdersContent.append(list);
+  if (recentPaperOrdersError) {
+    const error = document.createElement("p");
+    error.className = "recent-paper-orders-note error";
+    error.textContent = recentPaperOrdersError;
+    recentPaperOrdersContent.append(error);
+  }
+}
+
 function renderLiveMarket() {
   liveMarketAutoRefresh.checked = liveMarketAutoRefreshEnabled;
   liveMarketRefresh.textContent = isRefreshingLiveMarket
@@ -8576,6 +8875,7 @@ function render() {
   renderSummary();
   renderBotPerformance();
   renderPaperPortfolio();
+  renderRecentPaperOrders();
   renderLiveMarket();
   renderDecisionExplanation();
   renderStrategyParametersForm();

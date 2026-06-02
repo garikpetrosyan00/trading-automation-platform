@@ -4,7 +4,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Dashboard</title>
-    <link rel="stylesheet" href="/static/styles.css?v=paper-portfolio-card" />
+    <link rel="stylesheet" href="/static/styles.css?v=recent-paper-orders-card" />
   </head>
   <body>
     <main class="dashboard-shell">
@@ -198,6 +198,20 @@
             </div>
             <div id="paper-portfolio-content" class="paper-portfolio-content empty loading">
               Loading paper portfolio...
+            </div>
+          </section>
+
+          <section class="recent-paper-orders-panel" aria-label="Recent Paper Orders">
+            <div class="panel-heading compact-heading">
+              <div>
+                <h2 id="recent-paper-orders-heading">Recent Paper Orders</h2>
+                <p id="recent-paper-orders-help" class="recent-paper-orders-help">
+                  Read-only paper execution audit for the selected bot.
+                </p>
+              </div>
+            </div>
+            <div id="recent-paper-orders-content" class="recent-paper-orders-content empty loading">
+              Loading recent paper orders...
             </div>
           </section>
 
@@ -643,6 +657,6 @@
       </section>
     </div>
 
-    <script src="/static/app.js?v=paper-portfolio-card"></script>
+    <script src="/static/app.js?v=recent-paper-orders-card"></script>
   </body>
 </html>

@@ -1278,6 +1278,7 @@ dd {
 .bot-settings-panel,
 .bot-performance-panel,
 .paper-portfolio-panel,
+.recent-paper-orders-panel,
 .execution-settings-panel,
 .strategy-parameters-panel,
 .create-strategy-panel,
@@ -1304,6 +1305,7 @@ dd {
 .bot-settings-content,
 .bot-performance-content,
 .paper-portfolio-content,
+.recent-paper-orders-content,
 .strategy-parameters-content,
 .backtest-result,
 .backtest-history {
@@ -1316,6 +1318,7 @@ dd {
 .bot-settings-content.empty,
 .bot-performance-content.empty,
 .paper-portfolio-content.empty,
+.recent-paper-orders-content.empty,
 .strategy-parameters-content.empty,
 .backtest-result.empty,
 .backtest-history.empty {
@@ -1327,6 +1330,7 @@ dd {
 .bot-settings-content.error,
 .bot-performance-content.error,
 .paper-portfolio-content.error,
+.recent-paper-orders-content.error,
 .strategy-parameters-content.error,
 .backtest-history.error {
   background: var(--danger-soft);
@@ -1336,6 +1340,7 @@ dd {
 .bot-settings-content.loading,
 .bot-performance-content.loading,
 .paper-portfolio-content.loading,
+.recent-paper-orders-content.loading,
 .strategy-parameters-content.loading,
 .backtest-result.loading,
 .backtest-history.loading {
@@ -1346,6 +1351,7 @@ dd {
 .bot-performance-grid,
 .paper-portfolio-summary,
 .paper-portfolio-position-grid,
+.recent-paper-order-grid,
 .strategy-parameters-grid,
 .backtest-result-grid {
   display: grid;
@@ -1358,6 +1364,7 @@ dd {
 .bot-performance-grid div,
 .paper-portfolio-summary div,
 .paper-portfolio-position-grid div,
+.recent-paper-order-grid div,
 .strategy-parameters-grid div,
 .backtest-result-grid div {
   display: grid;
@@ -1369,6 +1376,7 @@ dd {
 .bot-performance-grid dd,
 .paper-portfolio-summary dd,
 .paper-portfolio-position-grid dd,
+.recent-paper-order-grid dd,
 .strategy-parameters-grid dd {
   overflow-wrap: break-word;
 }
@@ -1476,6 +1484,122 @@ dd {
 .paper-portfolio-position-grid {
   grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
   gap: 8px;
+}
+
+.recent-paper-orders-help {
+  margin: 4px 0 0;
+  color: var(--muted);
+  font-size: 0.78rem;
+  font-weight: 750;
+}
+
+.recent-paper-orders-list {
+  display: grid;
+  gap: 10px;
+}
+
+.recent-paper-order {
+  display: grid;
+  gap: 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #ffffff;
+  padding: 12px;
+}
+
+.recent-paper-order-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  min-width: 0;
+}
+
+.recent-paper-order-header div:first-child {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.recent-paper-order-header strong {
+  overflow-wrap: anywhere;
+  font-size: 0.92rem;
+}
+
+.recent-paper-order-header span {
+  color: var(--muted);
+  font-size: 0.76rem;
+  font-weight: 750;
+}
+
+.recent-paper-order-badges {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 6px;
+}
+
+.recent-order-side,
+.recent-order-status {
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 4px 8px;
+  font-size: 0.72rem;
+  font-weight: 850;
+  line-height: 1;
+}
+
+.recent-order-side.buy {
+  border-color: var(--green);
+  background: var(--green-soft);
+  color: var(--green);
+}
+
+.recent-order-side.sell {
+  border-color: var(--blue);
+  background: var(--blue-soft);
+  color: var(--blue);
+}
+
+.recent-order-status.filled {
+  border-color: var(--green);
+  background: var(--green-soft);
+  color: var(--green);
+}
+
+.recent-order-status.rejected,
+.recent-order-status.blocked {
+  border-color: var(--danger);
+  background: var(--danger-soft);
+  color: var(--danger);
+}
+
+.recent-order-status.pending {
+  border-color: var(--amber);
+  background: var(--amber-soft);
+  color: var(--amber);
+}
+
+.recent-paper-order-grid {
+  grid-template-columns: repeat(auto-fit, minmax(118px, 1fr));
+  gap: 8px;
+}
+
+.recent-paper-order-reason,
+.recent-paper-orders-note {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.82rem;
+  font-weight: 800;
+  overflow-wrap: anywhere;
+}
+
+.recent-paper-orders-note {
+  margin-top: 12px;
+}
+
+.recent-paper-orders-note.error {
+  color: var(--danger);
 }
 
 .strategy-parameters-empty {
