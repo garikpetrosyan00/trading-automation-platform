@@ -30,6 +30,7 @@ from app.repositories.portfolio import PortfolioRepository
 from app.repositories.run_event import RunEventRepository
 from app.repositories.strategy import StrategyRepository
 from app.services.brokers.binance import BinanceTestnetBroker, BinanceTestnetBrokerConfig, BinanceTestnetOrderClient
+from app.services.brokers.binance_exchange_info import BinanceExchangeInfoClient, BinanceExchangeInfoProvider
 from app.schemas.bot_activity import build_activity_item
 from app.schemas.bot_dashboard import BotDashboardItemRead, BotDashboardRead
 from app.schemas.bot_manual_run import BotDecisionExplanationRead, BotManualRunRead
@@ -63,6 +64,7 @@ class RunnerConfig:
     binance_testnet_api_secret: str | None = None
     binance_testnet_timeout_seconds: float = 5.0
     binance_testnet_recv_window: int = 5000
+    binance_testnet_exchange_info_ttl_seconds: float = 300.0
     binance_testnet_dry_run_enabled: bool = False
     execution_max_order_notional: Decimal | None = None
     execution_max_daily_order_count: int | None = None
@@ -78,6 +80,7 @@ class BotRunner:
         now_provider=None,
         risk_manager: RiskManager | None = None,
         binance_order_client_factory=None,
+        binance_exchange_info_provider_factory=None,
     ):
         self.session_factory = session_factory
         self.market_data_service = market_data_service
@@ -86,6 +89,10 @@ class BotRunner:
         self.risk_manager = risk_manager or RiskManager()
         self._risk_manager_override = risk_manager is not None
         self.binance_order_client_factory = binance_order_client_factory or self._build_default_binance_order_client
+        self.binance_exchange_info_provider_factory = (
+            binance_exchange_info_provider_factory or self._build_default_binance_exchange_info_provider
+        )
+        self._binance_exchange_info_provider: BinanceExchangeInfoProvider | None = None
         self._task: asyncio.Task[None] | None = None
         self._cycle_lock = asyncio.Lock()
 
@@ -829,6 +836,7 @@ class BotRunner:
         return BinanceTestnetBroker(
             config,
             http_client=http_client,
+            exchange_info_provider=self.binance_exchange_info_provider_factory(config),
             safety_guard=safety_guard,
             attempt_service=ExecutionAttemptService(attempt_repository),
         )
@@ -839,6 +847,20 @@ class BotRunner:
             api_key=config.api_key or "",
             timeout_seconds=self.config.binance_testnet_timeout_seconds,
         )
+
+    def _build_default_binance_exchange_info_provider(
+        self,
+        config: BinanceTestnetBrokerConfig,
+    ) -> BinanceExchangeInfoProvider:
+        if self._binance_exchange_info_provider is None:
+            self._binance_exchange_info_provider = BinanceExchangeInfoProvider(
+                BinanceExchangeInfoClient(
+                    base_url=config.base_url,
+                    timeout_seconds=self.config.binance_testnet_timeout_seconds,
+                ),
+                ttl_seconds=self.config.binance_testnet_exchange_info_ttl_seconds,
+            )
+        return self._binance_exchange_info_provider
 
     @staticmethod
     def _bot_execution_mode(bot) -> str:

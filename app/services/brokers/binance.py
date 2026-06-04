@@ -11,6 +11,7 @@ from urllib.parse import urlencode
 import httpx
 
 from app.services.brokers.base import BrokerOrderIntent, BrokerOrderResult
+from app.services.brokers.binance_exchange_info import BinanceExchangeInfoProvider, BinanceMarketOrderValidator
 from app.services.brokers.safety import ExecutionSafetyConfig, ExecutionSafetyGuard
 from app.services.execution_attempt import ExecutionAttemptService
 
@@ -148,11 +149,13 @@ class BinanceTestnetBroker:
         self,
         config: BinanceTestnetBrokerConfig,
         http_client=None,
+        exchange_info_provider: BinanceExchangeInfoProvider | None = None,
         safety_guard: ExecutionSafetyGuard | None = None,
         attempt_service: ExecutionAttemptService | None = None,
     ):
         self.config = config
         self.http_client = http_client
+        self.exchange_info_provider = exchange_info_provider
         self.attempt_service = attempt_service
         self.request_builder = (
             BinanceSignedRequestBuilder(BinanceRequestSigner(config.api_secret), recv_window=config.recv_window)
@@ -226,6 +229,11 @@ class BinanceTestnetBroker:
             self._record_attempt(intent, result, final_status="rejected_by_broker", safety_status="allowed")
             return result
 
+        exchange_info_decision = self._validate_exchange_info(normalized_symbol, intent)
+        if not exchange_info_decision.accepted:
+            self._record_attempt(intent, exchange_info_decision, final_status="rejected_by_broker", safety_status="allowed")
+            return exchange_info_decision
+
         client_order_id = self._generate_client_order_id()
         signed_params = self._build_signed_market_order_params(
             symbol=normalized_symbol,
@@ -265,6 +273,31 @@ class BinanceTestnetBroker:
             safety_status="allowed",
         )
         return result
+
+    def _validate_exchange_info(self, normalized_symbol: str, intent: BrokerOrderIntent) -> BrokerOrderResult:
+        if self.exchange_info_provider is None:
+            return self._rejected(
+                "Binance testnet exchange info is unavailable",
+                reason="testnet_exchange_info_unavailable",
+                metadata={"symbol": normalized_symbol, "mode": "testnet", "broker": "binance_testnet"},
+            )
+        decision = BinanceMarketOrderValidator(self.exchange_info_provider).validate(
+            symbol=normalized_symbol,
+            quantity=intent.quantity,
+            market_price=intent.market_price,
+        )
+        if decision.allowed:
+            return BrokerOrderResult(
+                accepted=True,
+                status="validated",
+                message="Binance testnet exchange info validation passed",
+                metadata=decision.metadata,
+            )
+        return self._rejected(
+            decision.reason,
+            reason=decision.reason,
+            metadata=decision.metadata,
+        )
 
     def _record_successful_daily_quota(self, intent: BrokerOrderIntent) -> dict:
         daily_limit_service = self.safety_guard.daily_limit_service

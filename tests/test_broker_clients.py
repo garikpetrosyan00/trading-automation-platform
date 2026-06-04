@@ -20,6 +20,13 @@ from app.services.brokers.binance import (
     BinanceTestnetOrderClient,
     BinanceTestnetOrderClientError,
 )
+from app.services.brokers.binance_exchange_info import (
+    BinanceExchangeInfo,
+    BinanceExchangeInfoError,
+    BinanceExchangeInfoProvider,
+    BinanceQuantityFilter,
+    BinanceSymbolRules,
+)
 from app.services.brokers.safety import ExecutionSafetyConfig, ExecutionSafetyGuard
 from app.core.config import Settings
 from app.repositories.execution_attempt import ExecutionAttemptRepository
@@ -57,6 +64,27 @@ class RecordingOrderClient:
         return self.response
 
 
+class StaticExchangeInfoProvider:
+    def __init__(self, info: BinanceExchangeInfo | None = None, exception: Exception | None = None):
+        self.info = info or BinanceExchangeInfo(
+            symbols={
+                "BTCUSDT": BinanceSymbolRules(
+                    symbol="BTCUSDT",
+                    status="TRADING",
+                    order_types=frozenset({"LIMIT", "MARKET"}),
+                )
+            }
+        )
+        self.exception = exception
+        self.calls = 0
+
+    def get_exchange_info(self) -> BinanceExchangeInfo:
+        self.calls += 1
+        if self.exception is not None:
+            raise self.exception
+        return self.info
+
+
 def enabled_binance_config(**overrides) -> BinanceTestnetBrokerConfig:
     values = {
         "enabled": True,
@@ -66,6 +94,10 @@ def enabled_binance_config(**overrides) -> BinanceTestnetBrokerConfig:
     }
     values.update(overrides)
     return BinanceTestnetBrokerConfig(**values)
+
+
+def valid_exchange_info_provider() -> BinanceExchangeInfoProvider:
+    return StaticExchangeInfoProvider()  # type: ignore[return-value]
 
 
 def add_attempt(
@@ -804,7 +836,8 @@ def test_binance_testnet_broker_respects_safety_guard() -> None:
 
 def test_binance_testnet_broker_order_submission_still_not_implemented_with_credentials() -> None:
     broker = BinanceTestnetBroker(
-        enabled_binance_config()
+        enabled_binance_config(),
+        exchange_info_provider=valid_exchange_info_provider(),
     )
 
     result = broker.submit_market_order(BrokerOrderIntent(symbol="BTCUSDT", side="buy", quantity=Decimal("0.1")))
@@ -827,6 +860,7 @@ def test_binance_testnet_broker_dry_run_prepares_signed_request_without_network_
     broker = BinanceTestnetBroker(
         enabled_binance_config(dry_run_enabled=True),
         http_client=ExplodingHttpClient(),
+        exchange_info_provider=valid_exchange_info_provider(),
         attempt_service=ExecutionAttemptService(ExecutionAttemptRepository(db_session)),
     )
 
@@ -889,6 +923,7 @@ def test_binance_testnet_broker_enabled_mocked_submission_normalizes_success(db_
     broker = BinanceTestnetBroker(
         enabled_binance_config(),
         http_client=client,
+        exchange_info_provider=valid_exchange_info_provider(),
         attempt_service=ExecutionAttemptService(ExecutionAttemptRepository(db_session)),
     )
 
@@ -925,7 +960,7 @@ def test_binance_testnet_broker_error_json_normalizes_rejection() -> None:
             payload={"code": -2010, "msg": "Account has insufficient balance"},
         )
     )
-    broker = BinanceTestnetBroker(enabled_binance_config(), http_client=client)
+    broker = BinanceTestnetBroker(enabled_binance_config(), http_client=client, exchange_info_provider=valid_exchange_info_provider())
 
     result = broker.submit_market_order(BrokerOrderIntent(symbol="BTCUSDT", side="buy", quantity=Decimal("0.1")))
 
@@ -936,9 +971,76 @@ def test_binance_testnet_broker_error_json_normalizes_rejection() -> None:
     assert result.metadata["binance_code"] == -2010
 
 
+def test_binance_testnet_broker_exchange_info_unavailable_blocks_before_signing_and_http(db_session) -> None:
+    client = RecordingOrderClient()
+    provider = StaticExchangeInfoProvider(exception=BinanceExchangeInfoError("raw unavailable detail"))
+    broker = BinanceTestnetBroker(
+        enabled_binance_config(),
+        http_client=client,
+        exchange_info_provider=provider,  # type: ignore[arg-type]
+        attempt_service=ExecutionAttemptService(ExecutionAttemptRepository(db_session)),
+    )
+
+    result = broker.submit_market_order(
+        BrokerOrderIntent(symbol="BTCUSDT", side="buy", quantity=Decimal("0.1"), market_price=Decimal("100"))
+    )
+
+    attempts = ExecutionAttemptRepository(db_session).list_filtered()
+    assert result.accepted is False
+    assert result.reason == "testnet_exchange_info_unavailable"
+    assert client.calls == []
+    assert attempts[0].final_reason == "testnet_exchange_info_unavailable"
+    assert "raw unavailable detail" not in str(attempts[0].metadata_)
+    assert "signature" not in str(attempts[0].metadata_).lower()
+
+
+def test_binance_testnet_broker_filter_rejection_blocks_before_signing_and_http(db_session) -> None:
+    client = RecordingOrderClient()
+    provider = StaticExchangeInfoProvider(
+        BinanceExchangeInfo(
+            symbols={
+                "BTCUSDT": BinanceSymbolRules(
+                    symbol="BTCUSDT",
+                    status="TRADING",
+                    order_types=frozenset({"MARKET"}),
+                )
+            }
+        )
+    )
+    # Attach a minimal lot-size filter after construction to keep this test focused on broker integration.
+    rules = provider.info.symbols["BTCUSDT"]
+    object.__setattr__(
+        rules,
+        "lot_size",
+        BinanceQuantityFilter(
+            filter_type="LOT_SIZE",
+            min_qty=Decimal("1"),
+            max_qty=Decimal("10"),
+            step_size=Decimal("1"),
+        ),
+    )
+    broker = BinanceTestnetBroker(
+        enabled_binance_config(),
+        http_client=client,
+        exchange_info_provider=provider,  # type: ignore[arg-type]
+        attempt_service=ExecutionAttemptService(ExecutionAttemptRepository(db_session)),
+    )
+
+    result = broker.submit_market_order(
+        BrokerOrderIntent(symbol="BTCUSDT", side="buy", quantity=Decimal("0.1"), market_price=Decimal("100"))
+    )
+
+    attempts = ExecutionAttemptRepository(db_session).list_filtered()
+    assert result.accepted is False
+    assert result.reason == "testnet_quantity_below_minimum"
+    assert client.calls == []
+    assert attempts[0].metadata_["filter_type"] == "LOT_SIZE"
+    assert "signature" not in str(attempts[0].metadata_).lower()
+
+
 def test_binance_testnet_broker_non_2xx_without_error_message_normalizes_safely() -> None:
     client = RecordingOrderClient(response=BinanceOrderHttpResponse(status_code=500, payload={}))
-    broker = BinanceTestnetBroker(enabled_binance_config(), http_client=client)
+    broker = BinanceTestnetBroker(enabled_binance_config(), http_client=client, exchange_info_provider=valid_exchange_info_provider())
 
     result = broker.submit_market_order(BrokerOrderIntent(symbol="BTCUSDT", side="buy", quantity=Decimal("0.1")))
 
@@ -950,7 +1052,7 @@ def test_binance_testnet_broker_non_2xx_without_error_message_normalizes_safely(
 
 def test_binance_testnet_broker_invalid_json_normalizes_safely() -> None:
     client = RecordingOrderClient(exception=BinanceInvalidOrderResponseError("Invalid JSON"))
-    broker = BinanceTestnetBroker(enabled_binance_config(), http_client=client)
+    broker = BinanceTestnetBroker(enabled_binance_config(), http_client=client, exchange_info_provider=valid_exchange_info_provider())
 
     result = broker.submit_market_order(BrokerOrderIntent(symbol="BTCUSDT", side="buy", quantity=Decimal("0.1")))
 
@@ -961,7 +1063,7 @@ def test_binance_testnet_broker_invalid_json_normalizes_safely() -> None:
 
 def test_binance_testnet_broker_network_error_normalizes_safely() -> None:
     client = RecordingOrderClient(exception=BinanceTestnetOrderClientError("timeout"))
-    broker = BinanceTestnetBroker(enabled_binance_config(), http_client=client)
+    broker = BinanceTestnetBroker(enabled_binance_config(), http_client=client, exchange_info_provider=valid_exchange_info_provider())
 
     result = broker.submit_market_order(BrokerOrderIntent(symbol="BTCUSDT", side="buy", quantity=Decimal("0.1")))
 
@@ -1002,3 +1104,4 @@ def test_execution_config_defaults_are_safe() -> None:
     assert Settings.model_fields["binance_testnet_broker_enabled"].default is False
     assert Settings.model_fields["binance_testnet_order_submission_enabled"].default is False
     assert Settings.model_fields["binance_testnet_dry_run_enabled"].default is False
+    assert Settings.model_fields["binance_testnet_exchange_info_ttl_seconds"].default == 300.0

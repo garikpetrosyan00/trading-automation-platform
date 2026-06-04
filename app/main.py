@@ -50,6 +50,7 @@ async def lifespan(app: FastAPI):
                 binance_testnet_api_secret=settings.binance_testnet_api_secret,
                 binance_testnet_timeout_seconds=settings.binance_testnet_timeout_seconds,
                 binance_testnet_recv_window=settings.binance_testnet_recv_window,
+                binance_testnet_exchange_info_ttl_seconds=settings.binance_testnet_exchange_info_ttl_seconds,
                 binance_testnet_dry_run_enabled=settings.binance_testnet_dry_run_enabled,
                 execution_max_order_notional=settings.execution_max_order_notional,
                 execution_max_daily_order_count=settings.execution_max_daily_order_count,

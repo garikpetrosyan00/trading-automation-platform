@@ -66,6 +66,11 @@ class Settings(BaseSettings):
         gt=0,
         validation_alias=AliasChoices("BINANCE_TESTNET_RECV_WINDOW"),
     )
+    binance_testnet_exchange_info_ttl_seconds: float = Field(
+        default=300.0,
+        gt=0,
+        validation_alias=AliasChoices("BINANCE_TESTNET_EXCHANGE_INFO_TTL_SECONDS"),
+    )
     binance_testnet_dry_run_enabled: bool = Field(
         default=False,
         validation_alias=AliasChoices("BINANCE_TESTNET_DRY_RUN_ENABLED"),

@@ -15,6 +15,12 @@ from app.services.brokers.binance import (
     BinanceOrderHttpResponse,
     BinanceTestnetOrderClientError,
 )
+from app.services.brokers.binance_exchange_info import (
+    BinanceExchangeInfo,
+    BinanceExchangeInfoError,
+    BinanceQuantityFilter,
+    BinanceSymbolRules,
+)
 
 
 API_KEY = "runtime-api-key"
@@ -43,6 +49,19 @@ class RecordingBinanceOrderClient:
         if self.exception is not None:
             raise self.exception
         return self.response
+
+
+class StaticExchangeInfoProvider:
+    def __init__(self, info: BinanceExchangeInfo | None = None, exception: Exception | None = None):
+        self.info = info or valid_exchange_info()
+        self.exception = exception
+        self.calls = 0
+
+    def get_exchange_info(self) -> BinanceExchangeInfo:
+        self.calls += 1
+        if self.exception is not None:
+            raise self.exception
+        return self.info
 
 
 def test_paper_bot_still_uses_simulated_execution_and_never_calls_binance(
@@ -277,6 +296,73 @@ def test_testnet_runtime_dry_run_persists_safe_attempt_without_http_call(
     assert_no_secret_leak(str(attempts[0].metadata_))
 
 
+def test_testnet_runtime_unavailable_exchange_info_blocks_before_order_submission(
+    db_session,
+    db_session_factory,
+    stub_market_data_service,
+    bot_stack_factory,
+) -> None:
+    _, bot, _ = bot_stack_factory(db_session, is_paper=False, execution_mode="testnet")
+    client = RecordingBinanceOrderClient()
+    exchange_info_provider = StaticExchangeInfoProvider(
+        exception=BinanceExchangeInfoError("raw response body must stay private")
+    )
+    runner = build_testnet_runner(
+        db_session_factory,
+        stub_market_data_service,
+        client,
+        exchange_info_provider=exchange_info_provider,
+    )
+    runner.start_bot(bot.id)
+    stub_market_data_service.set_price("BTCUSDT", "95")
+
+    asyncio.run(runner.run_cycle())
+
+    attempts = ExecutionAttemptRepository(db_session).list_filtered(bot_id=bot.id)
+    assert exchange_info_provider.calls == 1
+    assert client.calls == []
+    assert attempts[0].final_reason == "testnet_exchange_info_unavailable"
+    assert_no_secret_leak(str(attempts[0].metadata_))
+    assert "raw response body" not in str(attempts[0].metadata_)
+
+
+def test_testnet_runtime_invalid_filter_blocks_before_signing_and_order_submission(
+    db_session,
+    db_session_factory,
+    stub_market_data_service,
+    bot_stack_factory,
+) -> None:
+    _, bot, _ = bot_stack_factory(db_session, is_paper=False, execution_mode="testnet")
+    client = RecordingBinanceOrderClient()
+    exchange_info_provider = StaticExchangeInfoProvider(
+        valid_exchange_info(
+            lot_size=BinanceQuantityFilter(
+                filter_type="LOT_SIZE",
+                min_qty=Decimal("1"),
+                max_qty=Decimal("10"),
+                step_size=Decimal("1"),
+            )
+        )
+    )
+    runner = build_testnet_runner(
+        db_session_factory,
+        stub_market_data_service,
+        client,
+        exchange_info_provider=exchange_info_provider,
+    )
+    runner.start_bot(bot.id)
+    stub_market_data_service.set_price("BTCUSDT", "95")
+
+    asyncio.run(runner.run_cycle())
+
+    attempts = ExecutionAttemptRepository(db_session).list_filtered(bot_id=bot.id)
+    assert exchange_info_provider.calls == 1
+    assert client.calls == []
+    assert attempts[0].final_reason == "testnet_quantity_below_minimum"
+    assert attempts[0].metadata_["filter_type"] == "LOT_SIZE"
+    assert_no_secret_leak(str(attempts[0].metadata_))
+
+
 def test_live_bot_remains_blocked_and_never_calls_binance(
     db_session,
     db_session_factory,
@@ -298,7 +384,14 @@ def test_live_bot_remains_blocked_and_never_calls_binance(
     assert PortfolioRepository(db_session).list_orders() == []
 
 
-def build_testnet_runner(db_session_factory, market_data_service, client, **config_overrides) -> BotRunner:
+def build_testnet_runner(
+    db_session_factory,
+    market_data_service,
+    client,
+    *,
+    exchange_info_provider: StaticExchangeInfoProvider | None = None,
+    **config_overrides,
+) -> BotRunner:
     config_values = {
         "enabled": True,
         "poll_interval_seconds": 3600,
@@ -321,6 +414,7 @@ def build_testnet_runner(db_session_factory, market_data_service, client, **conf
         config=RunnerConfig(**config_values),
         now_provider=runner_daytime,
         binance_order_client_factory=lambda _: client,
+        binance_exchange_info_provider_factory=lambda _: exchange_info_provider or StaticExchangeInfoProvider(),
     )
 
 
@@ -340,3 +434,16 @@ def assert_no_secret_leak(serialized: str) -> None:
     assert "signature" not in serialized.lower()
     assert "X-MBX-APIKEY" not in serialized
     assert "signed request" not in serialized.lower()
+
+
+def valid_exchange_info(lot_size: BinanceQuantityFilter | None = None) -> BinanceExchangeInfo:
+    return BinanceExchangeInfo(
+        symbols={
+            "BTCUSDT": BinanceSymbolRules(
+                symbol="BTCUSDT",
+                status="TRADING",
+                order_types=frozenset({"LIMIT", "MARKET"}),
+                lot_size=lot_size,
+            )
+        }
+    )
