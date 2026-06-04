@@ -495,6 +495,7 @@ def test_create_bot_returns_created_bot_and_persists_it(
     assert created_bot["exchange_name"] == "binance"
     assert created_bot["status"] == "draft"
     assert created_bot["is_paper"] is True
+    assert created_bot["execution_mode"] == "paper"
     assert created_bot["notes"] == "Created from API test"
     assert set(created_bot) == {
         "id",
@@ -503,6 +504,7 @@ def test_create_bot_returns_created_bot_and_persists_it(
         "exchange_name",
         "status",
         "is_paper",
+        "execution_mode",
         "notes",
         "created_at",
         "updated_at",
@@ -772,6 +774,108 @@ def test_update_bot_basic_fields_returns_updated_bot(
     assert update_response.json()["exchange_name"] == "kraken"
     assert update_response.json()["notes"] == "Updated from API test"
     assert update_response.json()["status"] == "draft"
+
+
+def test_bot_execution_mode_defaults_and_legacy_is_paper_mapping(
+    db_session_factory,
+    stub_market_data_service,
+    bot_runner_factory,
+    configure_app_state,
+) -> None:
+    with db_session_factory() as session:
+        strategy_id = create_strategy(session).id
+
+    configure_app_state(
+        market_data_service=stub_market_data_service,
+        bot_runner=bot_runner_factory(),
+    )
+
+    with TestClient(app) as client:
+        default_response = client.post(
+            "/api/v1/bots",
+            json={
+                "name": "Default Mode Bot",
+                "strategy_id": strategy_id,
+                "exchange_name": "binance",
+            },
+        )
+        paper_response = client.post(
+            "/api/v1/bots",
+            json={
+                "name": "Legacy Paper Bot",
+                "strategy_id": strategy_id,
+                "exchange_name": "binance",
+                "is_paper": True,
+            },
+        )
+        live_response = client.post(
+            "/api/v1/bots",
+            json={
+                "name": "Legacy Live Bot",
+                "strategy_id": strategy_id,
+                "exchange_name": "binance",
+                "is_paper": False,
+            },
+        )
+        testnet_response = client.post(
+            "/api/v1/bots",
+            json={
+                "name": "Explicit Testnet Bot",
+                "strategy_id": strategy_id,
+                "exchange_name": "binance",
+                "execution_mode": "testnet",
+            },
+        )
+
+    assert default_response.status_code == 201
+    assert default_response.json()["execution_mode"] == "paper"
+    assert default_response.json()["is_paper"] is True
+    assert paper_response.status_code == 201
+    assert paper_response.json()["execution_mode"] == "paper"
+    assert paper_response.json()["is_paper"] is True
+    assert live_response.status_code == 201
+    assert live_response.json()["execution_mode"] == "live"
+    assert live_response.json()["is_paper"] is False
+    assert testnet_response.status_code == 201
+    assert testnet_response.json()["execution_mode"] == "testnet"
+    assert testnet_response.json()["is_paper"] is False
+
+
+def test_bot_execution_mode_update_syncs_legacy_is_paper_and_rejects_unknown_mode(
+    db_session_factory,
+    stub_market_data_service,
+    bot_runner_factory,
+    configure_app_state,
+) -> None:
+    with db_session_factory() as session:
+        strategy_id = create_strategy(session).id
+
+    configure_app_state(
+        market_data_service=stub_market_data_service,
+        bot_runner=bot_runner_factory(),
+    )
+
+    with TestClient(app) as client:
+        create_response = client.post(
+            "/api/v1/bots",
+            json={
+                "name": "Mode Update Bot",
+                "strategy_id": strategy_id,
+                "exchange_name": "binance",
+            },
+        )
+        bot_id = create_response.json()["id"]
+        live_response = client.patch(f"/api/v1/bots/{bot_id}", json={"is_paper": False})
+        testnet_response = client.patch(f"/api/v1/bots/{bot_id}", json={"execution_mode": "testnet"})
+        invalid_response = client.patch(f"/api/v1/bots/{bot_id}", json={"execution_mode": "sandbox"})
+
+    assert live_response.status_code == 200
+    assert live_response.json()["execution_mode"] == "live"
+    assert live_response.json()["is_paper"] is False
+    assert testnet_response.status_code == 200
+    assert testnet_response.json()["execution_mode"] == "testnet"
+    assert testnet_response.json()["is_paper"] is False
+    assert invalid_response.status_code == 422
 
 
 def test_update_bot_status_returns_updated_status(

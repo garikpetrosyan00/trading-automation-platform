@@ -29,6 +29,7 @@ from app.repositories.paper_accounting import PaperAccountingRepository
 from app.repositories.portfolio import PortfolioRepository
 from app.repositories.run_event import RunEventRepository
 from app.repositories.strategy import StrategyRepository
+from app.services.brokers.binance import BinanceTestnetBroker, BinanceTestnetBrokerConfig, BinanceTestnetOrderClient
 from app.schemas.bot_activity import build_activity_item
 from app.schemas.bot_dashboard import BotDashboardItemRead, BotDashboardRead
 from app.schemas.bot_manual_run import BotDecisionExplanationRead, BotManualRunRead
@@ -55,7 +56,14 @@ class RunnerConfig:
     simulation_slippage_bps: Decimal
     execution_global_enabled: bool = True
     execution_live_enabled: bool = False
+    binance_testnet_broker_enabled: bool = False
     binance_testnet_order_submission_enabled: bool = False
+    binance_testnet_base_url: str = "https://testnet.binance.vision"
+    binance_testnet_api_key: str | None = None
+    binance_testnet_api_secret: str | None = None
+    binance_testnet_timeout_seconds: float = 5.0
+    binance_testnet_recv_window: int = 5000
+    binance_testnet_dry_run_enabled: bool = False
     execution_max_order_notional: Decimal | None = None
     execution_max_daily_order_count: int | None = None
     execution_max_daily_loss: Decimal | None = None
@@ -69,6 +77,7 @@ class BotRunner:
         config: RunnerConfig,
         now_provider=None,
         risk_manager: RiskManager | None = None,
+        binance_order_client_factory=None,
     ):
         self.session_factory = session_factory
         self.market_data_service = market_data_service
@@ -76,6 +85,7 @@ class BotRunner:
         self.now_provider = now_provider or (lambda: datetime.now(timezone.utc))
         self.risk_manager = risk_manager or RiskManager()
         self._risk_manager_override = risk_manager is not None
+        self.binance_order_client_factory = binance_order_client_factory or self._build_default_binance_order_client
         self._task: asyncio.Task[None] | None = None
         self._cycle_lock = asyncio.Lock()
 
@@ -482,8 +492,8 @@ class BotRunner:
                     strategy_id=strategy.id,
                     symbol=strategy.symbol,
                     side=decision.action,
-                    mode="paper" if bot.is_paper else "live",
-                    broker="paper" if bot.is_paper else None,
+                    mode=self._bot_execution_mode(bot),
+                    broker="paper" if self._bot_execution_mode(bot) == "paper" else None,
                     requested_quantity=risk_quantity,
                     requested_price=decision.current_price if decision.current_price is not None else latest_price,
                     decision_reason=decision_payload.get("detail") or decision_payload.get("reason"),
@@ -587,7 +597,8 @@ class BotRunner:
         )
         db.commit()
 
-        if not bot.is_paper:
+        execution_mode = self._bot_execution_mode(bot)
+        if execution_mode == "live":
             ExecutionAttemptService(ExecutionAttemptRepository(db)).record(
                 bot_id=bot.id,
                 strategy_id=strategy.id,
@@ -631,6 +642,36 @@ class BotRunner:
                 now_provider=self.now_provider,
             ),
         )
+        if execution_mode == "testnet":
+            result = self._submit_binance_testnet_order(
+                safety_guard=safety_guard,
+                attempt_repository=attempt_repository,
+                bot_id=bot.id,
+                strategy_id=strategy.id,
+                symbol=strategy.symbol,
+                side=execution_action,
+                quantity=quantity,
+                market_price=decision.current_price if decision.current_price is not None else latest_price,
+                decision_reason=decision_payload.get("detail") or decision_payload.get("reason"),
+                decision_metadata=decision_payload,
+            )
+            self._record_event(
+                db,
+                bot_run.id,
+                event_type="system",
+                level="info" if result.accepted else "warning",
+                message="order_submitted" if result.accepted else "order_rejected",
+                payload={
+                    "side": execution_action,
+                    "symbol": strategy.symbol,
+                    "message": result.message,
+                    "external_order_id": result.external_order_id,
+                    **decision_payload,
+                },
+            )
+            db.commit()
+            return
+
         safety_decision = safety_guard.validate_order(
             PaperOrderIntent(
                 bot_id=bot.id,
@@ -738,6 +779,73 @@ class BotRunner:
             },
         )
         db.commit()
+
+    def _submit_binance_testnet_order(
+        self,
+        *,
+        safety_guard: ExecutionSafetyGuard,
+        attempt_repository: ExecutionAttemptRepository,
+        bot_id: int,
+        strategy_id: int,
+        symbol: str,
+        side: str,
+        quantity: Decimal,
+        market_price: Decimal | None,
+        decision_reason: str | None,
+        decision_metadata: dict,
+    ):
+        broker = self._build_binance_testnet_broker(safety_guard, attempt_repository)
+        return broker.submit_market_order(
+            PaperOrderIntent(
+                bot_id=bot_id,
+                strategy_id=strategy_id,
+                symbol=symbol,
+                side=side,
+                quantity=quantity,
+                mode="testnet",
+                market_price=market_price,
+                decision_reason=decision_reason,
+                decision_metadata=decision_metadata,
+            )
+        )
+
+    def _build_binance_testnet_broker(
+        self,
+        safety_guard: ExecutionSafetyGuard,
+        attempt_repository: ExecutionAttemptRepository,
+    ) -> BinanceTestnetBroker:
+        config = BinanceTestnetBrokerConfig(
+            enabled=self.config.binance_testnet_broker_enabled,
+            order_submission_enabled=self.config.binance_testnet_order_submission_enabled,
+            dry_run_enabled=self.config.binance_testnet_dry_run_enabled,
+            base_url=self.config.binance_testnet_base_url,
+            api_key=self.config.binance_testnet_api_key,
+            api_secret=self.config.binance_testnet_api_secret,
+            recv_window=self.config.binance_testnet_recv_window,
+        )
+        http_client = None
+        if self.config.binance_testnet_api_key:
+            http_client = self.binance_order_client_factory(config)
+        return BinanceTestnetBroker(
+            config,
+            http_client=http_client,
+            safety_guard=safety_guard,
+            attempt_service=ExecutionAttemptService(attempt_repository),
+        )
+
+    def _build_default_binance_order_client(self, config: BinanceTestnetBrokerConfig) -> BinanceTestnetOrderClient:
+        return BinanceTestnetOrderClient(
+            base_url=config.base_url,
+            api_key=config.api_key or "",
+            timeout_seconds=self.config.binance_testnet_timeout_seconds,
+        )
+
+    @staticmethod
+    def _bot_execution_mode(bot) -> str:
+        mode = getattr(bot, "execution_mode", None)
+        if mode:
+            return mode
+        return "paper" if bot.is_paper else "live"
 
     def _ensure_running_run(self, bot_run_service: BotRunService, bot_id: int, trigger_type: str) -> BotRun:
         existing = bot_run_service.repository.get_active_for_bot(bot_id)

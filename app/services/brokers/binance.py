@@ -2,7 +2,8 @@ from __future__ import annotations
 
 import hashlib
 import hmac
-from dataclasses import dataclass
+import uuid
+from dataclasses import dataclass, replace
 from datetime import datetime, timezone
 from decimal import Decimal, InvalidOperation
 from urllib.parse import urlencode
@@ -65,13 +66,22 @@ class BinanceSignedRequestBuilder:
         params["signature"] = self.signer.sign(params)
         return params
 
-    def market_order_params(self, *, symbol: str, side: str, quantity: Decimal) -> dict:
+    def market_order_params(
+        self,
+        *,
+        symbol: str,
+        side: str,
+        quantity: Decimal,
+        client_order_id: str | None = None,
+    ) -> dict:
         payload = {
             "symbol": symbol.strip().upper(),
             "side": side.upper(),
             "type": "MARKET",
             "quantity": self._format_decimal(quantity),
         }
+        if client_order_id is not None:
+            payload["newClientOrderId"] = client_order_id
         return self.signed_params(payload)
 
     @staticmethod
@@ -193,7 +203,11 @@ class BinanceTestnetBroker:
             decision_reason=intent.decision_reason,
             decision_metadata=intent.decision_metadata,
         )
-        safety_decision = self.safety_guard.validate_order(safety_intent, broker="binance_testnet")
+        safety_decision = self.safety_guard.validate_order(
+            safety_intent,
+            broker="binance_testnet",
+            market_price=intent.market_price,
+        )
         if not safety_decision.allowed:
             result = self._rejected(
                 safety_decision.reason,
@@ -212,10 +226,12 @@ class BinanceTestnetBroker:
             self._record_attempt(intent, result, final_status="rejected_by_broker", safety_status="allowed")
             return result
 
+        client_order_id = self._generate_client_order_id()
         signed_params = self._build_signed_market_order_params(
             symbol=normalized_symbol,
             side=intent.side,
             quantity=intent.quantity,
+            client_order_id=client_order_id,
         )
         if self.config.dry_run_enabled:
             result = BrokerOrderResult(
@@ -238,6 +254,10 @@ class BinanceTestnetBroker:
             return result
 
         result = self._submit_signed_order(intent, signed_params)
+        if result.accepted:
+            quota_metadata = self._record_successful_daily_quota(intent)
+            if quota_metadata:
+                result = replace(result, metadata={**result.metadata, **quota_metadata})
         self._record_attempt(
             intent,
             result,
@@ -245,6 +265,21 @@ class BinanceTestnetBroker:
             safety_status="allowed",
         )
         return result
+
+    def _record_successful_daily_quota(self, intent: BrokerOrderIntent) -> dict:
+        daily_limit_service = self.safety_guard.daily_limit_service
+        if daily_limit_service is None:
+            return {}
+        reservation = daily_limit_service.reserve_accepted_order_quota(
+            bot_id=intent.bot_id,
+            max_daily_order_count=self.safety_guard.config.max_daily_order_count,
+            enforce_limit=False,
+        )
+        return {
+            "daily_order_count": reservation.count,
+            "max_daily_order_count": reservation.max_daily_order_count,
+            "utc_day": reservation.utc_day.isoformat(),
+        }
 
     def _submit_signed_order(self, intent: BrokerOrderIntent, signed_params: dict) -> BrokerOrderResult:
         try:
@@ -317,7 +352,8 @@ class BinanceTestnetBroker:
                 **self._safe_signed_request_metadata(signed_params, intent),
                 "status_code": response.status_code,
                 "exchange_status": payload.get("status"),
-                "client_order_id_present": payload.get("clientOrderId") is not None,
+                "exchange_order_id": external_order_id,
+                "exchange_client_order_id": payload.get("clientOrderId"),
             },
         )
 
@@ -388,10 +424,26 @@ class BinanceTestnetBroker:
             return None
         return decimal_value
 
-    def _build_signed_market_order_params(self, *, symbol: str, side: str, quantity: Decimal) -> dict:
+    def _build_signed_market_order_params(
+        self,
+        *,
+        symbol: str,
+        side: str,
+        quantity: Decimal,
+        client_order_id: str,
+    ) -> dict:
         if self.request_builder is None:
             raise ValueError("Binance signed request builder requires an API secret")
-        return self.request_builder.market_order_params(symbol=symbol, side=side, quantity=quantity)
+        return self.request_builder.market_order_params(
+            symbol=symbol,
+            side=side,
+            quantity=quantity,
+            client_order_id=client_order_id,
+        )
+
+    @staticmethod
+    def _generate_client_order_id() -> str:
+        return f"tap_{uuid.uuid4().hex}"
 
     def _safe_signed_request_metadata(self, signed_params: dict, intent: BrokerOrderIntent) -> dict:
         return {
@@ -402,10 +454,12 @@ class BinanceTestnetBroker:
             "side": signed_params["side"],
             "order_type": signed_params["type"],
             "quantity": signed_params["quantity"],
-            "has_signature": bool(signed_params.get("signature")),
+            "client_order_id": signed_params.get("newClientOrderId"),
+            "signed": bool(signed_params.get("signature")),
             "credentials_configured": bool(self.config.api_key and self.config.api_secret),
             "dry_run": self.config.dry_run_enabled,
             "mode": "testnet",
+            "broker": "binance_testnet",
             "bot_id": intent.bot_id,
             "strategy_id": intent.strategy_id,
         }
@@ -428,7 +482,7 @@ class BinanceTestnetBroker:
             mode="testnet",
             broker="binance_testnet",
             requested_quantity=intent.quantity,
-            requested_price=None,
+            requested_price=intent.market_price,
             decision_reason=intent.decision_reason,
             risk_status=None,
             safety_status=safety_status,

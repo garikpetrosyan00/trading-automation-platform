@@ -118,6 +118,7 @@ def bot_stack_factory():
         symbol: str = "BTCUSDT",
         status: str = "draft",
         is_paper: bool = True,
+        execution_mode: str | None = None,
         strategy_is_active: bool = True,
         cooldown_seconds: int = 60,
         description: str = "Test strategy",
@@ -141,6 +142,7 @@ def bot_stack_factory():
             exchange_name="binance",
             status=status,
             is_paper=is_paper,
+            execution_mode=execution_mode or ("paper" if is_paper else "live"),
         )
         session.add(bot)
         session.commit()

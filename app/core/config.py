@@ -56,6 +56,20 @@ class Settings(BaseSettings):
         default="https://testnet.binance.vision",
         validation_alias=AliasChoices("BINANCE_TESTNET_BASE_URL"),
     )
+    binance_testnet_timeout_seconds: float = Field(
+        default=5.0,
+        gt=0,
+        validation_alias=AliasChoices("BINANCE_TESTNET_TIMEOUT_SECONDS"),
+    )
+    binance_testnet_recv_window: int = Field(
+        default=5000,
+        gt=0,
+        validation_alias=AliasChoices("BINANCE_TESTNET_RECV_WINDOW"),
+    )
+    binance_testnet_dry_run_enabled: bool = Field(
+        default=False,
+        validation_alias=AliasChoices("BINANCE_TESTNET_DRY_RUN_ENABLED"),
+    )
     binance_testnet_api_key: str | None = Field(
         default=None,
         validation_alias=AliasChoices("BINANCE_TESTNET_API_KEY"),

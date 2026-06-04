@@ -814,7 +814,7 @@ def test_binance_testnet_broker_order_submission_still_not_implemented_with_cred
     assert result.reason == "testnet_order_submission_not_implemented"
     assert result.metadata["endpoint_path"] == "/api/v3/order"
     assert result.metadata["method"] == "POST"
-    assert result.metadata["has_signature"] is True
+    assert result.metadata["signed"] is True
     assert result.metadata["credentials_configured"] is True
     assert "test-secret" not in str(result.metadata)
 
@@ -842,8 +842,9 @@ def test_binance_testnet_broker_dry_run_prepares_signed_request_without_network_
     assert result.metadata["symbol"] == "BTCUSDT"
     assert result.metadata["side"] == "BUY"
     assert result.metadata["order_type"] == "MARKET"
-    assert result.metadata["has_signature"] is True
+    assert result.metadata["signed"] is True
     assert result.metadata["credentials_configured"] is True
+    assert "signature" not in str(result.metadata).lower()
     assert "test-secret" not in str(result.metadata)
     assert len(attempts) == 1
     assert "test-secret" not in str(attempts[0].metadata_)
@@ -908,6 +909,9 @@ def test_binance_testnet_broker_enabled_mocked_submission_normalizes_success(db_
     assert result.fee == Decimal("0.001")
     assert result.metadata["status_code"] == 200
     assert result.metadata["exchange_status"] == "FILLED"
+    assert result.metadata["exchange_order_id"] == "12345"
+    assert result.metadata["client_order_id"] == client.calls[0]["newClientOrderId"]
+    assert "signature" not in str(result.metadata).lower()
     assert "test-secret" not in str(result.metadata)
     assert len(attempts) == 1
     assert attempts[0].final_status == "order_created"
@@ -997,3 +1001,4 @@ def test_execution_config_defaults_are_safe() -> None:
     assert Settings.model_fields["execution_max_daily_loss"].default is None
     assert Settings.model_fields["binance_testnet_broker_enabled"].default is False
     assert Settings.model_fields["binance_testnet_order_submission_enabled"].default is False
+    assert Settings.model_fields["binance_testnet_dry_run_enabled"].default is False

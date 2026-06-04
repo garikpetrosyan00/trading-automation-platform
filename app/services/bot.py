@@ -13,7 +13,9 @@ class BotService:
 
     def create(self, payload: BotCreate) -> Bot:
         self._ensure_strategy_exists(payload.strategy_id)
-        bot = Bot(**payload.model_dump())
+        values = payload.model_dump()
+        values = self._normalize_execution_mode(values, provided_fields=payload.model_fields_set)
+        bot = Bot(**values)
         return self.repository.create(bot)
 
     def get_by_id(self, bot_id: int) -> Bot:
@@ -32,6 +34,7 @@ class BotService:
         if "strategy_id" in updates:
             self._ensure_strategy_exists(updates["strategy_id"])
 
+        updates = self._normalize_execution_mode(updates, provided_fields=payload.model_fields_set)
         for field, value in updates.items():
             setattr(bot, field, value)
 
@@ -49,3 +52,17 @@ class BotService:
                 error_code="strategy_not_found",
             )
         validate_strategy_parameters(strategy.strategy_type or "price_threshold", strategy.parameters)
+
+    @staticmethod
+    def _normalize_execution_mode(values: dict, *, provided_fields: set[str]) -> dict:
+        if "execution_mode" in provided_fields:
+            values["is_paper"] = values.get("execution_mode") == "paper"
+            return values
+
+        if "is_paper" in provided_fields:
+            values["execution_mode"] = "paper" if values.get("is_paper") else "live"
+            return values
+
+        if "execution_mode" not in values and "is_paper" in values:
+            values["execution_mode"] = "paper" if values.get("is_paper") else "live"
+        return values

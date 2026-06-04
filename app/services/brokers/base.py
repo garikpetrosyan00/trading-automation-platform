@@ -16,6 +16,7 @@ class BrokerOrderIntent:
     mode: str = "paper"
     decision_reason: str | None = None
     decision_metadata: dict[str, Any] | None = None
+    market_price: Decimal | None = None
 
 
 @dataclass(frozen=True)
