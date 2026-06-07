@@ -7,6 +7,7 @@ from app.core.errors import NotFoundError
 from app.models.execution_attempt import ExecutionAttempt
 from app.models.simulated_fill import SimulatedFill
 from app.models.simulated_order import SimulatedOrder
+from app.repositories.bot import BotRepository
 from app.repositories.execution_attempt import ExecutionAttemptRepository
 from app.repositories.portfolio import PortfolioRepository
 from app.schemas.execution import (
@@ -17,8 +18,10 @@ from app.schemas.execution import (
     ExecutionAttemptStatus,
     ExecutionFillAuditRead,
     ExecutionOrderAuditRead,
+    ExecutionReconciliationStatusRead,
     ExecutionSide,
 )
+from app.services.execution_reconciliation import ExecutionReconciliationStatusService
 
 router = APIRouter()
 
@@ -149,6 +152,20 @@ async def list_bot_execution_attempts(
         limit=limit,
     )
     return [_build_attempt_read(attempt) for attempt in attempts]
+
+
+@router.get("/bots/{bot_id}/execution-reconciliation/status", response_model=ExecutionReconciliationStatusRead)
+async def get_bot_execution_reconciliation_status(
+    bot_id: int,
+    db: DbSession,
+    limit: OrderLimit = 20,
+) -> ExecutionReconciliationStatusRead:
+    if BotRepository(db).get_by_id(bot_id) is None:
+        raise NotFoundError(f"Bot with id {bot_id} was not found", error_code="bot_not_found")
+    return ExecutionReconciliationStatusService(ExecutionAttemptRepository(db)).get_bot_status(
+        bot_id=bot_id,
+        limit=limit,
+    )
 
 
 def _build_order_read(

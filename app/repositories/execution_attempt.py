@@ -1,9 +1,16 @@
 from datetime import datetime
 
-from sqlalchemy import func, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
 from app.models.execution_attempt import ExecutionAttempt
+
+RECONCILIATION_FINAL_REASONS = frozenset(
+    {
+        "testnet_order_reconciliation_unresolved",
+        "testnet_order_recovered_after_unknown_submission",
+    }
+)
 
 
 class ExecutionAttemptRepository:
@@ -70,3 +77,76 @@ class ExecutionAttemptRepository:
         if final_statuses is not None:
             statement = statement.where(ExecutionAttempt.final_status.in_(final_statuses))
         return int(self.db.scalar(statement) or 0)
+
+    def list_reconciliation_related_for_bot(self, *, bot_id: int, limit: int) -> list[ExecutionAttempt]:
+        statement = (
+            select(ExecutionAttempt)
+            .where(
+                ExecutionAttempt.bot_id == bot_id,
+                self._reconciliation_filter(),
+            )
+            .order_by(ExecutionAttempt.created_at.desc(), ExecutionAttempt.id.desc())
+            .limit(limit)
+        )
+        return list(self.db.scalars(statement).all())
+
+    def count_unresolved_reconciliation_for_bot(self, *, bot_id: int) -> int:
+        statement = (
+            select(func.count())
+            .select_from(ExecutionAttempt)
+            .where(
+                ExecutionAttempt.bot_id == bot_id,
+                self._unresolved_reconciliation_filter(),
+            )
+        )
+        return int(self.db.scalar(statement) or 0)
+
+    def count_recovered_reconciliation_for_bot(self, *, bot_id: int) -> int:
+        statement = (
+            select(func.count())
+            .select_from(ExecutionAttempt)
+            .where(
+                ExecutionAttempt.bot_id == bot_id,
+                self._recovered_reconciliation_filter(),
+            )
+        )
+        return int(self.db.scalar(statement) or 0)
+
+    def latest_unresolved_reconciliation_at_for_bot(self, *, bot_id: int) -> datetime | None:
+        statement = select(func.max(ExecutionAttempt.created_at)).where(
+            ExecutionAttempt.bot_id == bot_id,
+            self._unresolved_reconciliation_filter(),
+        )
+        return self.db.scalar(statement)
+
+    def latest_recovered_reconciliation_at_for_bot(self, *, bot_id: int) -> datetime | None:
+        statement = select(func.max(ExecutionAttempt.created_at)).where(
+            ExecutionAttempt.bot_id == bot_id,
+            self._recovered_reconciliation_filter(),
+        )
+        return self.db.scalar(statement)
+
+    @staticmethod
+    def _reconciliation_filter():
+        metadata = ExecutionAttempt.metadata_
+        return or_(
+            ExecutionAttempt.final_reason.in_(RECONCILIATION_FINAL_REASONS),
+            metadata["submission_status_unknown"].as_boolean().is_(True),
+            metadata["reconciliation_attempted"].as_boolean().is_(True),
+        )
+
+    @staticmethod
+    def _unresolved_reconciliation_filter():
+        metadata = ExecutionAttempt.metadata_
+        return or_(
+            ExecutionAttempt.final_reason == "testnet_order_reconciliation_unresolved",
+            metadata["reconciliation_resolution"].as_string() == "unresolved",
+        )
+
+    @staticmethod
+    def _recovered_reconciliation_filter():
+        metadata = ExecutionAttempt.metadata_
+        return or_(
+            ExecutionAttempt.final_reason == "testnet_order_recovered_after_unknown_submission",
+            metadata["submission_recovered"].as_boolean().is_(True),
+        )

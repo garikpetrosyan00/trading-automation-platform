@@ -118,6 +118,33 @@ class ExecutionAttemptRead(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
 
+class ExecutionReconciliationAttemptRead(BaseModel):
+    attempt_id: int
+    bot_id: int | None = None
+    created_at: datetime
+    symbol: str
+    side: ExecutionSide
+    quantity: Decimal
+    reason: str | None = None
+    new_client_order_id: str | None = None
+    submission_status_unknown: bool = False
+    reconciliation_attempted: bool = False
+    reconciliation_trigger: str | None = None
+    reconciliation_resolution: str | None = None
+    submission_recovered: bool = False
+    recovered_order_status: str | None = None
+    binance_order_id: str | None = None
+
+
+class ExecutionReconciliationStatusRead(BaseModel):
+    bot_id: int
+    unresolved_unknown_count: int
+    recovered_count: int
+    latest_unresolved_at: datetime | None = None
+    latest_recovered_at: datetime | None = None
+    recent_attempts: list[ExecutionReconciliationAttemptRead] = Field(default_factory=list)
+
+
 class ExecutionSafetyStatusRead(BaseModel):
     global_execution_enabled: bool
     live_execution_enabled: bool
