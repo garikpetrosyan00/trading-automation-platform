@@ -15,6 +15,7 @@ from app.services.brokers.binance import (
     BinanceAccountHttpResponse,
     BinanceInvalidAccountResponseError,
     BinanceInvalidOrderResponseError,
+    BinanceInvalidOrderQueryResponseError,
     BinanceOrderHttpResponse,
     BinanceRequestSigner,
     BinanceSignedRequestBuilder,
@@ -24,6 +25,7 @@ from app.services.brokers.binance import (
     BinanceTestnetBrokerConfig,
     BinanceTestnetOrderClient,
     BinanceTestnetOrderClientError,
+    BinanceTestnetOrderQueryClientError,
 )
 from app.services.brokers.binance_exchange_info import (
     BinanceExchangeInfo,
@@ -47,12 +49,19 @@ TEST_SECRET = "test-secret"
 
 
 class RecordingOrderClient:
-    def __init__(self, response: BinanceOrderHttpResponse | None = None, exception: Exception | None = None):
+    def __init__(
+        self,
+        response: BinanceOrderHttpResponse | None = None,
+        exception: Exception | None = None,
+        query_response: BinanceOrderHttpResponse | None = None,
+        query_exception: Exception | None = None,
+    ):
         self.response = response or BinanceOrderHttpResponse(
             status_code=200,
             payload={
                 "symbol": "BTCUSDT",
                 "orderId": 12345,
+                "clientOrderId": "filled-by-submit-call",
                 "status": "FILLED",
                 "executedQty": "0.1",
                 "cummulativeQuoteQty": "10",
@@ -60,13 +69,38 @@ class RecordingOrderClient:
             },
         )
         self.exception = exception
+        self.query_response = query_response or BinanceOrderHttpResponse(
+            status_code=200,
+            payload={
+                "symbol": "BTCUSDT",
+                "orderId": 12345,
+                "clientOrderId": "filled-by-submit-call",
+                "status": "NEW",
+                "executedQty": "0",
+                "cummulativeQuoteQty": "0",
+            },
+        )
+        self.query_exception = query_exception
         self.calls: list[dict] = []
+        self.query_calls: list[dict] = []
 
     def submit_signed_market_order(self, params: dict) -> BinanceOrderHttpResponse:
         self.calls.append(params)
         if self.exception is not None:
             raise self.exception
-        return self.response
+        payload = dict(self.response.payload or {})
+        if payload.get("clientOrderId") == "filled-by-submit-call":
+            payload["clientOrderId"] = params["newClientOrderId"]
+        return BinanceOrderHttpResponse(status_code=self.response.status_code, payload=payload)
+
+    def query_signed_order(self, params: dict) -> BinanceOrderHttpResponse:
+        self.query_calls.append(params)
+        if self.query_exception is not None:
+            raise self.query_exception
+        payload = dict(self.query_response.payload or {})
+        if payload.get("clientOrderId") == "filled-by-submit-call" and self.calls:
+            payload["clientOrderId"] = self.calls[0]["newClientOrderId"]
+        return BinanceOrderHttpResponse(status_code=self.query_response.status_code, payload=payload)
 
 
 class RecordingAccountClient:
@@ -886,12 +920,20 @@ def test_binance_testnet_broker_order_submission_still_not_implemented_with_cred
 
 def test_binance_testnet_broker_dry_run_prepares_signed_request_without_network_or_secret_leak(db_session) -> None:
     class ExplodingHttpClient:
-        def post(self, *args, **kwargs):
+        def __init__(self):
+            self.query_calls = []
+
+        def submit_signed_market_order(self, *args, **kwargs):
             raise AssertionError("Dry-run must not make network calls")
 
+        def query_signed_order(self, params):
+            self.query_calls.append(params)
+            raise AssertionError("Dry-run must not query order status")
+
+    client = ExplodingHttpClient()
     broker = BinanceTestnetBroker(
         enabled_binance_config(dry_run_enabled=True),
-        http_client=ExplodingHttpClient(),
+        http_client=client,
         account_client=RecordingAccountClient(),
         exchange_info_provider=valid_exchange_info_provider(),
         attempt_service=ExecutionAttemptService(ExecutionAttemptRepository(db_session)),
@@ -904,6 +946,7 @@ def test_binance_testnet_broker_dry_run_prepares_signed_request_without_network_
     attempts = ExecutionAttemptRepository(db_session).list_filtered()
     assert result.accepted is False
     assert result.reason == "testnet_order_submission_dry_run"
+    assert client.query_calls == []
     assert result.metadata["endpoint_path"] == "/api/v3/order"
     assert result.metadata["method"] == "POST"
     assert result.metadata["symbol"] == "BTCUSDT"
@@ -951,6 +994,41 @@ def test_binance_order_client_posts_signed_order_with_api_key_header() -> None:
     assert captured["form"]["signature"] == ["abc123"]
 
 
+def test_binance_order_client_queries_signed_order_with_api_key_header() -> None:
+    captured = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        captured["path"] = request.url.path
+        captured["api_key"] = request.headers.get("X-MBX-APIKEY")
+        captured["query"] = parse_qs(request.url.query.decode())
+        return httpx.Response(
+            200,
+            json={"symbol": "BTCUSDT", "orderId": 1, "clientOrderId": "tap_original", "status": "NEW"},
+        )
+
+    signer = BinanceRequestSigner(TEST_SECRET, timestamp_provider=lambda: 1710000000000)
+    params = BinanceSignedRequestBuilder(signer, recv_window=5000).order_query_params(
+        symbol="BTCUSDT",
+        client_order_id="tap_original",
+    )
+    client = BinanceTestnetOrderClient(
+        base_url="https://testnet.binance.vision",
+        api_key="test-key",
+        transport=httpx.MockTransport(handler),
+    )
+
+    response = client.query_signed_order(params)
+
+    assert response.status_code == 200
+    assert captured["path"] == "/api/v3/order"
+    assert captured["api_key"] == "test-key"
+    assert captured["query"]["symbol"] == ["BTCUSDT"]
+    assert captured["query"]["origClientOrderId"] == ["tap_original"]
+    assert captured["query"]["timestamp"] == ["1710000000000"]
+    assert captured["query"]["recvWindow"] == ["5000"]
+    assert "signature" in captured["query"]
+
+
 def test_binance_account_client_gets_signed_account_with_api_key_header() -> None:
     captured = {}
 
@@ -995,6 +1073,7 @@ def test_binance_testnet_broker_buy_account_preflight_allows_enough_quote_balanc
     assert result.accepted is True
     assert len(account_client.calls) == 1
     assert len(client.calls) == 1
+    assert client.query_calls == []
     assert result.metadata["account_preflight_checked"] is True
     assert result.metadata["balance_asset"] == "USDT"
     assert result.metadata["balance_sufficient"] is True
@@ -1023,6 +1102,7 @@ def test_binance_testnet_broker_buy_account_preflight_blocks_insufficient_quote_
     assert result.reason == "testnet_insufficient_balance"
     assert len(account_client.calls) == 1
     assert client.calls == []
+    assert client.query_calls == []
     assert result.metadata["balance_asset"] == "USDT"
     assert result.metadata["balance_sufficient"] is False
     assert "locked" not in str(result.metadata).lower()
@@ -1067,6 +1147,7 @@ def test_binance_testnet_broker_sell_account_preflight_blocks_insufficient_base_
     assert result.accepted is False
     assert result.reason == "testnet_insufficient_balance"
     assert client.calls == []
+    assert client.query_calls == []
     assert result.metadata["balance_asset"] == "BTC"
     assert result.metadata["balance_sufficient"] is False
 
@@ -1090,6 +1171,7 @@ def test_binance_testnet_broker_account_preflight_missing_asset_is_zero_balance(
     assert result.accepted is False
     assert result.reason == "testnet_insufficient_balance"
     assert client.calls == []
+    assert client.query_calls == []
     assert result.metadata["balance_asset"] == "USDT"
 
 
@@ -1115,6 +1197,7 @@ def test_binance_testnet_broker_account_preflight_locked_balance_is_not_counted(
     assert result.accepted is False
     assert result.reason == "testnet_insufficient_balance"
     assert client.calls == []
+    assert client.query_calls == []
     assert "locked" not in str(result.metadata).lower()
 
 
@@ -1171,6 +1254,7 @@ def test_binance_testnet_broker_account_preflight_failures_block_before_order_su
     assert result.accepted is False
     assert result.reason == expected_reason
     assert client.calls == []
+    assert client.query_calls == []
     assert "raw account body" not in str(result.metadata)
     assert "signed query" not in str(result.metadata)
     assert "test-secret" not in str(result.metadata)
@@ -1200,6 +1284,7 @@ def test_binance_testnet_broker_account_preflight_failure_does_not_sign_order(mo
 
     assert result.reason == "testnet_insufficient_balance"
     assert client.calls == []
+    assert client.query_calls == []
 
 
 def test_binance_testnet_broker_account_preflight_failure_persists_only_safe_attempt(db_session) -> None:
@@ -1225,6 +1310,7 @@ def test_binance_testnet_broker_account_preflight_failure_persists_only_safe_att
     attempts = ExecutionAttemptRepository(db_session).list_filtered()
     assert result.reason == "testnet_insufficient_balance"
     assert client.calls == []
+    assert client.query_calls == []
     assert len(attempts) == 1
     assert attempts[0].final_status == "rejected_by_broker"
     assert attempts[0].final_reason == "testnet_insufficient_balance"
@@ -1235,6 +1321,163 @@ def test_binance_testnet_broker_account_preflight_failure_persists_only_safe_att
     assert "test-secret" not in serialized
     assert "signature" not in serialized.lower()
     assert "locked" not in serialized.lower()
+
+
+@pytest.mark.parametrize(
+    ("client", "expected_trigger"),
+    [
+        (RecordingOrderClient(exception=BinanceTestnetOrderClientError("timeout", trigger="timeout")), "timeout"),
+        (
+            RecordingOrderClient(exception=BinanceTestnetOrderClientError("network", trigger="network_error")),
+            "network_error",
+        ),
+        (RecordingOrderClient(response=BinanceOrderHttpResponse(status_code=500, payload={})), "http_5xx"),
+        (
+            RecordingOrderClient(response=BinanceOrderHttpResponse(status_code=400, payload={"code": -1006, "msg": "unknown"})),
+            "binance_unknown_status_error",
+        ),
+        (
+            RecordingOrderClient(response=BinanceOrderHttpResponse(status_code=400, payload={"code": -1007, "msg": "timeout"})),
+            "binance_unknown_status_error",
+        ),
+        (RecordingOrderClient(exception=BinanceInvalidOrderResponseError("Invalid JSON")), "invalid_success_response"),
+        (
+            RecordingOrderClient(response=BinanceOrderHttpResponse(status_code=200, payload={"symbol": "BTCUSDT", "status": "NEW"})),
+            "invalid_success_response",
+        ),
+    ],
+)
+def test_binance_testnet_broker_uncertain_post_outcomes_reconcile_once_and_recover(
+    client,
+    expected_trigger,
+) -> None:
+    broker = BinanceTestnetBroker(
+        enabled_binance_config(),
+        http_client=client,
+        account_client=RecordingAccountClient(),
+        exchange_info_provider=valid_exchange_info_provider(),
+    )
+
+    result = broker.submit_market_order(
+        BrokerOrderIntent(symbol="BTCUSDT", side="buy", quantity=Decimal("0.1"), market_price=Decimal("100"))
+    )
+
+    assert result.accepted is True
+    assert result.reason == "testnet_order_recovered_after_unknown_submission"
+    assert result.message == "Binance testnet order recovered after status-unknown submission"
+    assert len(client.calls) == 1
+    assert len(client.query_calls) == 1
+    assert client.query_calls[0]["symbol"] == "BTCUSDT"
+    assert client.query_calls[0]["origClientOrderId"] == client.calls[0]["newClientOrderId"]
+    assert result.external_order_id == "12345"
+    assert result.metadata["submission_status_unknown"] is True
+    assert result.metadata["reconciliation_attempted"] is True
+    assert result.metadata["reconciliation_trigger"] == expected_trigger
+    assert result.metadata["reconciliation_resolution"] == "found"
+    assert result.metadata["submission_recovered"] is True
+    assert result.metadata["recovered_order_status"] == "NEW"
+    assert result.metadata["exchange_status"] == "NEW"
+    assert result.metadata["client_order_id"] == client.calls[0]["newClientOrderId"]
+    assert "signature" not in str(result.metadata).lower()
+    assert "test-secret" not in str(result.metadata)
+
+
+@pytest.mark.parametrize(
+    ("query_response", "query_exception"),
+    [
+        (
+            BinanceOrderHttpResponse(status_code=404, payload={"code": -2013, "msg": "NO_SUCH_ORDER"}),
+            None,
+        ),
+        (None, BinanceTestnetOrderQueryClientError("timeout with signed url")),
+        (None, BinanceTestnetOrderQueryClientError("network with signed url")),
+        (BinanceOrderHttpResponse(status_code=500, payload={"msg": "raw query body"}), None),
+        (None, BinanceInvalidOrderQueryResponseError("raw query body")),
+        (BinanceOrderHttpResponse(status_code=200, payload={"symbol": "BTCUSDT", "status": "NEW"}), None),
+        (
+            BinanceOrderHttpResponse(
+                status_code=200,
+                payload={"symbol": "ETHUSDT", "orderId": 12345, "clientOrderId": "filled-by-submit-call", "status": "NEW"},
+            ),
+            None,
+        ),
+        (
+            BinanceOrderHttpResponse(
+                status_code=200,
+                payload={"symbol": "BTCUSDT", "orderId": 12345, "clientOrderId": "different-id", "status": "NEW"},
+            ),
+            None,
+        ),
+    ],
+)
+def test_binance_testnet_broker_unresolved_reconciliation_fails_closed_without_second_post(
+    query_response,
+    query_exception,
+) -> None:
+    client = RecordingOrderClient(
+        exception=BinanceTestnetOrderClientError("timeout", trigger="timeout"),
+        query_response=query_response,
+        query_exception=query_exception,
+    )
+    broker = BinanceTestnetBroker(
+        enabled_binance_config(),
+        http_client=client,
+        account_client=RecordingAccountClient(),
+        exchange_info_provider=valid_exchange_info_provider(),
+    )
+
+    result = broker.submit_market_order(
+        BrokerOrderIntent(symbol="BTCUSDT", side="buy", quantity=Decimal("0.1"), market_price=Decimal("100"))
+    )
+
+    assert result.accepted is False
+    assert result.reason == "testnet_order_reconciliation_unresolved"
+    assert result.status == "rejected"
+    assert len(client.calls) == 1
+    assert len(client.query_calls) == 1
+    assert result.metadata["submission_status_unknown"] is True
+    assert result.metadata["reconciliation_attempted"] is True
+    assert result.metadata["reconciliation_trigger"] == "timeout"
+    assert result.metadata["reconciliation_resolution"] == "unresolved"
+    assert result.metadata["submission_recovered"] is False
+    assert result.metadata["client_order_id"] == client.calls[0]["newClientOrderId"]
+    serialized = str(result.metadata)
+    assert "raw query body" not in serialized
+    assert "signed url" not in serialized
+    assert "signature" not in serialized.lower()
+    assert "test-secret" not in serialized
+
+
+def test_binance_testnet_broker_reconciliation_failure_persists_only_safe_attempt(db_session) -> None:
+    client = RecordingOrderClient(
+        exception=BinanceTestnetOrderClientError("timeout", trigger="timeout"),
+        query_response=BinanceOrderHttpResponse(status_code=404, payload={"code": -2013, "msg": "NO_SUCH_ORDER"}),
+    )
+    broker = BinanceTestnetBroker(
+        enabled_binance_config(api_key="safe-test-key"),
+        http_client=client,
+        account_client=RecordingAccountClient(),
+        exchange_info_provider=valid_exchange_info_provider(),
+        attempt_service=ExecutionAttemptService(ExecutionAttemptRepository(db_session)),
+    )
+
+    result = broker.submit_market_order(
+        BrokerOrderIntent(symbol="BTCUSDT", side="buy", quantity=Decimal("0.1"), market_price=Decimal("100"))
+    )
+
+    attempts = ExecutionAttemptRepository(db_session).list_filtered()
+    assert result.reason == "testnet_order_reconciliation_unresolved"
+    assert len(client.calls) == 1
+    assert len(client.query_calls) == 1
+    assert len(attempts) == 1
+    assert attempts[0].final_status == "rejected_by_broker"
+    assert attempts[0].final_reason == "testnet_order_reconciliation_unresolved"
+    assert attempts[0].metadata_["reconciliation_resolution"] == "unresolved"
+    serialized = str(attempts[0].metadata_)
+    assert "safe-test-key" not in serialized
+    assert "test-secret" not in serialized
+    assert "signature" not in serialized.lower()
+    assert "NO_SUCH_ORDER" not in serialized
 
 
 def test_binance_testnet_broker_enabled_mocked_submission_normalizes_success(db_session) -> None:
@@ -1295,6 +1538,7 @@ def test_binance_testnet_broker_error_json_normalizes_rejection() -> None:
 
     assert result.accepted is False
     assert result.reason == "binance_testnet_order_rejected"
+    assert client.query_calls == []
     assert result.message == "Binance testnet order rejected: Account has insufficient balance"
     assert result.metadata["status_code"] == 400
     assert result.metadata["binance_code"] == -2010
@@ -1318,6 +1562,7 @@ def test_binance_testnet_broker_exchange_info_unavailable_blocks_before_signing_
     assert result.accepted is False
     assert result.reason == "testnet_exchange_info_unavailable"
     assert client.calls == []
+    assert client.query_calls == []
     assert attempts[0].final_reason == "testnet_exchange_info_unavailable"
     assert "raw unavailable detail" not in str(attempts[0].metadata_)
     assert "signature" not in str(attempts[0].metadata_).lower()
@@ -1365,6 +1610,7 @@ def test_binance_testnet_broker_filter_rejection_blocks_before_signing_and_http(
     assert result.accepted is False
     assert result.reason == "testnet_quantity_below_minimum"
     assert client.calls == []
+    assert client.query_calls == []
     assert attempts[0].metadata_["filter_type"] == "LOT_SIZE"
     assert "signature" not in str(attempts[0].metadata_).lower()
 
@@ -1382,10 +1628,11 @@ def test_binance_testnet_broker_non_2xx_without_error_message_normalizes_safely(
         BrokerOrderIntent(symbol="BTCUSDT", side="buy", quantity=Decimal("0.1"), market_price=Decimal("100"))
     )
 
-    assert result.accepted is False
-    assert result.reason == "binance_testnet_order_rejected"
-    assert result.message == "Binance testnet order request failed with status 500"
-    assert result.metadata["status_code"] == 500
+    assert result.accepted is True
+    assert result.reason == "testnet_order_recovered_after_unknown_submission"
+    assert len(client.query_calls) == 1
+    assert result.metadata["reconciliation_trigger"] == "http_5xx"
+    assert result.metadata["reconciliation_resolution"] == "found"
 
 
 def test_binance_testnet_broker_invalid_json_normalizes_safely() -> None:
@@ -1401,9 +1648,10 @@ def test_binance_testnet_broker_invalid_json_normalizes_safely() -> None:
         BrokerOrderIntent(symbol="BTCUSDT", side="buy", quantity=Decimal("0.1"), market_price=Decimal("100"))
     )
 
-    assert result.accepted is False
-    assert result.reason == "invalid_binance_response"
-    assert result.metadata["error_type"] == "BinanceInvalidOrderResponseError"
+    assert result.accepted is True
+    assert result.reason == "testnet_order_recovered_after_unknown_submission"
+    assert len(client.query_calls) == 1
+    assert result.metadata["reconciliation_trigger"] == "invalid_success_response"
 
 
 def test_binance_testnet_broker_network_error_normalizes_safely() -> None:
@@ -1419,9 +1667,10 @@ def test_binance_testnet_broker_network_error_normalizes_safely() -> None:
         BrokerOrderIntent(symbol="BTCUSDT", side="buy", quantity=Decimal("0.1"), market_price=Decimal("100"))
     )
 
-    assert result.accepted is False
-    assert result.reason == "binance_testnet_request_failed"
-    assert result.metadata["error_type"] == "BinanceTestnetOrderClientError"
+    assert result.accepted is True
+    assert result.reason == "testnet_order_recovered_after_unknown_submission"
+    assert len(client.query_calls) == 1
+    assert result.metadata["reconciliation_trigger"] == "timeout"
 
 
 def test_bot_runner_does_not_call_binance_order_placement_by_default(

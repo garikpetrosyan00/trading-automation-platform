@@ -29,13 +29,18 @@ API_SECRET = "runtime-api-secret"
 
 
 class RecordingBinanceOrderClient:
-    def __init__(self, response: BinanceOrderHttpResponse | None = None, exception: Exception | None = None):
+    def __init__(
+        self,
+        response: BinanceOrderHttpResponse | None = None,
+        exception: Exception | None = None,
+        query_response: BinanceOrderHttpResponse | None = None,
+    ):
         self.response = response or BinanceOrderHttpResponse(
             status_code=200,
             payload={
                 "symbol": "BTCUSDT",
                 "orderId": 98765,
-                "clientOrderId": "exchange-client-id",
+                "clientOrderId": "filled-by-submit-call",
                 "status": "FILLED",
                 "executedQty": "0.1",
                 "cummulativeQuoteQty": "10",
@@ -43,13 +48,35 @@ class RecordingBinanceOrderClient:
             },
         )
         self.exception = exception
+        self.query_response = query_response or BinanceOrderHttpResponse(
+            status_code=200,
+            payload={
+                "symbol": "BTCUSDT",
+                "orderId": 98765,
+                "clientOrderId": "filled-by-submit-call",
+                "status": "NEW",
+                "executedQty": "0",
+                "cummulativeQuoteQty": "0",
+            },
+        )
         self.calls: list[dict] = []
+        self.query_calls: list[dict] = []
 
     def submit_signed_market_order(self, params: dict) -> BinanceOrderHttpResponse:
         self.calls.append(params)
         if self.exception is not None:
             raise self.exception
-        return self.response
+        payload = dict(self.response.payload or {})
+        if payload.get("clientOrderId") == "filled-by-submit-call":
+            payload["clientOrderId"] = params["newClientOrderId"]
+        return BinanceOrderHttpResponse(status_code=self.response.status_code, payload=payload)
+
+    def query_signed_order(self, params: dict) -> BinanceOrderHttpResponse:
+        self.query_calls.append(params)
+        payload = dict(self.query_response.payload or {})
+        if payload.get("clientOrderId") == "filled-by-submit-call" and self.calls:
+            payload["clientOrderId"] = self.calls[0]["newClientOrderId"]
+        return BinanceOrderHttpResponse(status_code=self.query_response.status_code, payload=payload)
 
 
 class RecordingBinanceAccountClient:
@@ -139,7 +166,7 @@ def test_testnet_bot_runtime_submits_with_real_client_factory_and_persists_safe_
     assert attempts[0].broker == "binance_testnet"
     assert attempts[0].final_status == "order_created"
     assert attempts[0].metadata_["exchange_order_id"] == "98765"
-    assert attempts[0].metadata_["exchange_client_order_id"] == "exchange-client-id"
+    assert attempts[0].metadata_["exchange_client_order_id"] == client.calls[0]["newClientOrderId"]
     assert attempts[0].metadata_["exchange_status"] == "FILLED"
     assert attempts[0].metadata_["status_code"] == 200
     assert attempts[0].metadata_["daily_order_count"] == 1
@@ -258,13 +285,13 @@ def test_testnet_runtime_max_notional_rejection_blocks_without_http_call(
         ),
         (
             RecordingBinanceOrderClient(exception=BinanceInvalidOrderResponseError("invalid json")),
-            "invalid_binance_response",
-            "rejected_by_broker",
+            "testnet_order_recovered_after_unknown_submission",
+            "order_created",
         ),
         (
             RecordingBinanceOrderClient(exception=BinanceTestnetOrderClientError("timeout")),
-            "binance_testnet_request_failed",
-            "rejected_by_broker",
+            "testnet_order_recovered_after_unknown_submission",
+            "order_created",
         ),
     ],
 )
@@ -289,6 +316,74 @@ def test_testnet_runtime_persists_safe_binance_failures(
     assert attempts[0].final_reason == expected_reason
     assert attempts[0].final_status == expected_status
     assert attempts[0].metadata_["client_order_id"] == client.calls[0]["newClientOrderId"]
+    if expected_status == "order_created":
+        assert len(client.query_calls) == 1
+        assert attempts[0].metadata_["reconciliation_resolution"] == "found"
+    else:
+        assert client.query_calls == []
+    assert_no_secret_leak(str(attempts[0].metadata_))
+
+
+def test_testnet_runtime_recovered_status_unknown_does_not_mutate_paper_portfolio(
+    db_session,
+    db_session_factory,
+    stub_market_data_service,
+    bot_stack_factory,
+    funded_account,
+) -> None:
+    funded_account(db_session)
+    account_before = PortfolioRepository(db_session).get_account().cash_balance
+    _, bot, _ = bot_stack_factory(db_session, is_paper=False, execution_mode="testnet")
+    client = RecordingBinanceOrderClient(exception=BinanceTestnetOrderClientError("timeout", trigger="timeout"))
+    runner = build_testnet_runner(db_session_factory, stub_market_data_service, client)
+    runner.start_bot(bot.id)
+    stub_market_data_service.set_price("BTCUSDT", "95")
+
+    asyncio.run(runner.run_cycle())
+
+    attempts = ExecutionAttemptRepository(db_session).list_filtered(bot_id=bot.id)
+    repository = PortfolioRepository(db_session)
+    assert len(client.calls) == 1
+    assert len(client.query_calls) == 1
+    assert attempts[0].final_status == "order_created"
+    assert attempts[0].final_reason == "testnet_order_recovered_after_unknown_submission"
+    assert attempts[0].metadata_["reconciliation_resolution"] == "found"
+    assert repository.list_orders() == []
+    assert repository.list_fills() == []
+    assert repository.get_account().cash_balance == account_before
+    assert_no_secret_leak(str(attempts[0].metadata_))
+
+
+def test_testnet_runtime_unresolved_status_unknown_does_not_mutate_paper_portfolio(
+    db_session,
+    db_session_factory,
+    stub_market_data_service,
+    bot_stack_factory,
+    funded_account,
+) -> None:
+    funded_account(db_session)
+    account_before = PortfolioRepository(db_session).get_account().cash_balance
+    _, bot, _ = bot_stack_factory(db_session, is_paper=False, execution_mode="testnet")
+    client = RecordingBinanceOrderClient(
+        exception=BinanceTestnetOrderClientError("timeout", trigger="timeout"),
+        query_response=BinanceOrderHttpResponse(status_code=404, payload={"code": -2013, "msg": "NO_SUCH_ORDER"}),
+    )
+    runner = build_testnet_runner(db_session_factory, stub_market_data_service, client)
+    runner.start_bot(bot.id)
+    stub_market_data_service.set_price("BTCUSDT", "95")
+
+    asyncio.run(runner.run_cycle())
+
+    attempts = ExecutionAttemptRepository(db_session).list_filtered(bot_id=bot.id)
+    repository = PortfolioRepository(db_session)
+    assert len(client.calls) == 1
+    assert len(client.query_calls) == 1
+    assert attempts[0].final_status == "rejected_by_broker"
+    assert attempts[0].final_reason == "testnet_order_reconciliation_unresolved"
+    assert attempts[0].metadata_["reconciliation_resolution"] == "unresolved"
+    assert repository.list_orders() == []
+    assert repository.list_fills() == []
+    assert repository.get_account().cash_balance == account_before
     assert_no_secret_leak(str(attempts[0].metadata_))
 
 

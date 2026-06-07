@@ -18,6 +18,7 @@ from app.services.execution_attempt import ExecutionAttemptService
 DEFAULT_RECV_WINDOW = 5000
 MARKET_ORDER_ENDPOINT = "/api/v3/order"
 ACCOUNT_ENDPOINT = "/api/v3/account"
+ORDER_QUERY_ENDPOINT = "/api/v3/order"
 ZERO = Decimal("0")
 
 
@@ -90,6 +91,14 @@ class BinanceSignedRequestBuilder:
     def account_params(self) -> dict:
         return self.signed_params({})
 
+    def order_query_params(self, *, symbol: str, client_order_id: str) -> dict:
+        return self.signed_params(
+            {
+                "symbol": symbol.strip().upper(),
+                "origClientOrderId": client_order_id,
+            }
+        )
+
     @staticmethod
     def _format_decimal(value: Decimal) -> str:
         return format(value.normalize(), "f")
@@ -141,8 +150,16 @@ class BinanceTestnetOrderClient:
                     data=params,
                     headers={"X-MBX-APIKEY": self.api_key},
                 )
-        except (httpx.TimeoutException, httpx.RequestError) as exc:
-            raise BinanceTestnetOrderClientError("Could not reach Binance testnet order endpoint") from exc
+        except httpx.TimeoutException as exc:
+            raise BinanceTestnetOrderClientError(
+                "Could not reach Binance testnet order endpoint",
+                trigger="timeout",
+            ) from exc
+        except httpx.RequestError as exc:
+            raise BinanceTestnetOrderClientError(
+                "Could not reach Binance testnet order endpoint",
+                trigger="network_error",
+            ) from exc
 
         try:
             payload = response.json()
@@ -151,6 +168,31 @@ class BinanceTestnetOrderClient:
 
         if payload is not None and not isinstance(payload, dict):
             raise BinanceInvalidOrderResponseError("Binance testnet order endpoint returned invalid JSON")
+
+        return BinanceOrderHttpResponse(status_code=response.status_code, payload=payload)
+
+    def query_signed_order(self, params: dict) -> BinanceOrderHttpResponse:
+        try:
+            with httpx.Client(
+                base_url=self.base_url,
+                timeout=self.timeout_seconds,
+                transport=self.transport,
+            ) as client:
+                response = client.get(
+                    ORDER_QUERY_ENDPOINT,
+                    params=params,
+                    headers={"X-MBX-APIKEY": self.api_key},
+                )
+        except (httpx.TimeoutException, httpx.RequestError) as exc:
+            raise BinanceTestnetOrderQueryClientError("Could not reach Binance testnet order query endpoint") from exc
+
+        try:
+            payload = response.json()
+        except ValueError as exc:
+            raise BinanceInvalidOrderQueryResponseError("Binance testnet order query endpoint returned invalid JSON") from exc
+
+        if payload is not None and not isinstance(payload, dict):
+            raise BinanceInvalidOrderQueryResponseError("Binance testnet order query endpoint returned invalid JSON")
 
         return BinanceOrderHttpResponse(status_code=response.status_code, payload=payload)
 
@@ -196,10 +238,20 @@ class BinanceTestnetAccountClient:
 
 
 class BinanceTestnetOrderClientError(Exception):
-    pass
+    def __init__(self, message: str, *, trigger: str | None = None):
+        super().__init__(message)
+        self.trigger = trigger
 
 
 class BinanceInvalidOrderResponseError(Exception):
+    pass
+
+
+class BinanceTestnetOrderQueryClientError(Exception):
+    pass
+
+
+class BinanceInvalidOrderQueryResponseError(Exception):
     pass
 
 
@@ -620,35 +672,38 @@ class BinanceTestnetBroker:
         try:
             response = self.http_client.submit_signed_market_order(signed_params)
         except (BinanceTestnetOrderClientError, BinanceInvalidOrderResponseError) as exc:
-            return self._rejected(
-                str(exc),
-                reason=self._exception_reason(exc),
-                metadata={
-                    **self._safe_signed_request_metadata(signed_params, intent, account_preflight_metadata),
-                    "error_type": exc.__class__.__name__,
-                },
+            return self._reconcile_status_unknown_submission(
+                intent,
+                signed_params,
+                account_preflight_metadata,
+                trigger=self._exception_reconciliation_trigger(exc),
             )
-        except Exception as exc:
-            return self._rejected(
-                "Binance testnet order request failed",
-                reason="binance_testnet_request_failed",
-                metadata={
-                    **self._safe_signed_request_metadata(signed_params, intent, account_preflight_metadata),
-                    "error_type": exc.__class__.__name__,
-                },
+        except Exception:
+            return self._reconcile_status_unknown_submission(
+                intent,
+                signed_params,
+                account_preflight_metadata,
+                trigger="network_error",
             )
 
         if response.payload is None:
-            return self._rejected(
-                "Binance testnet order endpoint returned invalid JSON",
-                reason="invalid_binance_response",
-                metadata={
-                    **self._safe_signed_request_metadata(signed_params, intent, account_preflight_metadata),
-                    "status_code": response.status_code,
-                },
+            return self._reconcile_status_unknown_submission(
+                intent,
+                signed_params,
+                account_preflight_metadata,
+                trigger="invalid_success_response",
+                status_code=response.status_code,
             )
 
         if response.status_code < 200 or response.status_code >= 300:
+            if self._is_uncertain_order_response(response):
+                return self._reconcile_status_unknown_submission(
+                    intent,
+                    signed_params,
+                    account_preflight_metadata,
+                    trigger=self._uncertain_response_trigger(response),
+                    status_code=response.status_code,
+                )
             reason = "binance_testnet_order_rejected"
             message = self._binance_error_message(response.payload, response.status_code)
             return self._rejected(
@@ -661,7 +716,156 @@ class BinanceTestnetBroker:
                 },
             )
 
+        if not self._is_usable_success_payload(response.payload, signed_params):
+            return self._reconcile_status_unknown_submission(
+                intent,
+                signed_params,
+                account_preflight_metadata,
+                trigger="invalid_success_response",
+                status_code=response.status_code,
+            )
+
         return self._build_success_result(intent, signed_params, response, account_preflight_metadata)
+
+    def _reconcile_status_unknown_submission(
+        self,
+        intent: BrokerOrderIntent,
+        signed_params: dict,
+        account_preflight_metadata: dict,
+        *,
+        trigger: str,
+        status_code: int | None = None,
+    ) -> BrokerOrderResult:
+        base_metadata = {
+            **self._safe_signed_request_metadata(signed_params, intent, account_preflight_metadata),
+            "submission_status_unknown": True,
+            "reconciliation_attempted": True,
+            "reconciliation_trigger": trigger,
+        }
+        if status_code is not None:
+            base_metadata["status_code"] = status_code
+
+        if self.request_builder is None or not hasattr(self.http_client, "query_signed_order"):
+            return self._unresolved_reconciliation_result(base_metadata)
+
+        query_params = self.request_builder.order_query_params(
+            symbol=signed_params["symbol"],
+            client_order_id=signed_params["newClientOrderId"],
+        )
+        try:
+            response = self.http_client.query_signed_order(query_params)
+        except (BinanceTestnetOrderQueryClientError, BinanceInvalidOrderQueryResponseError):
+            return self._unresolved_reconciliation_result(base_metadata)
+        except Exception:
+            return self._unresolved_reconciliation_result(base_metadata)
+
+        if response.status_code < 200 or response.status_code >= 300:
+            return self._unresolved_reconciliation_result(base_metadata)
+        if response.payload is None:
+            return self._unresolved_reconciliation_result(base_metadata)
+
+        payload = response.payload
+        if not self._is_matching_recovered_order(payload, signed_params):
+            return self._unresolved_reconciliation_result(base_metadata)
+
+        recovered_response = BinanceOrderHttpResponse(status_code=response.status_code, payload=payload)
+        result = self._build_success_result(
+            intent,
+            signed_params,
+            recovered_response,
+            {
+                **account_preflight_metadata,
+                "submission_status_unknown": True,
+                "reconciliation_attempted": True,
+                "reconciliation_trigger": trigger,
+                "reconciliation_resolution": "found",
+                "submission_recovered": True,
+                "recovered_order_status": payload["status"],
+            },
+        )
+        return replace(
+            result,
+            reason="testnet_order_recovered_after_unknown_submission",
+            message="Binance testnet order recovered after status-unknown submission",
+        )
+
+    @staticmethod
+    def _unresolved_reconciliation_result(metadata: dict) -> BrokerOrderResult:
+        return BrokerOrderResult(
+            accepted=False,
+            status="rejected",
+            message="Binance testnet order submission status is unresolved after one reconciliation query",
+            reason="testnet_order_reconciliation_unresolved",
+            metadata={
+                **metadata,
+                "reconciliation_resolution": "unresolved",
+                "submission_recovered": False,
+            },
+        )
+
+    @staticmethod
+    def _is_uncertain_order_response(response: BinanceOrderHttpResponse) -> bool:
+        if response.status_code >= 500:
+            return True
+        code = response.payload.get("code") if response.payload is not None else None
+        return code in {-1006, -1007}
+
+    @staticmethod
+    def _uncertain_response_trigger(response: BinanceOrderHttpResponse) -> str:
+        code = response.payload.get("code") if response.payload is not None else None
+        if code in {-1006, -1007}:
+            return "binance_unknown_status_error"
+        if response.status_code >= 500:
+            return "http_5xx"
+        return "invalid_success_response"
+
+    @staticmethod
+    def _exception_reconciliation_trigger(exc: Exception) -> str:
+        trigger = getattr(exc, "trigger", None)
+        if trigger in {"timeout", "network_error"}:
+            return trigger
+        if isinstance(exc, BinanceInvalidOrderResponseError):
+            return "invalid_success_response"
+        message = str(exc).lower()
+        if "timeout" in message:
+            return "timeout"
+        return "network_error"
+
+    @classmethod
+    def _is_usable_success_payload(cls, payload: dict, signed_params: dict) -> bool:
+        symbol = payload.get("symbol")
+        if isinstance(symbol, str) and symbol.strip().upper() != signed_params["symbol"]:
+            return False
+        client_order_id = payload.get("clientOrderId")
+        if isinstance(client_order_id, str) and client_order_id != signed_params["newClientOrderId"]:
+            return False
+        return cls._valid_order_id(payload.get("orderId")) and cls._valid_status(payload.get("status"))
+
+    @classmethod
+    def _is_matching_recovered_order(cls, payload: dict, signed_params: dict) -> bool:
+        symbol = payload.get("symbol")
+        client_order_id = payload.get("clientOrderId")
+        if not isinstance(symbol, str) or not symbol.strip():
+            return False
+        if symbol.strip().upper() != signed_params["symbol"]:
+            return False
+        if not isinstance(client_order_id, str) or not client_order_id:
+            return False
+        if client_order_id != signed_params["newClientOrderId"]:
+            return False
+        return cls._valid_order_id(payload.get("orderId")) and cls._valid_status(payload.get("status"))
+
+    @staticmethod
+    def _valid_order_id(value) -> bool:
+        if isinstance(value, int):
+            return value >= 0
+        if isinstance(value, str):
+            return bool(value.strip())
+        return False
+
+    @staticmethod
+    def _valid_status(value) -> bool:
+        return isinstance(value, str) and bool(value.strip())
 
     def _build_success_result(
         self,
@@ -692,12 +896,6 @@ class BinanceTestnetBroker:
                 "exchange_client_order_id": payload.get("clientOrderId"),
             },
         )
-
-    @staticmethod
-    def _exception_reason(exc: Exception) -> str:
-        if isinstance(exc, BinanceInvalidOrderResponseError):
-            return "invalid_binance_response"
-        return "binance_testnet_request_failed"
 
     @staticmethod
     def _binance_error_message(payload: dict, status_code: int) -> str:
