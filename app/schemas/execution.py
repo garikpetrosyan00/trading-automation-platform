@@ -145,6 +145,23 @@ class ExecutionReconciliationStatusRead(BaseModel):
     recent_attempts: list[ExecutionReconciliationAttemptRead] = Field(default_factory=list)
 
 
+class ExecutionManualReconciliationRead(BaseModel):
+    bot_id: int
+    attempt_id: int
+    already_resolved: bool = False
+    submission_status_unknown: bool = False
+    submission_recovered: bool = False
+    reconciliation_resolution: str | None = None
+    recovered_order_status: str | None = None
+    exchange_order_id: str | None = None
+    new_client_order_id: str | None = None
+    manual_reconciliation_attempted: bool = False
+    manual_reconciliation_attempt_count: int = 0
+    manual_reconciliation_last_checked_at: datetime | None = None
+    manual_reconciliation_last_resolution: str | None = None
+    manual_reconciliation_last_failure_category: str | None = None
+
+
 class ExecutionSafetyStatusRead(BaseModel):
     global_execution_enabled: bool
     live_execution_enabled: bool

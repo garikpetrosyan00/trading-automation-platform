@@ -183,8 +183,16 @@ class BinanceTestnetOrderClient:
                     params=params,
                     headers={"X-MBX-APIKEY": self.api_key},
                 )
-        except (httpx.TimeoutException, httpx.RequestError) as exc:
-            raise BinanceTestnetOrderQueryClientError("Could not reach Binance testnet order query endpoint") from exc
+        except httpx.TimeoutException as exc:
+            raise BinanceTestnetOrderQueryClientError(
+                "Could not reach Binance testnet order query endpoint",
+                trigger="timeout",
+            ) from exc
+        except httpx.RequestError as exc:
+            raise BinanceTestnetOrderQueryClientError(
+                "Could not reach Binance testnet order query endpoint",
+                trigger="network_error",
+            ) from exc
 
         try:
             payload = response.json()
@@ -248,7 +256,9 @@ class BinanceInvalidOrderResponseError(Exception):
 
 
 class BinanceTestnetOrderQueryClientError(Exception):
-    pass
+    def __init__(self, message: str, *, trigger: str | None = None):
+        super().__init__(message)
+        self.trigger = trigger
 
 
 class BinanceInvalidOrderQueryResponseError(Exception):

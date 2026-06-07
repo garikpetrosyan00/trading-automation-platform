@@ -17,6 +17,7 @@ from app.schemas.execution import (
     ExecutionAttemptRead,
     ExecutionAttemptStatus,
     ExecutionFillAuditRead,
+    ExecutionManualReconciliationRead,
     ExecutionOrderAuditRead,
     ExecutionReconciliationStatusRead,
     ExecutionSide,
@@ -165,6 +166,23 @@ async def get_bot_execution_reconciliation_status(
     return ExecutionReconciliationStatusService(ExecutionAttemptRepository(db)).get_bot_status(
         bot_id=bot_id,
         limit=limit,
+    )
+
+
+@router.post(
+    "/bots/{bot_id}/execution-attempts/{attempt_id}/reconcile",
+    response_model=ExecutionManualReconciliationRead,
+)
+async def reconcile_bot_execution_attempt(
+    bot_id: int,
+    attempt_id: int,
+    db: DbSession,
+) -> ExecutionManualReconciliationRead:
+    if BotRepository(db).get_by_id(bot_id) is None:
+        raise NotFoundError(f"Bot with id {bot_id} was not found", error_code="bot_not_found")
+    return ExecutionReconciliationStatusService(ExecutionAttemptRepository(db)).manually_reconcile_attempt(
+        bot_id=bot_id,
+        attempt_id=attempt_id,
     )
 
 
