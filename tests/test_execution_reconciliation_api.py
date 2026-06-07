@@ -43,6 +43,10 @@ def test_reconciliation_status_empty_for_existing_bot(
         "recovered_count": 0,
         "latest_unresolved_at": None,
         "latest_recovered_at": None,
+        "pending_delayed_reconciliation_count": 0,
+        "claimed_delayed_reconciliation_count": 0,
+        "expired_lease_count": 0,
+        "exhausted_delayed_reconciliation_count": 0,
         "recent_attempts": [],
     }
 
@@ -175,6 +179,14 @@ def test_reconciliation_status_normalizes_safe_fields_counts_and_ordering(
         "submission_recovered": False,
         "recovered_order_status": None,
         "binance_order_id": None,
+        "delayed_reconciliation_job_id": None,
+        "delayed_reconciliation_state": None,
+        "delayed_reconciliation_next_attempt_at": None,
+        "delayed_reconciliation_lease_expires_at": None,
+        "delayed_reconciliation_automatic_attempt_count": None,
+        "delayed_reconciliation_last_checked_at": None,
+        "delayed_reconciliation_last_resolution": None,
+        "delayed_reconciliation_last_failure_category": None,
     }
 
     recovered_body = body["recent_attempts"][1]

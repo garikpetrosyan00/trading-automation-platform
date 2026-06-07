@@ -3,6 +3,8 @@ from typing import Any
 
 from app.models.execution_attempt import ExecutionAttempt
 from app.repositories.execution_attempt import ExecutionAttemptRepository
+from app.repositories.execution_reconciliation_job import ExecutionReconciliationJobRepository
+from app.services.execution_reconciliation_jobs import ExecutionReconciliationJobService
 
 
 class ExecutionAttemptService:
@@ -45,7 +47,9 @@ class ExecutionAttemptService:
             order_id=order_id,
             metadata_=metadata,
         )
-        return self.repository.create(attempt)
+        persisted = self.repository.create(attempt)
+        self._ensure_reconciliation_job_if_needed(persisted)
+        return persisted
 
     def mark_final(
         self,
@@ -68,4 +72,18 @@ class ExecutionAttemptService:
             attempt.safety_status = safety_status
         if metadata is not None:
             attempt.metadata_ = metadata
-        return self.repository.update(attempt)
+        persisted = self.repository.update(attempt)
+        self._ensure_reconciliation_job_if_needed(persisted)
+        return persisted
+
+    def _ensure_reconciliation_job_if_needed(self, attempt: ExecutionAttempt) -> None:
+        from app.core.config import get_settings
+
+        settings = get_settings()
+        ExecutionReconciliationJobService(
+            self.repository,
+            ExecutionReconciliationJobRepository(self.repository.db),
+        ).ensure_pending_job_for_persisted_attempt(
+            attempt,
+            initial_delay_seconds=settings.binance_testnet_reconciliation_initial_delay_seconds,
+        )

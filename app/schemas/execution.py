@@ -134,6 +134,14 @@ class ExecutionReconciliationAttemptRead(BaseModel):
     submission_recovered: bool = False
     recovered_order_status: str | None = None
     binance_order_id: str | None = None
+    delayed_reconciliation_job_id: int | None = None
+    delayed_reconciliation_state: str | None = None
+    delayed_reconciliation_next_attempt_at: datetime | None = None
+    delayed_reconciliation_lease_expires_at: datetime | None = None
+    delayed_reconciliation_automatic_attempt_count: int | None = None
+    delayed_reconciliation_last_checked_at: datetime | None = None
+    delayed_reconciliation_last_resolution: str | None = None
+    delayed_reconciliation_last_failure_category: str | None = None
 
 
 class ExecutionReconciliationStatusRead(BaseModel):
@@ -142,6 +150,10 @@ class ExecutionReconciliationStatusRead(BaseModel):
     recovered_count: int
     latest_unresolved_at: datetime | None = None
     latest_recovered_at: datetime | None = None
+    pending_delayed_reconciliation_count: int = 0
+    claimed_delayed_reconciliation_count: int = 0
+    expired_lease_count: int = 0
+    exhausted_delayed_reconciliation_count: int = 0
     recent_attempts: list[ExecutionReconciliationAttemptRead] = Field(default_factory=list)
 
 

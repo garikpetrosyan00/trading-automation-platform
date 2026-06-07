@@ -75,6 +75,16 @@ class Settings(BaseSettings):
         default=False,
         validation_alias=AliasChoices("BINANCE_TESTNET_DRY_RUN_ENABLED"),
     )
+    binance_testnet_reconciliation_initial_delay_seconds: int = Field(
+        default=300,
+        gt=0,
+        validation_alias=AliasChoices("BINANCE_TESTNET_RECONCILIATION_INITIAL_DELAY_SECONDS"),
+    )
+    binance_testnet_reconciliation_lease_seconds: int = Field(
+        default=60,
+        gt=0,
+        validation_alias=AliasChoices("BINANCE_TESTNET_RECONCILIATION_LEASE_SECONDS"),
+    )
     binance_testnet_api_key: str | None = Field(
         default=None,
         validation_alias=AliasChoices("BINANCE_TESTNET_API_KEY"),

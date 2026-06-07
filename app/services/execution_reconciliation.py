@@ -3,7 +3,9 @@ from typing import Any
 from app.core.config import Settings
 from app.core.errors import AppError, ConflictError, NotFoundError
 from app.models.execution_attempt import ExecutionAttempt
+from app.models.execution_reconciliation_job import ExecutionReconciliationJob
 from app.repositories.execution_attempt import ExecutionAttemptRepository
+from app.repositories.execution_reconciliation_job import ExecutionReconciliationJobRepository
 from app.services.brokers.binance import (
     BinanceInvalidOrderQueryResponseError,
     BinanceOrderHttpResponse,
@@ -17,6 +19,7 @@ from app.schemas.execution import (
     ExecutionReconciliationAttemptRead,
     ExecutionReconciliationStatusRead,
 )
+from app.services.execution_reconciliation_jobs import ExecutionReconciliationJobService
 
 MANUAL_RECONCILIATION_CONFIG_ERROR = "testnet_reconciliation_config_unavailable"
 MANUAL_RECONCILIATION_UPSTREAM_ERROR = "testnet_reconciliation_query_failed"
@@ -56,6 +59,15 @@ class ExecutionReconciliationStatusService:
 
     def get_bot_status(self, *, bot_id: int, limit: int) -> ExecutionReconciliationStatusRead:
         recent_attempts = self.repository.list_reconciliation_related_for_bot(bot_id=bot_id, limit=limit)
+        job_service = ExecutionReconciliationJobService(
+            self.repository,
+            ExecutionReconciliationJobRepository(self.repository.db),
+        )
+        job_counts = job_service.counts_for_bot(bot_id=bot_id)
+        jobs_by_attempt_id = job_service.jobs_for_attempts(
+            bot_id=bot_id,
+            attempt_ids=[attempt.id for attempt in recent_attempts],
+        )
 
         return ExecutionReconciliationStatusRead(
             bot_id=bot_id,
@@ -63,7 +75,14 @@ class ExecutionReconciliationStatusService:
             recovered_count=self.repository.count_recovered_reconciliation_for_bot(bot_id=bot_id),
             latest_unresolved_at=self.repository.latest_unresolved_reconciliation_at_for_bot(bot_id=bot_id),
             latest_recovered_at=self.repository.latest_recovered_reconciliation_at_for_bot(bot_id=bot_id),
-            recent_attempts=[self._build_attempt_read(attempt) for attempt in recent_attempts],
+            pending_delayed_reconciliation_count=job_counts.pending,
+            claimed_delayed_reconciliation_count=job_counts.claimed,
+            expired_lease_count=job_counts.expired,
+            exhausted_delayed_reconciliation_count=job_counts.exhausted,
+            recent_attempts=[
+                self._build_attempt_read(attempt, job=jobs_by_attempt_id.get(attempt.id))
+                for attempt in recent_attempts
+            ],
         )
 
     def manually_reconcile_attempt(self, *, bot_id: int, attempt_id: int) -> ExecutionManualReconciliationRead:
@@ -125,6 +144,13 @@ class ExecutionReconciliationStatusService:
             latest.final_status = "order_created"
             latest.final_reason = "testnet_order_recovered_after_unknown_submission"
             self.repository.update(latest)
+            ExecutionReconciliationJobService(
+                self.repository,
+                ExecutionReconciliationJobRepository(self.repository.db),
+            ).mark_job_resolved_for_attempt(
+                execution_attempt_id=latest.id,
+                resolved_at=self._utc_now(),
+            )
             self.repository.db.commit()
             self.repository.db.refresh(latest)
             return self._build_manual_read(latest)
@@ -146,6 +172,13 @@ class ExecutionReconciliationStatusService:
         else:
             latest.metadata_.pop("manual_reconciliation_last_failure_category", None)
         self.repository.update(latest)
+        ExecutionReconciliationJobService(
+            self.repository,
+            ExecutionReconciliationJobRepository(self.repository.db),
+        ).ensure_pending_job_for_persisted_attempt(
+            latest,
+            initial_delay_seconds=self._settings().binance_testnet_reconciliation_initial_delay_seconds,
+        )
         self.repository.db.commit()
         self.repository.db.refresh(latest)
 
@@ -157,7 +190,12 @@ class ExecutionReconciliationStatusService:
             )
         return self._build_manual_read(latest)
 
-    def _build_attempt_read(self, attempt: ExecutionAttempt) -> ExecutionReconciliationAttemptRead:
+    def _build_attempt_read(
+        self,
+        attempt: ExecutionAttempt,
+        *,
+        job: ExecutionReconciliationJob | None = None,
+    ) -> ExecutionReconciliationAttemptRead:
         metadata = self._metadata(attempt)
         return ExecutionReconciliationAttemptRead(
             attempt_id=attempt.id,
@@ -175,6 +213,14 @@ class ExecutionReconciliationStatusService:
             submission_recovered=self._submission_recovered(attempt),
             recovered_order_status=self._safe_string(metadata.get("recovered_order_status")),
             binance_order_id=self._safe_string(metadata.get("exchange_order_id")),
+            delayed_reconciliation_job_id=job.id if job is not None else None,
+            delayed_reconciliation_state=job.state if job is not None else None,
+            delayed_reconciliation_next_attempt_at=job.next_attempt_at if job is not None else None,
+            delayed_reconciliation_lease_expires_at=job.lease_expires_at if job is not None else None,
+            delayed_reconciliation_automatic_attempt_count=job.automatic_attempt_count if job is not None else None,
+            delayed_reconciliation_last_checked_at=job.last_checked_at if job is not None else None,
+            delayed_reconciliation_last_resolution=job.last_resolution if job is not None else None,
+            delayed_reconciliation_last_failure_category=job.last_failure_category if job is not None else None,
         )
 
     def _build_manual_read(self, attempt: ExecutionAttempt, *, already_resolved: bool = False) -> ExecutionManualReconciliationRead:
@@ -287,9 +333,7 @@ class ExecutionReconciliationStatusService:
         )
 
     def _now_isoformat(self) -> str:
-        from datetime import datetime, timezone
-
-        return datetime.now(timezone.utc).isoformat()
+        return self._utc_now().isoformat()
 
     @staticmethod
     def _metadata(attempt: ExecutionAttempt) -> dict[str, Any]:
@@ -368,3 +412,9 @@ class ExecutionReconciliationStatusService:
         if "timeout" in str(exc).lower():
             return "timeout"
         return "network_error"
+
+    @staticmethod
+    def _utc_now():
+        from datetime import datetime, timezone
+
+        return datetime.now(timezone.utc)
