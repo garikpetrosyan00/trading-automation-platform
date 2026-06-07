@@ -11,6 +11,7 @@ from app.models.execution_daily_quota_usage import ExecutionDailyQuotaUsage
 from app.repositories.execution_attempt import ExecutionAttemptRepository
 from app.repositories.portfolio import PortfolioRepository
 from app.services.brokers.binance import (
+    BinanceAccountHttpResponse,
     BinanceInvalidOrderResponseError,
     BinanceOrderHttpResponse,
     BinanceTestnetOrderClientError,
@@ -45,6 +46,28 @@ class RecordingBinanceOrderClient:
         self.calls: list[dict] = []
 
     def submit_signed_market_order(self, params: dict) -> BinanceOrderHttpResponse:
+        self.calls.append(params)
+        if self.exception is not None:
+            raise self.exception
+        return self.response
+
+
+class RecordingBinanceAccountClient:
+    def __init__(self, response: BinanceAccountHttpResponse | None = None, exception: Exception | None = None):
+        self.response = response or BinanceAccountHttpResponse(
+            status_code=200,
+            payload={
+                "canTrade": True,
+                "balances": [
+                    {"asset": "BTC", "free": "10", "locked": "0"},
+                    {"asset": "USDT", "free": "100000", "locked": "0"},
+                ],
+            },
+        )
+        self.exception = exception
+        self.calls: list[dict] = []
+
+    def fetch_signed_account(self, params: dict) -> BinanceAccountHttpResponse:
         self.calls.append(params)
         if self.exception is not None:
             raise self.exception
@@ -363,6 +386,47 @@ def test_testnet_runtime_invalid_filter_blocks_before_signing_and_order_submissi
     assert_no_secret_leak(str(attempts[0].metadata_))
 
 
+def test_testnet_runtime_account_preflight_rejection_does_not_mutate_paper_portfolio(
+    db_session,
+    db_session_factory,
+    stub_market_data_service,
+    bot_stack_factory,
+    funded_account,
+) -> None:
+    funded_account(db_session)
+    account_before = PortfolioRepository(db_session).get_account().cash_balance
+    _, bot, _ = bot_stack_factory(db_session, is_paper=False, execution_mode="testnet")
+    client = RecordingBinanceOrderClient()
+    account_client = RecordingBinanceAccountClient(
+        BinanceAccountHttpResponse(
+            status_code=200,
+            payload={"canTrade": True, "balances": [{"asset": "USDT", "free": "0", "locked": "100000"}]},
+        )
+    )
+    runner = build_testnet_runner(
+        db_session_factory,
+        stub_market_data_service,
+        client,
+        account_client=account_client,
+    )
+    runner.start_bot(bot.id)
+    stub_market_data_service.set_price("BTCUSDT", "95")
+
+    asyncio.run(runner.run_cycle())
+
+    attempts = ExecutionAttemptRepository(db_session).list_filtered(bot_id=bot.id)
+    repository = PortfolioRepository(db_session)
+    assert len(account_client.calls) == 1
+    assert client.calls == []
+    assert attempts[0].final_reason == "testnet_insufficient_balance"
+    assert attempts[0].metadata_["account_preflight_checked"] is True
+    assert attempts[0].metadata_["balance_asset"] == "USDT"
+    assert repository.list_orders() == []
+    assert repository.list_fills() == []
+    assert repository.get_account().cash_balance == account_before
+    assert_no_secret_leak(str(attempts[0].metadata_))
+
+
 def test_live_bot_remains_blocked_and_never_calls_binance(
     db_session,
     db_session_factory,
@@ -389,6 +453,7 @@ def build_testnet_runner(
     market_data_service,
     client,
     *,
+    account_client: RecordingBinanceAccountClient | None = None,
     exchange_info_provider: StaticExchangeInfoProvider | None = None,
     **config_overrides,
 ) -> BotRunner:
@@ -414,6 +479,7 @@ def build_testnet_runner(
         config=RunnerConfig(**config_values),
         now_provider=runner_daytime,
         binance_order_client_factory=lambda _: client,
+        binance_account_client_factory=lambda _: account_client or RecordingBinanceAccountClient(),
         binance_exchange_info_provider_factory=lambda _: exchange_info_provider or StaticExchangeInfoProvider(),
     )
 
@@ -441,6 +507,8 @@ def valid_exchange_info(lot_size: BinanceQuantityFilter | None = None) -> Binanc
         symbols={
             "BTCUSDT": BinanceSymbolRules(
                 symbol="BTCUSDT",
+                base_asset="BTC",
+                quote_asset="USDT",
                 status="TRADING",
                 order_types=frozenset({"LIMIT", "MARKET"}),
                 lot_size=lot_size,

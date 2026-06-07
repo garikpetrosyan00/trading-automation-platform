@@ -31,6 +31,8 @@ def test_exchange_info_client_normalizes_success_and_uses_public_endpoint_withou
     assert captured["api_key"] is None
     assert rules is not None
     assert rules.symbol == "BTCUSDT"
+    assert rules.base_asset == "BTC"
+    assert rules.quote_asset == "USDT"
     assert rules.status == "TRADING"
     assert "MARKET" in rules.order_types
     assert rules.lot_size.min_qty == Decimal("0.001")
@@ -220,6 +222,8 @@ def exchange_info_payload(
         "symbols": [
             {
                 "symbol": symbol,
+                "baseAsset": "BTC",
+                "quoteAsset": "USDT",
                 "status": status,
                 "orderTypes": order_types or ["LIMIT", "MARKET"],
                 "filters": [

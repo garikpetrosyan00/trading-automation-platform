@@ -29,7 +29,12 @@ from app.repositories.paper_accounting import PaperAccountingRepository
 from app.repositories.portfolio import PortfolioRepository
 from app.repositories.run_event import RunEventRepository
 from app.repositories.strategy import StrategyRepository
-from app.services.brokers.binance import BinanceTestnetBroker, BinanceTestnetBrokerConfig, BinanceTestnetOrderClient
+from app.services.brokers.binance import (
+    BinanceTestnetAccountClient,
+    BinanceTestnetBroker,
+    BinanceTestnetBrokerConfig,
+    BinanceTestnetOrderClient,
+)
 from app.services.brokers.binance_exchange_info import BinanceExchangeInfoClient, BinanceExchangeInfoProvider
 from app.schemas.bot_activity import build_activity_item
 from app.schemas.bot_dashboard import BotDashboardItemRead, BotDashboardRead
@@ -80,6 +85,7 @@ class BotRunner:
         now_provider=None,
         risk_manager: RiskManager | None = None,
         binance_order_client_factory=None,
+        binance_account_client_factory=None,
         binance_exchange_info_provider_factory=None,
     ):
         self.session_factory = session_factory
@@ -89,6 +95,7 @@ class BotRunner:
         self.risk_manager = risk_manager or RiskManager()
         self._risk_manager_override = risk_manager is not None
         self.binance_order_client_factory = binance_order_client_factory or self._build_default_binance_order_client
+        self.binance_account_client_factory = binance_account_client_factory or self._build_default_binance_account_client
         self.binance_exchange_info_provider_factory = (
             binance_exchange_info_provider_factory or self._build_default_binance_exchange_info_provider
         )
@@ -831,11 +838,14 @@ class BotRunner:
             recv_window=self.config.binance_testnet_recv_window,
         )
         http_client = None
+        account_client = None
         if self.config.binance_testnet_api_key:
             http_client = self.binance_order_client_factory(config)
+            account_client = self.binance_account_client_factory(config)
         return BinanceTestnetBroker(
             config,
             http_client=http_client,
+            account_client=account_client,
             exchange_info_provider=self.binance_exchange_info_provider_factory(config),
             safety_guard=safety_guard,
             attempt_service=ExecutionAttemptService(attempt_repository),
@@ -843,6 +853,13 @@ class BotRunner:
 
     def _build_default_binance_order_client(self, config: BinanceTestnetBrokerConfig) -> BinanceTestnetOrderClient:
         return BinanceTestnetOrderClient(
+            base_url=config.base_url,
+            api_key=config.api_key or "",
+            timeout_seconds=self.config.binance_testnet_timeout_seconds,
+        )
+
+    def _build_default_binance_account_client(self, config: BinanceTestnetBrokerConfig) -> BinanceTestnetAccountClient:
+        return BinanceTestnetAccountClient(
             base_url=config.base_url,
             api_key=config.api_key or "",
             timeout_seconds=self.config.binance_testnet_timeout_seconds,

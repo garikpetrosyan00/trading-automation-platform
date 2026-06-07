@@ -40,6 +40,8 @@ class BinanceNotionalFilter:
 @dataclass(frozen=True)
 class BinanceSymbolRules:
     symbol: str
+    base_asset: str
+    quote_asset: str
     status: str
     order_types: frozenset[str]
     lot_size: BinanceQuantityFilter | None = None
@@ -119,10 +121,19 @@ class BinanceExchangeInfoParser:
             if not isinstance(symbol_payload, dict):
                 raise BinanceExchangeInfoError("Binance testnet exchange info response was malformed")
             symbol = symbol_payload.get("symbol")
+            base_asset = symbol_payload.get("baseAsset")
+            quote_asset = symbol_payload.get("quoteAsset")
             status = symbol_payload.get("status")
             order_types = symbol_payload.get("orderTypes")
             filters = symbol_payload.get("filters")
-            if not isinstance(symbol, str) or not isinstance(status, str):
+            if (
+                not isinstance(symbol, str)
+                or not isinstance(base_asset, str)
+                or not base_asset.strip()
+                or not isinstance(quote_asset, str)
+                or not quote_asset.strip()
+                or not isinstance(status, str)
+            ):
                 raise BinanceExchangeInfoError("Binance testnet exchange info response was malformed")
             if not isinstance(order_types, list) or not all(isinstance(value, str) for value in order_types):
                 raise BinanceExchangeInfoError("Binance testnet exchange info response was malformed")
@@ -131,6 +142,8 @@ class BinanceExchangeInfoParser:
 
             symbols[symbol.upper()] = BinanceSymbolRules(
                 symbol=symbol.upper(),
+                base_asset=base_asset.strip().upper(),
+                quote_asset=quote_asset.strip().upper(),
                 status=status,
                 order_types=frozenset(order_types),
                 lot_size=cls._quantity_filter(filters, "LOT_SIZE"),
@@ -251,7 +264,13 @@ class BinanceMarketOrderValidator:
         return BinanceOrderValidationDecision(
             allowed=True,
             reason="allowed",
-            metadata={"symbol": normalized_symbol, "mode": "testnet", "broker": "binance_testnet"},
+            metadata={
+                "symbol": normalized_symbol,
+                "base_asset": rules.base_asset,
+                "quote_asset": rules.quote_asset,
+                "mode": "testnet",
+                "broker": "binance_testnet",
+            },
         )
 
     def _validate_quantity_filters(

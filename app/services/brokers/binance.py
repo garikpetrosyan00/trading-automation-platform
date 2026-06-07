@@ -17,6 +17,8 @@ from app.services.execution_attempt import ExecutionAttemptService
 
 DEFAULT_RECV_WINDOW = 5000
 MARKET_ORDER_ENDPOINT = "/api/v3/order"
+ACCOUNT_ENDPOINT = "/api/v3/account"
+ZERO = Decimal("0")
 
 
 @dataclass(frozen=True)
@@ -85,6 +87,9 @@ class BinanceSignedRequestBuilder:
             payload["newClientOrderId"] = client_order_id
         return self.signed_params(payload)
 
+    def account_params(self) -> dict:
+        return self.signed_params({})
+
     @staticmethod
     def _format_decimal(value: Decimal) -> str:
         return format(value.normalize(), "f")
@@ -94,6 +99,20 @@ class BinanceSignedRequestBuilder:
 class BinanceOrderHttpResponse:
     status_code: int
     payload: dict | None
+
+
+@dataclass(frozen=True)
+class BinanceAccountHttpResponse:
+    status_code: int
+    payload: dict | None
+
+
+@dataclass(frozen=True)
+class BinanceAccountPreflightResult:
+    allowed: bool
+    reason: str
+    message: str
+    metadata: dict
 
 
 class BinanceTestnetOrderClient:
@@ -136,6 +155,46 @@ class BinanceTestnetOrderClient:
         return BinanceOrderHttpResponse(status_code=response.status_code, payload=payload)
 
 
+class BinanceTestnetAccountClient:
+    def __init__(
+        self,
+        *,
+        base_url: str,
+        api_key: str,
+        timeout_seconds: float = 5.0,
+        transport: httpx.BaseTransport | None = None,
+    ):
+        self.base_url = base_url.rstrip("/")
+        self.api_key = api_key
+        self.timeout_seconds = timeout_seconds
+        self.transport = transport
+
+    def fetch_signed_account(self, params: dict) -> BinanceAccountHttpResponse:
+        try:
+            with httpx.Client(
+                base_url=self.base_url,
+                timeout=self.timeout_seconds,
+                transport=self.transport,
+            ) as client:
+                response = client.get(
+                    ACCOUNT_ENDPOINT,
+                    params=params,
+                    headers={"X-MBX-APIKEY": self.api_key},
+                )
+        except (httpx.TimeoutException, httpx.RequestError) as exc:
+            raise BinanceTestnetAccountClientError("Could not reach Binance testnet account endpoint") from exc
+
+        try:
+            payload = response.json()
+        except ValueError as exc:
+            raise BinanceInvalidAccountResponseError("Binance testnet account endpoint returned invalid JSON") from exc
+
+        if payload is not None and not isinstance(payload, dict):
+            raise BinanceInvalidAccountResponseError("Binance testnet account endpoint returned invalid JSON")
+
+        return BinanceAccountHttpResponse(status_code=response.status_code, payload=payload)
+
+
 class BinanceTestnetOrderClientError(Exception):
     pass
 
@@ -144,17 +203,27 @@ class BinanceInvalidOrderResponseError(Exception):
     pass
 
 
+class BinanceTestnetAccountClientError(Exception):
+    pass
+
+
+class BinanceInvalidAccountResponseError(Exception):
+    pass
+
+
 class BinanceTestnetBroker:
     def __init__(
         self,
         config: BinanceTestnetBrokerConfig,
         http_client=None,
+        account_client=None,
         exchange_info_provider: BinanceExchangeInfoProvider | None = None,
         safety_guard: ExecutionSafetyGuard | None = None,
         attempt_service: ExecutionAttemptService | None = None,
     ):
         self.config = config
         self.http_client = http_client
+        self.account_client = account_client
         self.exchange_info_provider = exchange_info_provider
         self.attempt_service = attempt_service
         self.request_builder = (
@@ -234,6 +303,16 @@ class BinanceTestnetBroker:
             self._record_attempt(intent, exchange_info_decision, final_status="rejected_by_broker", safety_status="allowed")
             return exchange_info_decision
 
+        account_preflight = self._validate_account_preflight(intent, exchange_info_decision.metadata)
+        if not account_preflight.allowed:
+            result = self._rejected(
+                account_preflight.message,
+                reason=account_preflight.reason,
+                metadata=account_preflight.metadata,
+            )
+            self._record_attempt(intent, result, final_status="rejected_by_broker", safety_status="allowed")
+            return result
+
         client_order_id = self._generate_client_order_id()
         signed_params = self._build_signed_market_order_params(
             symbol=normalized_symbol,
@@ -247,7 +326,7 @@ class BinanceTestnetBroker:
                 status="rejected",
                 message="Binance testnet order submission dry run prepared",
                 reason="testnet_order_submission_dry_run",
-                metadata=self._safe_signed_request_metadata(signed_params, intent),
+                metadata=self._safe_signed_request_metadata(signed_params, intent, account_preflight.metadata),
             )
             self._record_attempt(intent, result, final_status="rejected_by_broker", safety_status="allowed")
             return result
@@ -256,12 +335,12 @@ class BinanceTestnetBroker:
             result = self._rejected(
                 "Binance testnet order submission is not implemented",
                 reason="testnet_order_submission_not_implemented",
-                metadata=self._safe_signed_request_metadata(signed_params, intent),
+                metadata=self._safe_signed_request_metadata(signed_params, intent, account_preflight.metadata),
             )
             self._record_attempt(intent, result, final_status="rejected_by_broker", safety_status="allowed")
             return result
 
-        result = self._submit_signed_order(intent, signed_params)
+        result = self._submit_signed_order(intent, signed_params, account_preflight.metadata)
         if result.accepted:
             quota_metadata = self._record_successful_daily_quota(intent)
             if quota_metadata:
@@ -314,7 +393,230 @@ class BinanceTestnetBroker:
             "utc_day": reservation.utc_day.isoformat(),
         }
 
-    def _submit_signed_order(self, intent: BrokerOrderIntent, signed_params: dict) -> BrokerOrderResult:
+    def _validate_account_preflight(self, intent: BrokerOrderIntent, exchange_metadata: dict) -> BinanceAccountPreflightResult:
+        if self.request_builder is None or self.account_client is None:
+            return self._account_preflight_rejected(
+                "testnet_account_fetch_failed",
+                "Binance testnet account preflight could not be performed",
+                exchange_metadata,
+                balance_asset=None,
+                balance_sufficient=False,
+            )
+
+        balance_asset = self._balance_asset_for_intent(intent, exchange_metadata)
+        if balance_asset is None:
+            return self._account_preflight_rejected(
+                "testnet_account_response_invalid",
+                "Binance testnet account preflight response was invalid",
+                exchange_metadata,
+                balance_asset=None,
+                balance_sufficient=False,
+            )
+
+        if intent.side == "buy" and (intent.market_price is None or not intent.market_price.is_finite() or intent.market_price <= ZERO):
+            return self._account_preflight_rejected(
+                "testnet_account_response_invalid",
+                "Binance testnet account preflight response was invalid",
+                exchange_metadata,
+                balance_asset=balance_asset,
+                balance_sufficient=False,
+            )
+
+        signed_params = self.request_builder.account_params()
+        try:
+            response = self.account_client.fetch_signed_account(signed_params)
+        except BinanceTestnetAccountClientError:
+            return self._account_preflight_rejected(
+                "testnet_account_fetch_failed",
+                "Binance testnet account preflight request failed",
+                exchange_metadata,
+                balance_asset=balance_asset,
+                balance_sufficient=False,
+            )
+        except BinanceInvalidAccountResponseError:
+            return self._account_preflight_rejected(
+                "testnet_account_response_invalid",
+                "Binance testnet account preflight response was invalid",
+                exchange_metadata,
+                balance_asset=balance_asset,
+                balance_sufficient=False,
+            )
+        except Exception:
+            return self._account_preflight_rejected(
+                "testnet_account_fetch_failed",
+                "Binance testnet account preflight request failed",
+                exchange_metadata,
+                balance_asset=balance_asset,
+                balance_sufficient=False,
+            )
+
+        if response.status_code < 200 or response.status_code >= 300:
+            return self._account_preflight_rejected(
+                "testnet_account_fetch_failed",
+                "Binance testnet account preflight request failed",
+                exchange_metadata,
+                balance_asset=balance_asset,
+                balance_sufficient=False,
+                status_code=response.status_code,
+            )
+        if response.payload is None:
+            return self._account_preflight_rejected(
+                "testnet_account_response_invalid",
+                "Binance testnet account preflight response was invalid",
+                exchange_metadata,
+                balance_asset=balance_asset,
+                balance_sufficient=False,
+                status_code=response.status_code,
+            )
+
+        balance_decision = self._validate_account_balance(
+            response.payload,
+            intent=intent,
+            balance_asset=balance_asset,
+        )
+        if not balance_decision.allowed:
+            metadata = {
+                **exchange_metadata,
+                **balance_decision.metadata,
+            }
+            return BinanceAccountPreflightResult(
+                allowed=False,
+                reason=balance_decision.reason,
+                message=balance_decision.message,
+                metadata=metadata,
+            )
+
+        return BinanceAccountPreflightResult(
+            allowed=True,
+            reason="allowed",
+            message="Binance testnet account preflight passed",
+            metadata={**exchange_metadata, **balance_decision.metadata},
+        )
+
+    def _validate_account_balance(
+        self,
+        payload: dict,
+        *,
+        intent: BrokerOrderIntent,
+        balance_asset: str,
+    ) -> BinanceAccountPreflightResult:
+        if payload.get("canTrade") is not True:
+            return self._account_preflight_rejected(
+                "testnet_account_trading_disabled",
+                "Binance testnet account trading is disabled",
+                {},
+                balance_asset=balance_asset,
+                balance_sufficient=False,
+            )
+        balances = payload.get("balances")
+        if not isinstance(balances, list):
+            return self._account_preflight_rejected(
+                "testnet_account_response_invalid",
+                "Binance testnet account preflight response was invalid",
+                {},
+                balance_asset=balance_asset,
+                balance_sufficient=False,
+            )
+
+        free_balance = ZERO
+        found_balance = False
+        for balance in balances:
+            if not isinstance(balance, dict):
+                return self._account_preflight_rejected(
+                    "testnet_account_response_invalid",
+                    "Binance testnet account preflight response was invalid",
+                    {},
+                    balance_asset=balance_asset,
+                    balance_sufficient=False,
+                )
+            asset = balance.get("asset")
+            if not isinstance(asset, str) or not asset.strip():
+                continue
+            if asset.strip().upper() != balance_asset:
+                continue
+            free_balance = self._required_balance_decimal(balance.get("free"))
+            if free_balance is None:
+                return self._account_preflight_rejected(
+                    "testnet_account_response_invalid",
+                    "Binance testnet account preflight response was invalid",
+                    {},
+                    balance_asset=balance_asset,
+                    balance_sufficient=False,
+                )
+            found_balance = True
+            break
+
+        required_balance = intent.quantity * intent.market_price if intent.side == "buy" else intent.quantity
+        if not found_balance or free_balance < required_balance:
+            return self._account_preflight_rejected(
+                "testnet_insufficient_balance",
+                "Binance testnet account has insufficient available balance",
+                {},
+                balance_asset=balance_asset,
+                balance_sufficient=False,
+            )
+
+        return BinanceAccountPreflightResult(
+            allowed=True,
+            reason="allowed",
+            message="Binance testnet account preflight passed",
+            metadata={
+                "account_preflight_checked": True,
+                "balance_asset": balance_asset,
+                "balance_sufficient": True,
+            },
+        )
+
+    @staticmethod
+    def _balance_asset_for_intent(intent: BrokerOrderIntent, exchange_metadata: dict) -> str | None:
+        key = "quote_asset" if intent.side == "buy" else "base_asset"
+        asset = exchange_metadata.get(key)
+        if not isinstance(asset, str) or not asset.strip():
+            return None
+        return asset.strip().upper()
+
+    @staticmethod
+    def _required_balance_decimal(value) -> Decimal | None:
+        try:
+            decimal_value = Decimal(str(value))
+        except (InvalidOperation, TypeError, ValueError):
+            return None
+        if not decimal_value.is_finite() or decimal_value < ZERO:
+            return None
+        return decimal_value
+
+    @staticmethod
+    def _account_preflight_rejected(
+        reason: str,
+        message: str,
+        exchange_metadata: dict,
+        *,
+        balance_asset: str | None,
+        balance_sufficient: bool,
+        status_code: int | None = None,
+    ) -> BinanceAccountPreflightResult:
+        metadata = {
+            **exchange_metadata,
+            "account_preflight_checked": True,
+            "balance_sufficient": balance_sufficient,
+        }
+        if balance_asset is not None:
+            metadata["balance_asset"] = balance_asset
+        if status_code is not None:
+            metadata["account_status_code"] = status_code
+        return BinanceAccountPreflightResult(
+            allowed=False,
+            reason=reason,
+            message=message,
+            metadata=metadata,
+        )
+
+    def _submit_signed_order(
+        self,
+        intent: BrokerOrderIntent,
+        signed_params: dict,
+        account_preflight_metadata: dict,
+    ) -> BrokerOrderResult:
         try:
             response = self.http_client.submit_signed_market_order(signed_params)
         except (BinanceTestnetOrderClientError, BinanceInvalidOrderResponseError) as exc:
@@ -322,7 +624,7 @@ class BinanceTestnetBroker:
                 str(exc),
                 reason=self._exception_reason(exc),
                 metadata={
-                    **self._safe_signed_request_metadata(signed_params, intent),
+                    **self._safe_signed_request_metadata(signed_params, intent, account_preflight_metadata),
                     "error_type": exc.__class__.__name__,
                 },
             )
@@ -331,7 +633,7 @@ class BinanceTestnetBroker:
                 "Binance testnet order request failed",
                 reason="binance_testnet_request_failed",
                 metadata={
-                    **self._safe_signed_request_metadata(signed_params, intent),
+                    **self._safe_signed_request_metadata(signed_params, intent, account_preflight_metadata),
                     "error_type": exc.__class__.__name__,
                 },
             )
@@ -341,7 +643,7 @@ class BinanceTestnetBroker:
                 "Binance testnet order endpoint returned invalid JSON",
                 reason="invalid_binance_response",
                 metadata={
-                    **self._safe_signed_request_metadata(signed_params, intent),
+                    **self._safe_signed_request_metadata(signed_params, intent, account_preflight_metadata),
                     "status_code": response.status_code,
                 },
             )
@@ -353,19 +655,20 @@ class BinanceTestnetBroker:
                 message,
                 reason=reason,
                 metadata={
-                    **self._safe_signed_request_metadata(signed_params, intent),
+                    **self._safe_signed_request_metadata(signed_params, intent, account_preflight_metadata),
                     "status_code": response.status_code,
                     "binance_code": response.payload.get("code"),
                 },
             )
 
-        return self._build_success_result(intent, signed_params, response)
+        return self._build_success_result(intent, signed_params, response, account_preflight_metadata)
 
     def _build_success_result(
         self,
         intent: BrokerOrderIntent,
         signed_params: dict,
         response: BinanceOrderHttpResponse,
+        account_preflight_metadata: dict,
     ) -> BrokerOrderResult:
         payload = response.payload or {}
         external_order_id = str(payload["orderId"]) if payload.get("orderId") is not None else None
@@ -382,7 +685,7 @@ class BinanceTestnetBroker:
             executed_price=executed_price,
             fee=fee,
             metadata={
-                **self._safe_signed_request_metadata(signed_params, intent),
+                **self._safe_signed_request_metadata(signed_params, intent, account_preflight_metadata),
                 "status_code": response.status_code,
                 "exchange_status": payload.get("status"),
                 "exchange_order_id": external_order_id,
@@ -478,8 +781,14 @@ class BinanceTestnetBroker:
     def _generate_client_order_id() -> str:
         return f"tap_{uuid.uuid4().hex}"
 
-    def _safe_signed_request_metadata(self, signed_params: dict, intent: BrokerOrderIntent) -> dict:
+    def _safe_signed_request_metadata(
+        self,
+        signed_params: dict,
+        intent: BrokerOrderIntent,
+        account_preflight_metadata: dict | None = None,
+    ) -> dict:
         return {
+            **(account_preflight_metadata or {}),
             "base_url": self.config.base_url,
             "endpoint_path": MARKET_ORDER_ENDPOINT,
             "method": "POST",
