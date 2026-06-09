@@ -136,6 +136,22 @@ Important local note: app startup depends on the configured database being avail
 
 For a concise portfolio/demo walkthrough covering local startup, tests, `/health`, `/dashboard`, Binance price and candle smoke tests, and a sample backtest, see [docs/manual-demo-guide.md](docs/manual-demo-guide.md).
 
+## Binance testnet reconciliation command
+
+To manually process one bounded batch of delayed Binance testnet reconciliation jobs:
+
+```bash
+.venv/bin/python -m app.cli.process_binance_testnet_reconciliation
+```
+
+To override the configured batch size for that one run:
+
+```bash
+.venv/bin/python -m app.cli.process_binance_testnet_reconciliation --batch-size 10
+```
+
+The command processes one batch and exits. This pass does not install a scheduler, cron job, background loop, or daemon.
+
 ## Docker run instructions
 
 ```bash
