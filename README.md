@@ -4,7 +4,7 @@ This repository provides the initial backend foundation for a production-style t
 
 The first business entities, `Strategy`, `Bot`, `ExecutionProfile`, `BotRun`, and `RunEvent`, are now included as stored metadata/configuration records. At this stage none of them executes trades. They are only persisted and managed through the REST API.
 
-Broker integrations, Telegram notifications, production dashboards, background jobs, authentication, and risk workflows are intentionally left for later steps.
+Production broker integrations, Telegram notifications, production dashboards, scheduler deployment, authentication, and advanced risk workflows are intentionally left for later steps.
 
 ## What is included
 
@@ -138,7 +138,7 @@ For a concise portfolio/demo walkthrough covering local startup, tests, `/health
 
 ## Binance testnet reconciliation command
 
-To manually process one bounded batch of delayed Binance testnet reconciliation jobs:
+This internal command processes one bounded batch of delayed Binance Spot testnet reconciliation jobs and exits:
 
 ```bash
 .venv/bin/python -m app.cli.process_binance_testnet_reconciliation
@@ -150,7 +150,142 @@ To override the configured batch size for that one run:
 .venv/bin/python -m app.cli.process_binance_testnet_reconciliation --batch-size 10
 ```
 
-The command processes one batch and exits. This pass does not install a scheduler, cron job, background loop, or daemon.
+This pass does not install a scheduler, cron job, background loop, or daemon.
+
+## Binance Spot Testnet Smoke Workflow
+
+Use this only with Binance Spot testnet credentials. Do not put live Binance credentials in `.env`.
+
+Execution modes are intentionally separate:
+
+- paper mode mutates only the local simulated portfolio
+- testnet mode uses Binance Spot testnet HTTP requests and does not mutate the paper portfolio
+- live mode is blocked and records `live_mode_not_implemented`
+- the reconciliation CLI is an internal one-shot command that processes one batch and exits
+- no scheduler is installed yet
+
+1. Copy `.env.example` to `.env`, then configure testnet-only values:
+
+```bash
+BINANCE_TESTNET_BROKER_ENABLED=true
+BINANCE_TESTNET_ORDER_SUBMISSION_ENABLED=true
+BINANCE_TESTNET_API_KEY=<SPOT_TESTNET_API_KEY>
+BINANCE_TESTNET_API_SECRET=<SPOT_TESTNET_API_SECRET>
+BINANCE_TESTNET_BASE_URL=https://testnet.binance.vision
+BINANCE_TESTNET_TIMEOUT_SECONDS=5
+BINANCE_TESTNET_RECV_WINDOW=5000
+BINANCE_TESTNET_DRY_RUN_ENABLED=true
+EXECUTION_LIVE_ENABLED=false
+```
+
+2. Start the local app with the normal local workflow:
+
+```bash
+alembic upgrade head
+uvicorn app.main:app --reload
+```
+
+3. Verify health:
+
+```bash
+curl http://127.0.0.1:8000/health
+```
+
+4. Inspect execution safety before enabling a test bot:
+
+```bash
+curl "http://127.0.0.1:8000/api/v1/execution-safety/status?mode=testnet&broker=binance_testnet&side=buy&quantity=<TINY_QUANTITY>&market_price=<LATEST_PRICE>"
+```
+
+Confirm the response shows testnet submission enabled, credentials configured, dry-run enabled, live execution disabled, and no blocking reason for the tiny testnet order.
+
+5. Create or use a dedicated test strategy and bot. The bot must use `execution_mode=testnet`:
+
+```bash
+curl -X POST http://127.0.0.1:8000/api/v1/strategies \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "BTC Testnet Smoke",
+    "symbol": "BTCUSDT",
+    "timeframe": "1m",
+    "strategy_type": "price_threshold",
+    "parameters": {},
+    "is_active": true,
+  }'
+
+curl -X POST http://127.0.0.1:8000/api/v1/bots \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "BTC Testnet Smoke Bot",
+    "strategy_id": <STRATEGY_ID>,
+    "exchange_name": "binance_testnet",
+    "status": "active",
+    "is_paper": false,
+    "execution_mode": "testnet",
+    "notes": "Manual Spot testnet smoke only"
+  }'
+```
+
+6. Configure the bot execution profile and local price so the existing manual run path can produce a tiny signal:
+
+```bash
+curl -X POST http://127.0.0.1:8000/api/v1/bots/<BOT_ID>/execution-profile \
+  -H "Content-Type: application/json" \
+  -d '{
+    "max_position_size_usd": 25,
+    "max_daily_loss_usd": 25,
+    "max_open_positions": 1,
+    "strategy_type": "price_threshold",
+    "entry_below": "<BUY_AT_OR_ABOVE_LATEST_PRICE>",
+    "exit_above": "<SELL_THRESHOLD>",
+    "order_quantity": "<TINY_QUANTITY>",
+    "default_order_type": "market",
+    "is_enabled": true
+  }'
+
+curl -X POST http://127.0.0.1:8000/api/v1/market/price \
+  -H "Content-Type: application/json" \
+  -d '{
+    "symbol": "BTCUSDT",
+    "price": "<LATEST_PRICE>"
+  }'
+```
+
+7. Run the bot once while dry-run is still enabled:
+
+```bash
+curl -X POST http://127.0.0.1:8000/api/v1/bots/<BOT_ID>/run
+curl "http://127.0.0.1:8000/api/v1/bots/<BOT_ID>/execution-attempts?mode=testnet&limit=5"
+```
+
+Confirm the attempt is safe metadata only and reports `testnet_order_submission_dry_run`.
+
+8. Only after the dry-run attempt is correct, set `BINANCE_TESTNET_DRY_RUN_ENABLED=false`, restart the app, and run one tiny testnet-only order:
+
+```bash
+curl -X POST http://127.0.0.1:8000/api/v1/bots/<BOT_ID>/run
+curl "http://127.0.0.1:8000/api/v1/bots/<BOT_ID>/execution-attempts?mode=testnet&limit=5"
+```
+
+9. If the attempt is status-unknown or unresolved, inspect reconciliation status:
+
+```bash
+curl "http://127.0.0.1:8000/api/v1/bots/<BOT_ID>/execution-reconciliation/status?limit=20"
+```
+
+Manual reconciliation for one unresolved attempt uses the persisted identifiers:
+
+```bash
+curl -X POST http://127.0.0.1:8000/api/v1/bots/<BOT_ID>/execution-attempts/<ATTEMPT_ID>/reconcile
+```
+
+Run the internal one-shot CLI only when a delayed reconciliation job is due and you intentionally want one bounded batch:
+
+```bash
+.venv/bin/python -m app.cli.process_binance_testnet_reconciliation --batch-size 1
+```
+
+10. Restore `BINANCE_TESTNET_DRY_RUN_ENABLED=true` after the smoke test and restart the app.
 
 ## Docker run instructions
 

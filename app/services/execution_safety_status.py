@@ -20,6 +20,7 @@ class ExecutionSafetyStatus:
     binance_testnet_broker_enabled: bool
     binance_testnet_order_submission_enabled: bool
     binance_testnet_credentials_configured: bool
+    binance_testnet_dry_run_enabled: bool
     max_order_notional: Decimal | None
     max_daily_order_count: int | None
     max_daily_loss: Decimal | None
@@ -93,6 +94,7 @@ class ExecutionSafetyStatusService:
             binance_testnet_credentials_configured=bool(
                 self.settings.binance_testnet_api_key and self.settings.binance_testnet_api_secret
             ),
+            binance_testnet_dry_run_enabled=self.settings.binance_testnet_dry_run_enabled,
             max_order_notional=self.settings.execution_max_order_notional,
             max_daily_order_count=self.settings.execution_max_daily_order_count,
             max_daily_loss=self.settings.execution_max_daily_loss,

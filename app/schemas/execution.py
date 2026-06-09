@@ -181,6 +181,7 @@ class ExecutionSafetyStatusRead(BaseModel):
     binance_testnet_broker_enabled: bool
     binance_testnet_order_submission_enabled: bool
     binance_testnet_credentials_configured: bool
+    binance_testnet_dry_run_enabled: bool
     max_order_notional: Decimal | None = None
     max_daily_order_count: int | None = None
     max_daily_loss: Decimal | None = None

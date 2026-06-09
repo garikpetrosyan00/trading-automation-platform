@@ -71,6 +71,7 @@ def test_global_execution_safety_status_returns_safe_defaults(
     assert body["binance_testnet_broker_enabled"] is False
     assert body["binance_testnet_order_submission_enabled"] is False
     assert body["binance_testnet_credentials_configured"] is False
+    assert body["binance_testnet_dry_run_enabled"] is False
     assert body["max_order_notional"] is None
     assert body["max_daily_order_count"] is None
     assert body["max_daily_loss"] is None
@@ -324,14 +325,18 @@ def test_execution_safety_status_unknown_bot_returns_404(
     assert response.json()["error_code"] == "bot_not_found"
 
 
-def test_execution_safety_status_does_not_leak_credentials_or_mutate_state(
+def test_execution_safety_status_reports_testnet_dry_run_without_leaking_credentials_or_mutating_state(
     db_session,
     stub_market_data_service,
     noop_bot_runner,
     configure_app_state,
     monkeypatch,
 ) -> None:
-    settings = Settings(BINANCE_TESTNET_API_KEY="super-secret-key", BINANCE_TESTNET_API_SECRET="super-secret-secret")
+    settings = Settings(
+        BINANCE_TESTNET_API_KEY="super-secret-key",
+        BINANCE_TESTNET_API_SECRET="super-secret-secret",
+        BINANCE_TESTNET_DRY_RUN_ENABLED=True,
+    )
     import app.api.v1.endpoints.execution_safety as endpoint
 
     monkeypatch.setattr(endpoint, "get_settings", lambda: settings)
@@ -344,6 +349,7 @@ def test_execution_safety_status_does_not_leak_credentials_or_mutate_state(
     serialized = response.text
     body = response.json()
     assert body["binance_testnet_credentials_configured"] is True
+    assert body["binance_testnet_dry_run_enabled"] is True
     assert "super-secret-key" not in serialized
     assert "super-secret-secret" not in serialized
     assert ExecutionAttemptRepository(db_session).list_filtered() == []
