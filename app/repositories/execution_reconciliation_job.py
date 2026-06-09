@@ -204,6 +204,9 @@ class ExecutionReconciliationJobRepository:
         self.db.flush()
         return job
 
+    def get_owned_claimed_job(self, *, job_id: int, lease_token: str) -> ExecutionReconciliationJob | None:
+        return self._owned_claimed_job(job_id=job_id, lease_token=lease_token)
+
     def _owned_claimed_job(self, *, job_id: int, lease_token: str) -> ExecutionReconciliationJob | None:
         return self.db.scalar(
             select(ExecutionReconciliationJob).where(

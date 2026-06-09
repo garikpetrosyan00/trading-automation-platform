@@ -103,6 +103,9 @@ class ExecutionReconciliationJobService:
     def jobs_for_attempts(self, *, bot_id: int, attempt_ids: list[int]) -> dict[int, ExecutionReconciliationJob]:
         return self.job_repository.list_for_bot_attempt_ids(bot_id=bot_id, attempt_ids=attempt_ids)
 
+    def eligibility_reason_for_attempt(self, attempt: ExecutionAttempt) -> str:
+        return self._eligibility_reason(attempt)
+
     def _eligibility_reason(self, attempt: ExecutionAttempt) -> str:
         metadata = self._metadata(attempt)
         if attempt.bot_id is None:

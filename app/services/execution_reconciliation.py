@@ -277,6 +277,10 @@ class ExecutionReconciliationStatusService:
                 error_code=MANUAL_RECONCILIATION_CONFIG_ERROR,
             )
 
+    def query_order_status(self, *, symbol: str, client_order_id: str) -> dict[str, Any]:
+        self._ensure_configured()
+        return self._query_order(symbol=symbol, client_order_id=client_order_id)
+
     def _query_order(self, *, symbol: str, client_order_id: str) -> dict[str, Any]:
         settings = self._settings()
         request_builder = BinanceSignedRequestBuilder(

@@ -85,6 +85,22 @@ class Settings(BaseSettings):
         gt=0,
         validation_alias=AliasChoices("BINANCE_TESTNET_RECONCILIATION_LEASE_SECONDS"),
     )
+    binance_testnet_reconciliation_retry_delay_seconds: int = Field(
+        default=300,
+        gt=0,
+        validation_alias=AliasChoices("BINANCE_TESTNET_RECONCILIATION_RETRY_DELAY_SECONDS"),
+    )
+    binance_testnet_reconciliation_max_automatic_attempts: int = Field(
+        default=5,
+        gt=0,
+        validation_alias=AliasChoices("BINANCE_TESTNET_RECONCILIATION_MAX_AUTOMATIC_ATTEMPTS"),
+    )
+    binance_testnet_reconciliation_batch_size: int = Field(
+        default=10,
+        gt=0,
+        le=100,
+        validation_alias=AliasChoices("BINANCE_TESTNET_RECONCILIATION_BATCH_SIZE"),
+    )
     binance_testnet_api_key: str | None = Field(
         default=None,
         validation_alias=AliasChoices("BINANCE_TESTNET_API_KEY"),
