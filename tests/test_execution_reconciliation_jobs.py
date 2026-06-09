@@ -300,8 +300,11 @@ def test_reconciliation_status_exposes_safe_delayed_lifecycle_fields(
     claimed_token = job_repository(db_session).claim_due_jobs(now=NOW, lease_seconds=60, limit=1)[0].lease_token
     expired_token = job_repository(db_session).claim_due_jobs(now=NOW, lease_seconds=1, limit=1)[0].lease_token
     exhausted_claim = job_repository(db_session).claim_due_jobs(now=NOW, lease_seconds=60, limit=1)[0]
+    claimed_job = job_repository(db_session).get_by_id(claimed.id)
+    claimed_job.lease_expires_at = datetime.now(timezone.utc) + timedelta(hours=1)
     expired_job = job_repository(db_session).get_by_id(expired.id)
     expired_job.lease_expires_at = datetime(2020, 1, 1, tzinfo=timezone.utc)
+    db_session.add(claimed_job)
     db_session.add(expired_job)
     db_session.commit()
     job_repository(db_session).mark_claimed_job_exhausted(
