@@ -1,8 +1,9 @@
 from datetime import datetime
 
-from sqlalchemy import func, or_, select
+from sqlalchemy import and_, func, or_, select
 from sqlalchemy.orm import Session
 
+from app.models.bot import Bot
 from app.models.execution_attempt import ExecutionAttempt
 
 RECONCILIATION_FINAL_REASONS = frozenset(
@@ -100,6 +101,31 @@ class ExecutionAttemptRepository:
             )
         )
         return int(self.db.scalar(statement) or 0)
+
+    def has_unresolved_testnet_submission_for_bot(self, *, bot_id: int) -> bool:
+        metadata = ExecutionAttempt.metadata_
+        statement = (
+            select(ExecutionAttempt.id)
+            .where(
+                ExecutionAttempt.bot_id == bot_id,
+                ExecutionAttempt.mode == "testnet",
+                ExecutionAttempt.broker == "binance_testnet",
+                or_(
+                    ExecutionAttempt.final_reason == "testnet_order_reconciliation_unresolved",
+                    and_(
+                        metadata["submission_status_unknown"].as_boolean().is_(True),
+                        metadata["submission_recovered"].as_boolean().is_not(True),
+                        metadata["reconciliation_resolution"].as_string() == "unresolved",
+                    ),
+                ),
+            )
+            .limit(1)
+        )
+        return self.db.scalar(statement) is not None
+
+    def lock_bot_submission_scope(self, *, bot_id: int) -> bool:
+        statement = select(Bot.id).where(Bot.id == bot_id).with_for_update()
+        return self.db.scalar(statement) is not None
 
     def count_recovered_reconciliation_for_bot(self, *, bot_id: int) -> int:
         statement = (

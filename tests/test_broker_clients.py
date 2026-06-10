@@ -37,6 +37,7 @@ from app.services.brokers.binance_exchange_info import (
 from app.services.brokers.safety import ExecutionSafetyConfig, ExecutionSafetyGuard
 from app.core.config import Settings
 from app.repositories.execution_attempt import ExecutionAttemptRepository
+from app.repositories.execution_reconciliation_job import ExecutionReconciliationJobRepository
 from app.services.execution_limits import ExecutionDailyLimitService
 from app.services.portfolio_account import PortfolioAccountService
 from app.services.portfolio import PortfolioService
@@ -157,6 +158,29 @@ def enabled_binance_config(**overrides) -> BinanceTestnetBrokerConfig:
     }
     values.update(overrides)
     return BinanceTestnetBrokerConfig(**values)
+
+
+def guarded_testnet_broker(
+    db_session,
+    http_client,
+    *,
+    account_client=None,
+    exchange_info_provider=None,
+    config: BinanceTestnetBrokerConfig | None = None,
+) -> BinanceTestnetBroker:
+    attempt_repository = ExecutionAttemptRepository(db_session)
+    safety_guard = ExecutionSafetyGuard(
+        ExecutionSafetyConfig(testnet_order_submission_enabled=True),
+        daily_limit_service=ExecutionDailyLimitService(attempt_repository, now_provider=lambda: FIXED_NOW),
+    )
+    return BinanceTestnetBroker(
+        config or enabled_binance_config(),
+        http_client=http_client,
+        account_client=account_client or RecordingAccountClient(),
+        exchange_info_provider=exchange_info_provider or valid_exchange_info_provider(),
+        safety_guard=safety_guard,
+        attempt_service=ExecutionAttemptService(attempt_repository),
+    )
 
 
 def valid_exchange_info_provider() -> BinanceExchangeInfoProvider:
@@ -1478,6 +1502,229 @@ def test_binance_testnet_broker_reconciliation_failure_persists_only_safe_attemp
     assert "test-secret" not in serialized
     assert "signature" not in serialized.lower()
     assert "NO_SUCH_ORDER" not in serialized
+
+
+@pytest.mark.parametrize("job_state", ["none", "pending", "claimed", "exhausted"])
+def test_binance_testnet_unresolved_persisted_attempt_blocks_second_real_submission_for_bot_scope(
+    db_session,
+    bot_stack_factory,
+    job_state,
+) -> None:
+    _, bot, _ = bot_stack_factory(db_session, is_paper=False, execution_mode="testnet")
+    unresolved = ExecutionAttemptService(ExecutionAttemptRepository(db_session)).record(
+        bot_id=bot.id,
+        strategy_id=None,
+        symbol="BTCUSDT",
+        side="buy",
+        mode="testnet",
+        broker="binance_testnet",
+        requested_quantity=Decimal("0.1"),
+        requested_price=Decimal("100"),
+        decision_reason=None,
+        risk_status=None,
+        safety_status="allowed",
+        final_status="rejected_by_broker",
+        final_reason="testnet_order_reconciliation_unresolved",
+        metadata={
+            "submission_status_unknown": True,
+            "reconciliation_attempted": True,
+            "reconciliation_resolution": "unresolved",
+            "submission_recovered": False,
+        },
+    )
+    job_repository = ExecutionReconciliationJobRepository(db_session)
+    if job_state != "none":
+        job = job_repository.get_by_execution_attempt_id(unresolved.id)
+        if job is None:
+            job = job_repository.create_pending(
+                execution_attempt_id=unresolved.id,
+                bot_id=bot.id,
+                next_attempt_at=FIXED_NOW,
+            )
+        if job_state == "claimed":
+            job_repository.claim_due_jobs(now=FIXED_NOW, lease_seconds=60, limit=1)
+        elif job_state == "exhausted":
+            claimed = job_repository.claim_due_jobs(now=FIXED_NOW, lease_seconds=60, limit=1)[0]
+            job_repository.mark_claimed_job_exhausted(
+                job_id=claimed.id,
+                lease_token=claimed.lease_token,
+                checked_at=FIXED_NOW,
+                resolution="not_found",
+                failure_category=None,
+            )
+        db_session.commit()
+
+    client = RecordingOrderClient()
+    account_client = RecordingAccountClient()
+    provider = StaticExchangeInfoProvider()
+    broker = guarded_testnet_broker(db_session, client, account_client=account_client, exchange_info_provider=provider)
+
+    result = broker.submit_market_order(
+        BrokerOrderIntent(bot_id=bot.id, symbol="BTCUSDT", side="buy", quantity=Decimal("0.1"), market_price=Decimal("100"))
+    )
+
+    attempts = ExecutionAttemptRepository(db_session).list_filtered(bot_id=bot.id, limit=10)
+    assert result.accepted is False
+    assert result.reason == "binance_testnet_unresolved_attempt_exists"
+    assert result.metadata["guard_scope"] == "bot"
+    assert result.metadata["unresolved_attempt_exists"] is True
+    assert client.calls == []
+    assert client.query_calls == []
+    assert account_client.calls == []
+    assert provider.calls == 0
+    assert attempts[0].final_status == "blocked_by_safety"
+    assert attempts[0].final_reason == "binance_testnet_unresolved_attempt_exists"
+    assert "client_order_id" not in str(attempts[0].metadata_)
+    assert "signature" not in str(attempts[0].metadata_).lower()
+
+
+def test_binance_testnet_unresolved_attempt_from_previous_utc_day_still_blocks_real_submission(
+    db_session,
+    bot_stack_factory,
+) -> None:
+    _, bot, _ = bot_stack_factory(db_session, is_paper=False, execution_mode="testnet")
+    db_session.add(
+        ExecutionAttempt(
+            bot_id=bot.id,
+            strategy_id=None,
+            symbol="BTCUSDT",
+            side="buy",
+            mode="testnet",
+            broker="binance_testnet",
+            requested_quantity=Decimal("0.1"),
+            requested_price=Decimal("100"),
+            decision_reason=None,
+            risk_status=None,
+            safety_status="allowed",
+            final_status="rejected_by_broker",
+            final_reason="testnet_order_reconciliation_unresolved",
+            metadata_={
+                "submission_status_unknown": True,
+                "reconciliation_attempted": True,
+                "reconciliation_resolution": "unresolved",
+                "submission_recovered": False,
+            },
+            created_at=FIXED_NOW - timedelta(days=1),
+        )
+    )
+    db_session.commit()
+    client = RecordingOrderClient()
+    broker = guarded_testnet_broker(db_session, client)
+
+    result = broker.submit_market_order(
+        BrokerOrderIntent(bot_id=bot.id, symbol="BTCUSDT", side="buy", quantity=Decimal("0.1"), market_price=Decimal("100"))
+    )
+
+    attempts = ExecutionAttemptRepository(db_session).list_filtered(bot_id=bot.id, limit=10)
+    assert result.accepted is False
+    assert result.reason == "binance_testnet_unresolved_attempt_exists"
+    assert result.metadata["guard_scope"] == "bot"
+    assert client.calls == []
+    assert client.query_calls == []
+    assert attempts[0].final_status == "blocked_by_safety"
+    assert attempts[0].final_reason == "binance_testnet_unresolved_attempt_exists"
+    assert attempts[1].created_at.date() == (FIXED_NOW - timedelta(days=1)).date()
+
+
+def test_binance_testnet_resolved_known_outcome_allows_later_mocked_submission(db_session, bot_stack_factory) -> None:
+    _, bot, _ = bot_stack_factory(db_session, is_paper=False, execution_mode="testnet")
+    ExecutionAttemptService(ExecutionAttemptRepository(db_session)).record(
+        bot_id=bot.id,
+        strategy_id=None,
+        symbol="BTCUSDT",
+        side="buy",
+        mode="testnet",
+        broker="binance_testnet",
+        requested_quantity=Decimal("0.1"),
+        requested_price=Decimal("100"),
+        decision_reason=None,
+        risk_status=None,
+        safety_status="allowed",
+        final_status="order_created",
+        final_reason="testnet_order_recovered_after_unknown_submission",
+        metadata={
+            "submission_status_unknown": True,
+            "reconciliation_attempted": True,
+            "reconciliation_resolution": "found",
+            "submission_recovered": True,
+            "exchange_status": "FILLED",
+        },
+    )
+    client = RecordingOrderClient()
+    broker = guarded_testnet_broker(db_session, client)
+
+    result = broker.submit_market_order(
+        BrokerOrderIntent(bot_id=bot.id, symbol="BTCUSDT", side="buy", quantity=Decimal("0.1"), market_price=Decimal("100"))
+    )
+
+    assert result.accepted is True
+    assert result.reason is None
+    assert len(client.calls) == 1
+
+
+def test_binance_testnet_dry_run_allowed_with_unresolved_attempt_and_contacts_no_binance(
+    db_session,
+    bot_stack_factory,
+) -> None:
+    _, bot, _ = bot_stack_factory(db_session, is_paper=False, execution_mode="testnet")
+    ExecutionAttemptService(ExecutionAttemptRepository(db_session)).record(
+        bot_id=bot.id,
+        strategy_id=None,
+        symbol="BTCUSDT",
+        side="buy",
+        mode="testnet",
+        broker="binance_testnet",
+        requested_quantity=Decimal("0.1"),
+        requested_price=Decimal("100"),
+        decision_reason=None,
+        risk_status=None,
+        safety_status="allowed",
+        final_status="rejected_by_broker",
+        final_reason="testnet_order_reconciliation_unresolved",
+        metadata={
+            "client_order_id": "tap_unresolved",
+            "submission_status_unknown": True,
+            "reconciliation_attempted": True,
+            "reconciliation_resolution": "unresolved",
+            "submission_recovered": False,
+        },
+    )
+
+    class ExplodingAccountClient:
+        calls = []
+
+        def fetch_signed_account(self, params):
+            self.calls.append(params)
+            raise AssertionError("Dry-run must not contact Binance account endpoint")
+
+    class ExplodingExchangeInfoProvider:
+        calls = 0
+
+        def get_exchange_info(self):
+            self.calls += 1
+            raise AssertionError("Dry-run must not contact Binance exchangeInfo endpoint")
+
+    client = RecordingOrderClient()
+    account_client = ExplodingAccountClient()
+    provider = ExplodingExchangeInfoProvider()
+    broker = guarded_testnet_broker(
+        db_session,
+        client,
+        account_client=account_client,
+        exchange_info_provider=provider,
+        config=enabled_binance_config(dry_run_enabled=True),
+    )
+
+    result = broker.submit_market_order(
+        BrokerOrderIntent(bot_id=bot.id, symbol="BTCUSDT", side="buy", quantity=Decimal("0.1"), market_price=Decimal("100"))
+    )
+
+    assert result.accepted is False
+    assert result.reason == "testnet_order_submission_dry_run"
+    assert client.calls == []
+    assert client.query_calls == []
+    assert account_client.calls == []
+    assert provider.calls == 0
 
 
 def test_binance_testnet_broker_enabled_mocked_submission_normalizes_success(db_session) -> None:

@@ -360,6 +360,28 @@ class BinanceTestnetBroker:
             self._record_attempt(intent, result, final_status="rejected_by_broker", safety_status="allowed")
             return result
 
+        if self.config.dry_run_enabled:
+            signed_params = self._build_signed_market_order_params(
+                symbol=normalized_symbol,
+                side=intent.side,
+                quantity=intent.quantity,
+                client_order_id=self._generate_client_order_id(),
+            )
+            result = BrokerOrderResult(
+                accepted=False,
+                status="rejected",
+                message="Binance testnet order submission dry run prepared",
+                reason="testnet_order_submission_dry_run",
+                metadata=self._safe_signed_request_metadata(signed_params, intent),
+            )
+            self._record_attempt(intent, result, final_status="rejected_by_broker", safety_status="allowed")
+            return result
+
+        guard_result = self._guard_unresolved_submission(intent, normalized_symbol)
+        if guard_result is not None:
+            self._record_attempt(intent, guard_result, final_status="blocked_by_safety", safety_status=guard_result.reason)
+            return guard_result
+
         exchange_info_decision = self._validate_exchange_info(normalized_symbol, intent)
         if not exchange_info_decision.accepted:
             self._record_attempt(intent, exchange_info_decision, final_status="rejected_by_broker", safety_status="allowed")
@@ -375,23 +397,12 @@ class BinanceTestnetBroker:
             self._record_attempt(intent, result, final_status="rejected_by_broker", safety_status="allowed")
             return result
 
-        client_order_id = self._generate_client_order_id()
         signed_params = self._build_signed_market_order_params(
             symbol=normalized_symbol,
             side=intent.side,
             quantity=intent.quantity,
-            client_order_id=client_order_id,
+            client_order_id=self._generate_client_order_id(),
         )
-        if self.config.dry_run_enabled:
-            result = BrokerOrderResult(
-                accepted=False,
-                status="rejected",
-                message="Binance testnet order submission dry run prepared",
-                reason="testnet_order_submission_dry_run",
-                metadata=self._safe_signed_request_metadata(signed_params, intent, account_preflight.metadata),
-            )
-            self._record_attempt(intent, result, final_status="rejected_by_broker", safety_status="allowed")
-            return result
 
         if self.http_client is None:
             result = self._rejected(
@@ -414,6 +425,38 @@ class BinanceTestnetBroker:
             safety_status="allowed",
         )
         return result
+
+    def _guard_unresolved_submission(self, intent: BrokerOrderIntent, normalized_symbol: str) -> BrokerOrderResult | None:
+        if intent.bot_id is None or self.attempt_service is None:
+            return None
+        if not self.attempt_service.repository.lock_bot_submission_scope(bot_id=intent.bot_id):
+            return self._rejected(
+                "Binance testnet submission scope could not be locked",
+                reason="binance_testnet_submission_scope_unavailable",
+                metadata={
+                    "mode": "testnet",
+                    "broker": "binance_testnet",
+                    "symbol": normalized_symbol,
+                    "side": intent.side,
+                    "bot_id": intent.bot_id,
+                    "guard_scope": "bot",
+                },
+            )
+        if not self.attempt_service.repository.has_unresolved_testnet_submission_for_bot(bot_id=intent.bot_id):
+            return None
+        return self._rejected(
+            "Binance testnet submission blocked because a prior attempt has unresolved exchange outcome",
+            reason="binance_testnet_unresolved_attempt_exists",
+            metadata={
+                "mode": "testnet",
+                "broker": "binance_testnet",
+                "symbol": normalized_symbol,
+                "side": intent.side,
+                "bot_id": intent.bot_id,
+                "guard_scope": "bot",
+                "unresolved_attempt_exists": True,
+            },
+        )
 
     def _validate_exchange_info(self, normalized_symbol: str, intent: BrokerOrderIntent) -> BrokerOrderResult:
         if self.exchange_info_provider is None:

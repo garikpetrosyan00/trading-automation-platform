@@ -393,6 +393,44 @@ def test_testnet_runtime_unresolved_status_unknown_does_not_mutate_paper_portfol
     assert_no_secret_leak(str(attempts[0].metadata_))
 
 
+def test_testnet_runtime_unresolved_attempt_blocks_next_real_submission_without_paper_mutation(
+    db_session,
+    db_session_factory,
+    stub_market_data_service,
+    bot_stack_factory,
+    funded_account,
+) -> None:
+    funded_account(db_session)
+    account_before = PortfolioRepository(db_session).get_account().cash_balance
+    _, bot, _ = bot_stack_factory(db_session, is_paper=False, execution_mode="testnet")
+    client = RecordingBinanceOrderClient(
+        exception=BinanceTestnetOrderClientError("timeout", trigger="timeout"),
+        query_response=BinanceOrderHttpResponse(status_code=404, payload={"code": -2013, "msg": "NO_SUCH_ORDER"}),
+    )
+    runner = build_testnet_runner(db_session_factory, stub_market_data_service, client)
+    runner.start_bot(bot.id)
+    stub_market_data_service.set_price("BTCUSDT", "95")
+
+    asyncio.run(runner.run_cycle())
+    asyncio.run(runner.run_cycle())
+
+    attempts = ExecutionAttemptRepository(db_session).list_filtered(bot_id=bot.id, limit=10)
+    repository = PortfolioRepository(db_session)
+    assert len(client.calls) == 1
+    assert len(client.query_calls) == 1
+    assert [attempt.final_reason for attempt in attempts] == [
+        "binance_testnet_unresolved_attempt_exists",
+        "testnet_order_reconciliation_unresolved",
+    ]
+    assert attempts[0].final_status == "blocked_by_safety"
+    assert attempts[0].metadata_["guard_scope"] == "bot"
+    assert "client_order_id" not in str(attempts[0].metadata_)
+    assert repository.list_orders() == []
+    assert repository.list_fills() == []
+    assert repository.get_account().cash_balance == account_before
+    assert_no_secret_leak(str(attempts[0].metadata_))
+
+
 def test_testnet_runtime_dry_run_persists_safe_attempt_without_http_call(
     db_session,
     db_session_factory,
