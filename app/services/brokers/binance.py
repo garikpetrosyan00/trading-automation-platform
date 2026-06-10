@@ -10,6 +10,8 @@ from urllib.parse import urlencode
 
 import httpx
 
+from app.models.execution_attempt import ExecutionAttempt
+from app.repositories.execution_reconciliation_job import ExecutionReconciliationJobRepository
 from app.services.brokers.base import BrokerOrderIntent, BrokerOrderResult
 from app.services.brokers.binance_exchange_info import BinanceExchangeInfoProvider, BinanceMarketOrderValidator
 from app.services.brokers.safety import ExecutionSafetyConfig, ExecutionSafetyGuard
@@ -122,6 +124,13 @@ class BinanceAccountPreflightResult:
     reason: str
     message: str
     metadata: dict
+
+
+@dataclass(frozen=True)
+class BinanceSubmissionReservation:
+    attempt: ExecutionAttempt
+    signed_params: dict
+    account_preflight_metadata: dict
 
 
 class BinanceTestnetOrderClient:
@@ -413,12 +422,23 @@ class BinanceTestnetBroker:
             self._record_attempt(intent, result, final_status="rejected_by_broker", safety_status="allowed")
             return result
 
+        reservation = self._reserve_real_submission_attempt(
+            intent,
+            signed_params,
+            account_preflight.metadata,
+            normalized_symbol=normalized_symbol,
+        )
+        if isinstance(reservation, BrokerOrderResult):
+            self._record_attempt(intent, reservation, final_status="blocked_by_safety", safety_status=reservation.reason)
+            return reservation
+
         result = self._submit_signed_order(intent, signed_params, account_preflight.metadata)
         if result.accepted:
             quota_metadata = self._record_successful_daily_quota(intent)
             if quota_metadata:
                 result = replace(result, metadata={**result.metadata, **quota_metadata})
-        self._record_attempt(
+        self._finalize_reserved_attempt(
+            reservation,
             intent,
             result,
             final_status="order_created" if result.accepted else "rejected_by_broker",
@@ -457,6 +477,116 @@ class BinanceTestnetBroker:
                 "unresolved_attempt_exists": True,
             },
         )
+
+    def _reserve_real_submission_attempt(
+        self,
+        intent: BrokerOrderIntent,
+        signed_params: dict,
+        account_preflight_metadata: dict,
+        *,
+        normalized_symbol: str,
+    ) -> BinanceSubmissionReservation | BrokerOrderResult:
+        if intent.bot_id is None or self.attempt_service is None:
+            return self._rejected(
+                "Binance testnet submission scope could not be reserved",
+                reason="binance_testnet_submission_scope_unavailable",
+                metadata={
+                    "mode": "testnet",
+                    "broker": "binance_testnet",
+                    "symbol": normalized_symbol,
+                    "side": intent.side,
+                    "guard_scope": "bot",
+                },
+            )
+        if not self.attempt_service.repository.lock_bot_submission_scope(bot_id=intent.bot_id):
+            return self._rejected(
+                "Binance testnet submission scope could not be reserved",
+                reason="binance_testnet_submission_scope_unavailable",
+                metadata={
+                    "mode": "testnet",
+                    "broker": "binance_testnet",
+                    "symbol": normalized_symbol,
+                    "side": intent.side,
+                    "bot_id": intent.bot_id,
+                    "guard_scope": "bot",
+                },
+            )
+        if self.attempt_service.repository.has_unresolved_testnet_submission_for_bot(bot_id=intent.bot_id):
+            return self._rejected(
+                "Binance testnet submission blocked because a prior attempt has unresolved exchange outcome",
+                reason="binance_testnet_unresolved_attempt_exists",
+                metadata={
+                    "mode": "testnet",
+                    "broker": "binance_testnet",
+                    "symbol": normalized_symbol,
+                    "side": intent.side,
+                    "bot_id": intent.bot_id,
+                    "guard_scope": "bot",
+                    "unresolved_attempt_exists": True,
+                },
+            )
+
+        metadata = {
+            **self._safe_signed_request_metadata(signed_params, intent, account_preflight_metadata),
+            "submission_status_unknown": True,
+            "reconciliation_attempted": True,
+            "reconciliation_trigger": "pre_submit_reservation",
+            "reconciliation_resolution": "unresolved",
+            "submission_recovered": False,
+            "submission_phase": "pre_submit_reserved",
+        }
+        attempt = self.attempt_service.record(
+            bot_id=intent.bot_id,
+            strategy_id=intent.strategy_id,
+            symbol=intent.symbol,
+            side=intent.side,
+            mode="testnet",
+            broker="binance_testnet",
+            requested_quantity=intent.quantity,
+            requested_price=intent.market_price,
+            decision_reason=intent.decision_reason,
+            risk_status=None,
+            safety_status="allowed",
+            final_status="created",
+            final_reason="testnet_order_submission_reserved",
+            metadata=metadata,
+        )
+        self.attempt_service.repository.db.commit()
+        self.attempt_service.repository.db.refresh(attempt)
+        return BinanceSubmissionReservation(
+            attempt=attempt,
+            signed_params=signed_params,
+            account_preflight_metadata=account_preflight_metadata,
+        )
+
+    def _finalize_reserved_attempt(
+        self,
+        reservation: BinanceSubmissionReservation,
+        intent: BrokerOrderIntent,
+        result: BrokerOrderResult,
+        *,
+        final_status: str,
+        safety_status: str | None,
+    ) -> None:
+        if self.attempt_service is None:
+            return
+        persisted = self.attempt_service.mark_final(
+            reservation.attempt,
+            final_status=final_status,
+            final_reason=result.reason or result.message,
+            risk_status=None,
+            safety_status=safety_status,
+            metadata=result.metadata,
+        )
+        if result.reason != "testnet_order_reconciliation_unresolved":
+            resolution = "found" if result.accepted else "known_rejected"
+            ExecutionReconciliationJobRepository(self.attempt_service.repository.db).mark_job_resolved_for_attempt(
+                execution_attempt_id=persisted.id,
+                resolved_at=self._utc_now(),
+                resolution=resolution,
+            )
+        self.attempt_service.repository.db.commit()
+        self.attempt_service.repository.db.refresh(persisted)
 
     def _validate_exchange_info(self, normalized_symbol: str, intent: BrokerOrderIntent) -> BrokerOrderResult:
         if self.exchange_info_provider is None:
@@ -1031,6 +1161,10 @@ class BinanceTestnetBroker:
     @staticmethod
     def _generate_client_order_id() -> str:
         return f"tap_{uuid.uuid4().hex}"
+
+    @staticmethod
+    def _utc_now() -> datetime:
+        return datetime.now(timezone.utc)
 
     def _safe_signed_request_metadata(
         self,
