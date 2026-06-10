@@ -57,7 +57,18 @@ def test_global_execution_safety_status_returns_safe_defaults(
     stub_market_data_service,
     noop_bot_runner,
     configure_app_state,
+    monkeypatch,
 ) -> None:
+    settings = Settings(
+        BINANCE_TESTNET_BROKER_ENABLED=False,
+        BINANCE_TESTNET_ORDER_SUBMISSION_ENABLED=False,
+        BINANCE_TESTNET_API_KEY=None,
+        BINANCE_TESTNET_API_SECRET=None,
+        BINANCE_TESTNET_DRY_RUN_ENABLED=False,
+    )
+    import app.api.v1.endpoints.execution_safety as endpoint
+
+    monkeypatch.setattr(endpoint, "get_settings", lambda: settings)
     configure_app_state(market_data_service=stub_market_data_service, bot_runner=noop_bot_runner)
 
     with TestClient(app) as client:

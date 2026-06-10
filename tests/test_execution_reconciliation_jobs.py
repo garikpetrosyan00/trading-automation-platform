@@ -401,6 +401,7 @@ def test_automatic_worker_found_order_resolves_job_recovers_attempt_and_does_not
     assert summary.resolved_count == 1
     assert summary.results[0].resolution == "found"
     assert len(query_calls) == 1
+    assert query_calls[0]["origClientOrderId"] == f"tap_{bot.id}_now"
     assert post_calls == []
     db_session.expire_all()
     updated_job = job_repository(db_session).get_by_id(job.id)
@@ -688,6 +689,9 @@ def test_automatic_worker_public_status_remains_safe_after_retry(
     assert response.status_code == 200
     assert "lease_token" not in str(summary)
     assert "lease_token" not in response.text
+    assert "client_order_id" not in response.text
+    assert "new_client_order_id" not in response.text
+    assert f"tap_{bot.id}_now" not in response.text
     assert "NO_SUCH_ORDER" not in response.text
     assert "raw payload" not in response.text
     assert "signature" not in response.text.lower()

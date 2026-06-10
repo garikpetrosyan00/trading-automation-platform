@@ -1,9 +1,12 @@
 import asyncio
+from datetime import datetime, timezone
 from decimal import Decimal
 
 from fastapi.testclient import TestClient
 
 from app.main import app
+from app.models.execution_attempt import ExecutionAttempt
+from app.repositories.execution_attempt import ExecutionAttemptRepository
 from app.repositories.portfolio import PortfolioRepository
 
 
@@ -225,6 +228,128 @@ def test_hold_decision_creates_no_execution_attempt(
 
     assert response.status_code == 200
     assert response.json() == []
+
+
+def test_execution_attempt_public_metadata_redacts_internal_identifiers_recursively(
+    db_session,
+    stub_market_data_service,
+    noop_bot_runner,
+    bot_stack_factory,
+    configure_app_state,
+) -> None:
+    _, bot, _ = bot_stack_factory(db_session, is_paper=False, execution_mode="testnet")
+    attempt = ExecutionAttempt(
+        bot_id=bot.id,
+        strategy_id=None,
+        order_id=None,
+        symbol="BTCUSDT",
+        side="buy",
+        mode="testnet",
+        broker="binance_testnet",
+        requested_quantity=Decimal("0.001"),
+        requested_price=Decimal("100"),
+        decision_reason="test public metadata redaction",
+        risk_status="allowed",
+        safety_status="allowed",
+        final_status="order_created",
+        final_reason="binance_testnet_order_created",
+        metadata_={
+            "client_order_id": "tap_internal_client",
+            "exchange_order_id": "98765",
+            "exchange_client_order_id": "tap_exchange_client",
+            "origClientOrderId": "tap_orig",
+            "orderId": 98765,
+            "newClientOrderId": "tap_new",
+            "lease_token": "unsafe-lease-token",
+            "signature": "unsafe-signature",
+            "api_key": "unsafe-api-key",
+            "api_secret": "unsafe-api-secret",
+            "headers": {"X-MBX-APIKEY": "unsafe-api-key"},
+            "signed_query": "symbol=BTCUSDT&signature=unsafe-signature",
+            "raw_response": {"orderId": 98765},
+            "raw_payload": {"client_order_id": "nested-client"},
+            "exchange_status": "FILLED",
+            "dry_run": False,
+            "status_code": 200,
+            "nested": {
+                "client_order_id": "nested-client",
+                "status_code": 201,
+                "items": [
+                    {"orderId": 1, "exchange_status": "NEW"},
+                    {"headers": {"X-MBX-APIKEY": "unsafe"}, "dry_run": True},
+                ],
+            },
+        },
+        created_at=datetime.now(timezone.utc),
+    )
+    db_session.add(attempt)
+    db_session.commit()
+    db_session.refresh(attempt)
+    configure_app_state(market_data_service=stub_market_data_service, bot_runner=noop_bot_runner)
+
+    with TestClient(app) as client:
+        list_response = client.get("/api/v1/execution-attempts")
+        bot_list_response = client.get(f"/api/v1/bots/{bot.id}/execution-attempts")
+        detail_response = client.get(f"/api/v1/execution-attempts/{attempt.id}")
+
+    assert list_response.status_code == 200
+    assert bot_list_response.status_code == 200
+    assert detail_response.status_code == 200
+    for body in (list_response.json()[0], bot_list_response.json()[0], detail_response.json()):
+        metadata = body["metadata"]
+        assert metadata["exchange_status"] == "FILLED"
+        assert metadata["dry_run"] is False
+        assert metadata["status_code"] == 200
+        assert metadata["nested"]["status_code"] == 201
+        assert metadata["nested"]["items"][0] == {"exchange_status": "NEW"}
+        assert metadata["nested"]["items"][1] == {"dry_run": True}
+
+    serialized = detail_response.text
+    for hidden in (
+        "client_order_id",
+        "exchange_order_id",
+        "exchange_client_order_id",
+        "origClientOrderId",
+        "orderId",
+        "newClientOrderId",
+        "lease_token",
+        "signature",
+        "api_key",
+        "api_secret",
+        "headers",
+        "signed_query",
+        "raw_response",
+        "raw_payload",
+        "unsafe-api-key",
+        "unsafe-signature",
+        "tap_internal_client",
+        "tap_exchange_client",
+    ):
+        assert hidden not in serialized
+
+    db_session.expire_all()
+    persisted = ExecutionAttemptRepository(db_session).get_by_id(attempt.id)
+    assert persisted.metadata_["client_order_id"] == "tap_internal_client"
+    assert persisted.metadata_["exchange_order_id"] == "98765"
+    assert persisted.metadata_["exchange_client_order_id"] == "tap_exchange_client"
+
+
+def test_public_schemas_do_not_expose_internal_reconciliation_identifier_fields(
+    stub_market_data_service,
+    noop_bot_runner,
+    configure_app_state,
+) -> None:
+    configure_app_state(market_data_service=stub_market_data_service, bot_runner=noop_bot_runner)
+
+    with TestClient(app) as client:
+        response = client.get("/openapi.json")
+
+    assert response.status_code == 200
+    schemas = response.json()["components"]["schemas"]
+    assert "new_client_order_id" not in schemas["ExecutionReconciliationAttemptRead"]["properties"]
+    assert "binance_order_id" not in schemas["ExecutionReconciliationAttemptRead"]["properties"]
+    assert "new_client_order_id" not in schemas["ExecutionManualReconciliationRead"]["properties"]
+    assert "exchange_order_id" not in schemas["ExecutionManualReconciliationRead"]["properties"]
 
 
 def test_order_audit_unknown_order_and_limit_validation(

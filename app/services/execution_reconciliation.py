@@ -20,29 +20,11 @@ from app.schemas.execution import (
     ExecutionReconciliationStatusRead,
 )
 from app.services.execution_reconciliation_jobs import ExecutionReconciliationJobService
+from app.services.metadata_sanitizer import SENSITIVE_METADATA_KEYS
 
 MANUAL_RECONCILIATION_CONFIG_ERROR = "testnet_reconciliation_config_unavailable"
 MANUAL_RECONCILIATION_UPSTREAM_ERROR = "testnet_reconciliation_query_failed"
 NON_RECONCILABLE_ERROR = "execution_attempt_not_reconcilable"
-UNSAFE_METADATA_KEYS = frozenset(
-    {
-        "api_key",
-        "api_secret",
-        "signature",
-        "signed_params",
-        "signed_query",
-        "signed_url",
-        "headers",
-        "request_headers",
-        "raw_post_body",
-        "raw_get_body",
-        "raw_request_body",
-        "raw_response_body",
-        "unsafe_exception",
-    }
-)
-
-
 class ExecutionReconciliationStatusService:
     def __init__(
         self,
@@ -205,14 +187,12 @@ class ExecutionReconciliationStatusService:
             side=attempt.side,
             quantity=attempt.requested_quantity,
             reason=attempt.final_reason,
-            new_client_order_id=self._safe_string(metadata.get("client_order_id")),
             submission_status_unknown=bool(metadata.get("submission_status_unknown")),
             reconciliation_attempted=bool(metadata.get("reconciliation_attempted")),
             reconciliation_trigger=self._safe_string(metadata.get("reconciliation_trigger")),
             reconciliation_resolution=self._safe_string(metadata.get("reconciliation_resolution")),
             submission_recovered=self._submission_recovered(attempt),
             recovered_order_status=self._safe_string(metadata.get("recovered_order_status")),
-            binance_order_id=self._safe_string(metadata.get("exchange_order_id")),
             delayed_reconciliation_job_id=job.id if job is not None else None,
             delayed_reconciliation_state=job.state if job is not None else None,
             delayed_reconciliation_next_attempt_at=job.next_attempt_at if job is not None else None,
@@ -233,8 +213,6 @@ class ExecutionReconciliationStatusService:
             submission_recovered=bool(metadata.get("submission_recovered")),
             reconciliation_resolution=self._safe_string(metadata.get("reconciliation_resolution")),
             recovered_order_status=self._safe_string(metadata.get("recovered_order_status")),
-            exchange_order_id=self._safe_string(metadata.get("exchange_order_id")),
-            new_client_order_id=self._safe_string(metadata.get("client_order_id")),
             manual_reconciliation_attempted=bool(metadata.get("manual_reconciliation_attempted")),
             manual_reconciliation_attempt_count=self._manual_attempt_count(metadata),
             manual_reconciliation_last_checked_at=self._manual_checked_at(metadata),
@@ -347,7 +325,7 @@ class ExecutionReconciliationStatusService:
 
     @classmethod
     def _safe_metadata(cls, attempt: ExecutionAttempt) -> dict[str, Any]:
-        return {key: value for key, value in cls._metadata(attempt).items() if key not in UNSAFE_METADATA_KEYS}
+        return {key: value for key, value in cls._metadata(attempt).items() if key not in SENSITIVE_METADATA_KEYS}
 
     @staticmethod
     def _safe_string(value: Any) -> str | None:

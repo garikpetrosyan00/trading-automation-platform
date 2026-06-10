@@ -126,14 +126,12 @@ class ExecutionReconciliationAttemptRead(BaseModel):
     side: ExecutionSide
     quantity: Decimal
     reason: str | None = None
-    new_client_order_id: str | None = None
     submission_status_unknown: bool = False
     reconciliation_attempted: bool = False
     reconciliation_trigger: str | None = None
     reconciliation_resolution: str | None = None
     submission_recovered: bool = False
     recovered_order_status: str | None = None
-    binance_order_id: str | None = None
     delayed_reconciliation_job_id: int | None = None
     delayed_reconciliation_state: str | None = None
     delayed_reconciliation_next_attempt_at: datetime | None = None
@@ -165,8 +163,6 @@ class ExecutionManualReconciliationRead(BaseModel):
     submission_recovered: bool = False
     reconciliation_resolution: str | None = None
     recovered_order_status: str | None = None
-    exchange_order_id: str | None = None
-    new_client_order_id: str | None = None
     manual_reconciliation_attempted: bool = False
     manual_reconciliation_attempt_count: int = 0
     manual_reconciliation_last_checked_at: datetime | None = None

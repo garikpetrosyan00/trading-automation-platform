@@ -180,7 +180,13 @@ def test_testnet_bot_runtime_submits_with_real_client_factory_and_persists_safe_
         response = api_client.get(f"/api/v1/bots/{bot.id}/execution-attempts")
 
     assert response.status_code == 200
-    assert response.json()[0]["metadata"]["client_order_id"] == client.calls[0]["newClientOrderId"]
+    public_metadata = response.json()[0]["metadata"]
+    assert "client_order_id" not in public_metadata
+    assert "exchange_order_id" not in public_metadata
+    assert "exchange_client_order_id" not in public_metadata
+    assert public_metadata["exchange_status"] == "FILLED"
+    assert public_metadata["status_code"] == 200
+    assert public_metadata["daily_order_count"] == 1
     assert_no_secret_leak(response.text)
 
 

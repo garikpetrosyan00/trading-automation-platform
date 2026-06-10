@@ -23,6 +23,7 @@ from app.schemas.execution import (
     ExecutionSide,
 )
 from app.services.execution_reconciliation import ExecutionReconciliationStatusService
+from app.services.metadata_sanitizer import sanitize_public_metadata
 
 router = APIRouter()
 
@@ -247,7 +248,7 @@ def _build_attempt_read(attempt: ExecutionAttempt) -> ExecutionAttemptRead:
         safety_status=attempt.safety_status,
         final_status=attempt.final_status,
         final_reason=attempt.final_reason,
-        metadata=attempt.metadata_,
+        metadata=sanitize_public_metadata(attempt.metadata_),
         created_at=attempt.created_at,
     )
 

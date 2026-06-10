@@ -171,14 +171,12 @@ def test_reconciliation_status_normalizes_safe_fields_counts_and_ordering(
         "side": "buy",
         "quantity": "0.10000000",
         "reason": "testnet_order_reconciliation_unresolved",
-        "new_client_order_id": "tap_latest_unresolved",
         "submission_status_unknown": True,
         "reconciliation_attempted": True,
         "reconciliation_trigger": "http_5xx",
         "reconciliation_resolution": "unresolved",
         "submission_recovered": False,
         "recovered_order_status": None,
-        "binance_order_id": None,
         "delayed_reconciliation_job_id": None,
         "delayed_reconciliation_state": None,
         "delayed_reconciliation_next_attempt_at": None,
@@ -193,10 +191,16 @@ def test_reconciliation_status_normalizes_safe_fields_counts_and_ordering(
     assert recovered_body["submission_recovered"] is True
     assert recovered_body["reconciliation_resolution"] == "found"
     assert recovered_body["recovered_order_status"] == "NEW"
-    assert recovered_body["binance_order_id"] == "12345"
 
     serialized = response.text
     assert "metadata" not in serialized
+    assert "client_order_id" not in serialized
+    assert "exchange_order_id" not in serialized
+    assert "new_client_order_id" not in serialized
+    assert "binance_order_id" not in serialized
+    assert "tap_latest_unresolved" not in serialized
+    assert "tap_recovered" not in serialized
+    assert "12345" not in serialized
     assert API_KEY not in serialized
     assert API_SECRET not in serialized
     assert "signature" not in serialized.lower()
@@ -339,7 +343,6 @@ def test_manual_reconciliation_signed_get_uses_persisted_identifiers(db_session,
     assert response.submission_recovered is True
     assert response.reconciliation_resolution == "found"
     assert response.recovered_order_status == "FILLED"
-    assert response.exchange_order_id == "123456"
     assert captured["method"] == "GET"
     assert captured["path"] == "/api/v3/order"
     assert captured["api_key"] == "test-api-key"
@@ -411,8 +414,6 @@ def test_manual_reconciliation_success_updates_existing_attempt_and_observabilit
     assert body["submission_recovered"] is True
     assert body["reconciliation_resolution"] == "found"
     assert body["recovered_order_status"] == "NEW"
-    assert body["exchange_order_id"] == "999"
-    assert body["new_client_order_id"] == "tap_manual_success"
     assert body["manual_reconciliation_attempted"] is True
     assert body["manual_reconciliation_attempt_count"] == 1
     assert body["manual_reconciliation_last_resolution"] == "found"
@@ -436,6 +437,10 @@ def test_manual_reconciliation_success_updates_existing_attempt_and_observabilit
     assert status_body["recovered_count"] == 1
     assert status_body["latest_recovered_at"] == updated.created_at.isoformat()
     assert status_body["recent_attempts"][0]["submission_recovered"] is True
+    assert "exchange_order_id" not in response.text
+    assert "new_client_order_id" not in response.text
+    assert "tap_manual_success" not in response.text
+    assert "999" not in response.text
     assert "metadata" not in status_response.text
     repository = PortfolioRepository(db_session)
     assert repository.list_orders() == []

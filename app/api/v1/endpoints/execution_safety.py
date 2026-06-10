@@ -11,6 +11,7 @@ from app.repositories.execution_attempt import ExecutionAttemptRepository
 from app.repositories.paper_accounting import PaperAccountingRepository
 from app.schemas.execution import ExecutionSafetyStatusRead
 from app.services.execution_safety_status import ExecutionSafetyStatusService
+from app.services.metadata_sanitizer import sanitize_public_metadata
 
 router = APIRouter()
 
@@ -84,4 +85,5 @@ def _build_status(
         quantity=quantity,
         market_price=market_price,
     )
-    return ExecutionSafetyStatusRead(**status.__dict__)
+    payload = {**status.__dict__, "metadata": sanitize_public_metadata(status.metadata) or {}}
+    return ExecutionSafetyStatusRead(**payload)
