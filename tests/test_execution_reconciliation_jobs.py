@@ -424,6 +424,71 @@ def test_automatic_worker_found_order_resolves_job_recovers_attempt_and_does_not
     assert repository.get_account().cash_balance == account_before
 
 
+def test_automatic_worker_single_job_call_processes_at_most_one_due_job(
+    db_session,
+    bot_stack_factory,
+    monkeypatch,
+) -> None:
+    _, bot, _ = bot_stack_factory(db_session, is_paper=False, execution_mode="testnet")
+    first_job = add_job(db_session, bot.id, NOW - timedelta(minutes=2))
+    second_job = add_job(db_session, bot.id, NOW - timedelta(minutes=1))
+    query_calls = []
+
+    def query_once(self, params):
+        query_calls.append(params)
+        return BinanceOrderHttpResponse(
+            status_code=200,
+            payload={
+                "symbol": "BTCUSDT",
+                "orderId": 123,
+                "clientOrderId": params["origClientOrderId"],
+                "status": "FILLED",
+            },
+        )
+
+    monkeypatch.setattr(BinanceTestnetOrderClient, "query_signed_order", query_once)
+
+    summary = worker_service(
+        db_session,
+        now=NOW,
+        settings=worker_settings(batch_size=10),
+    ).process_due_job()
+
+    assert summary.claimed_count == 1
+    assert summary.processed_count == 1
+    assert summary.resolved_count == 1
+    assert len(query_calls) == 1
+    db_session.expire_all()
+    assert job_repository(db_session).get_by_id(first_job.id).state == "resolved"
+    assert job_repository(db_session).get_by_id(second_job.id).state == "pending"
+
+
+def test_automatic_worker_single_job_call_no_due_job_returns_safe_noop(
+    db_session,
+    bot_stack_factory,
+    monkeypatch,
+) -> None:
+    _, bot, _ = bot_stack_factory(db_session, is_paper=False, execution_mode="testnet")
+    future_job = add_job(db_session, bot.id, NOW + timedelta(minutes=5))
+
+    def fail_if_called(*args, **kwargs):
+        raise AssertionError("No due automatic reconciliation job must not query Binance")
+
+    monkeypatch.setattr(BinanceTestnetOrderClient, "query_signed_order", fail_if_called)
+
+    summary = worker_service(db_session, now=NOW).process_due_job()
+
+    assert summary.claimed_count == 0
+    assert summary.processed_count == 0
+    assert summary.resolved_count == 0
+    assert summary.retried_count == 0
+    assert summary.exhausted_count == 0
+    assert summary.stale_count == 0
+    assert summary.results == []
+    db_session.expire_all()
+    assert job_repository(db_session).get_by_id(future_job.id).state == "pending"
+
+
 def test_automatic_worker_not_found_retries_then_exhausts_at_limit(db_session, bot_stack_factory, monkeypatch) -> None:
     _, bot, _ = bot_stack_factory(db_session, is_paper=False, execution_mode="testnet")
     job = add_job(db_session, bot.id, NOW - timedelta(minutes=1))

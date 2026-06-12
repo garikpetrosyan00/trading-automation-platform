@@ -70,6 +70,9 @@ class ExecutionReconciliationWorkerService:
             results=results,
         )
 
+    def process_due_job(self) -> AutomaticReconciliationBatchSummary:
+        return self.process_due_batch(limit=1)
+
     def _process_claimed_job(self, claimed_job: ClaimedReconciliationJob) -> AutomaticReconciliationJobResult:
         if (
             self.job_repository.get_owned_claimed_job(
