@@ -101,6 +101,16 @@ class Settings(BaseSettings):
         le=100,
         validation_alias=AliasChoices("BINANCE_TESTNET_RECONCILIATION_BATCH_SIZE"),
     )
+    binance_testnet_reconciliation_worker_enabled: bool = Field(
+        default=False,
+        validation_alias=AliasChoices("BINANCE_TESTNET_RECONCILIATION_WORKER_ENABLED"),
+    )
+    binance_testnet_reconciliation_worker_poll_interval_seconds: int = Field(
+        default=30,
+        gt=0,
+        le=3600,
+        validation_alias=AliasChoices("BINANCE_TESTNET_RECONCILIATION_WORKER_POLL_INTERVAL_SECONDS"),
+    )
     binance_testnet_api_key: str | None = Field(
         default=None,
         validation_alias=AliasChoices("BINANCE_TESTNET_API_KEY"),
