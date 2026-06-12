@@ -767,6 +767,221 @@ def test_automatic_worker_public_status_remains_safe_after_retry(
     assert recent["delayed_reconciliation_last_resolution"] == "not_found"
 
 
+def test_reconciliation_job_audit_list_returns_newest_jobs_and_status_filter(
+    db_session,
+    bot_stack_factory,
+    stub_market_data_service,
+    noop_bot_runner,
+    configure_app_state,
+) -> None:
+    _, bot, _ = bot_stack_factory(db_session, is_paper=False, execution_mode="testnet")
+    old_pending = add_job(db_session, bot.id, NOW - timedelta(minutes=30))
+    middle_pending = add_job(db_session, bot.id, NOW - timedelta(minutes=20))
+    newest_claimed = add_job(db_session, bot.id, NOW - timedelta(minutes=10))
+    for job, created_at in (
+        (old_pending, NOW - timedelta(hours=3)),
+        (middle_pending, NOW - timedelta(hours=2)),
+        (newest_claimed, NOW - timedelta(hours=1)),
+    ):
+        job.created_at = created_at
+        job.updated_at = created_at
+        db_session.add(job)
+    db_session.commit()
+    claimed_job = job_repository(db_session).get_by_id(newest_claimed.id)
+    claimed_job.state = "claimed"
+    claimed_job.lease_token = "safe-test-claim-token"
+    claimed_job.lease_expires_at = NOW + timedelta(minutes=1)
+    claimed_job.created_at = NOW - timedelta(hours=1)
+    claimed_job.updated_at = NOW - timedelta(minutes=1)
+    db_session.add(claimed_job)
+    db_session.commit()
+    configure_app_state(market_data_service=stub_market_data_service, bot_runner=noop_bot_runner)
+
+    with TestClient(app) as client:
+        response = client.get("/api/v1/execution-reconciliation-jobs")
+        pending_response = client.get("/api/v1/execution-reconciliation-jobs", params={"status": "pending"})
+
+    assert response.status_code == 200
+    body = response.json()
+    assert [item["id"] for item in body] == [newest_claimed.id, middle_pending.id, old_pending.id]
+    assert body[0]["status"] == "claimed"
+    assert body[0]["lease_expires_at"].startswith("2026-06-08T12:01:00")
+    assert "lease_token" not in response.text
+    assert "safe-test-claim-token" not in response.text
+
+    assert pending_response.status_code == 200
+    pending_body = pending_response.json()
+    assert [item["id"] for item in pending_body] == [middle_pending.id, old_pending.id]
+    assert all(item["status"] == "pending" for item in pending_body)
+
+
+def test_reconciliation_job_audit_detail_returns_safe_existing_job(
+    db_session,
+    bot_stack_factory,
+    stub_market_data_service,
+    noop_bot_runner,
+    configure_app_state,
+) -> None:
+    _, bot, _ = bot_stack_factory(db_session, is_paper=False, execution_mode="testnet")
+    job = add_job(db_session, bot.id, NOW)
+    claimed = job_repository(db_session).claim_due_jobs(now=NOW, lease_seconds=60, limit=1)[0]
+    job_repository(db_session).mark_claimed_job_resolved(
+        job_id=job.id,
+        lease_token=claimed.lease_token,
+        checked_at=NOW + timedelta(minutes=1),
+        resolution="found",
+    )
+    db_session.commit()
+    configure_app_state(market_data_service=stub_market_data_service, bot_runner=noop_bot_runner)
+
+    with TestClient(app) as client:
+        response = client.get(f"/api/v1/execution-reconciliation-jobs/{job.id}")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["id"] == job.id
+    assert body["execution_attempt_id"] == job.execution_attempt_id
+    assert body["bot_id"] == bot.id
+    assert body["status"] == "resolved"
+    assert body["automatic_attempt_count"] == 1
+    assert body["next_attempt_at"] == job.next_attempt_at.isoformat()
+    assert body["lease_expires_at"] is None
+    assert body["last_checked_at"].startswith("2026-06-08T12:01:00")
+    assert body["last_result_code"] == "found"
+    assert body["last_failure_code"] is None
+    assert body["created_at"] is not None
+    assert body["updated_at"] is not None
+    assert body["resolved_at"].startswith("2026-06-08T12:01:00")
+    assert "lease_token" not in response.text
+
+
+def test_reconciliation_job_audit_detail_missing_and_limit_validation(
+    stub_market_data_service,
+    noop_bot_runner,
+    configure_app_state,
+) -> None:
+    configure_app_state(market_data_service=stub_market_data_service, bot_runner=noop_bot_runner)
+
+    with TestClient(app) as client:
+        missing_response = client.get("/api/v1/execution-reconciliation-jobs/999999")
+        zero_limit_response = client.get("/api/v1/execution-reconciliation-jobs", params={"limit": 0})
+        too_large_limit_response = client.get("/api/v1/execution-reconciliation-jobs", params={"limit": 101})
+        invalid_status_response = client.get("/api/v1/execution-reconciliation-jobs", params={"status": "running"})
+
+    assert missing_response.status_code == 404
+    assert missing_response.json()["error_code"] == "execution_reconciliation_job_not_found"
+    assert zero_limit_response.status_code == 422
+    assert too_large_limit_response.status_code == 422
+    assert invalid_status_response.status_code == 422
+
+
+def test_reconciliation_job_audit_response_excludes_sensitive_fields(
+    db_session,
+    bot_stack_factory,
+    stub_market_data_service,
+    noop_bot_runner,
+    configure_app_state,
+) -> None:
+    _, bot, _ = bot_stack_factory(db_session, is_paper=False, execution_mode="testnet")
+    attempt = add_attempt(
+        db_session,
+        bot_id=bot.id,
+        metadata={
+            "client_order_id": "tap_sensitive_client",
+            "submission_status_unknown": True,
+            "reconciliation_attempted": True,
+            "reconciliation_resolution": "unresolved",
+            "submission_recovered": False,
+            "api_key": "unsafe-api-key",
+            "api_secret": "unsafe-api-secret",
+            "signature": "unsafe-signature",
+            "signed_params": {"signature": "unsafe-signature"},
+            "headers": {"X-MBX-APIKEY": "unsafe-api-key"},
+            "raw_payload": {"msg": "NO_SUCH_ORDER raw payload"},
+        },
+    )
+    job = job_repository(db_session).create_pending(
+        execution_attempt_id=attempt.id,
+        bot_id=bot.id,
+        next_attempt_at=NOW,
+    )
+    job.lease_token = "unsafe-lease-token"
+    job.lease_expires_at = NOW + timedelta(minutes=1)
+    job.state = "claimed"
+    job.last_resolution = "symbol=BTCUSDT&signature=unsafe-signature"
+    job.last_failure_category = "unsafe-api-secret signed params headers"
+    db_session.add(job)
+    db_session.commit()
+    configure_app_state(market_data_service=stub_market_data_service, bot_runner=noop_bot_runner)
+
+    with TestClient(app) as client:
+        list_response = client.get("/api/v1/execution-reconciliation-jobs")
+        detail_response = client.get(f"/api/v1/execution-reconciliation-jobs/{job.id}")
+
+    assert list_response.status_code == 200
+    assert detail_response.status_code == 200
+    for response in (list_response, detail_response):
+        body = response.json()
+        first = body[0] if isinstance(body, list) else body
+        serialized = response.text
+        assert "last_result_code" in serialized
+        assert "last_failure_code" in serialized
+        assert first["last_result_code"] == "other"
+        assert first["last_failure_code"] == "other"
+        assert "lease_token" not in serialized
+        assert "unsafe-lease-token" not in serialized
+        assert "unsafe-api-key" not in serialized
+        assert "unsafe-api-secret" not in serialized
+        assert "unsafe-signature" not in serialized
+        assert "signature" not in serialized.lower()
+        assert "signed_params" not in serialized
+        assert "headers" not in serialized
+        assert "X-MBX-APIKEY" not in serialized
+        assert "raw_payload" not in serialized
+        assert "NO_SUCH_ORDER raw payload" not in serialized
+        assert "tap_sensitive_client" not in serialized
+
+
+def test_reconciliation_job_audit_endpoints_are_read_only(
+    db_session,
+    bot_stack_factory,
+    funded_account,
+    stub_market_data_service,
+    noop_bot_runner,
+    configure_app_state,
+    monkeypatch,
+) -> None:
+    funded_account(db_session)
+    repository = PortfolioRepository(db_session)
+    account_before = repository.get_account().cash_balance
+    orders_before = repository.list_orders()
+    fills_before = repository.list_fills()
+    _, bot, _ = bot_stack_factory(db_session, is_paper=False, execution_mode="testnet")
+    job = add_job(db_session, bot.id, NOW)
+    claimed = job_repository(db_session).claim_due_jobs(now=NOW, lease_seconds=60, limit=1)[0]
+    before = job_snapshot(job_repository(db_session).get_by_id(job.id))
+
+    def fail_if_called(*args, **kwargs):
+        raise AssertionError("Read-only reconciliation-job audit endpoints must not call Binance")
+
+    monkeypatch.setattr(BinanceTestnetOrderClient, "query_signed_order", fail_if_called)
+    monkeypatch.setattr(BinanceTestnetOrderClient, "submit_signed_market_order", fail_if_called)
+    configure_app_state(market_data_service=stub_market_data_service, bot_runner=noop_bot_runner)
+
+    with TestClient(app) as client:
+        list_response = client.get("/api/v1/execution-reconciliation-jobs")
+        detail_response = client.get(f"/api/v1/execution-reconciliation-jobs/{job.id}")
+
+    assert list_response.status_code == 200
+    assert detail_response.status_code == 200
+    db_session.expire_all()
+    assert job_snapshot(job_repository(db_session).get_by_id(job.id)) == before
+    assert job_repository(db_session).get_by_id(job.id).lease_token == claimed.lease_token
+    assert repository.list_orders() == orders_before
+    assert repository.list_fills() == fills_before
+    assert repository.get_account().cash_balance == account_before
+
+
 def job_repository(db_session) -> ExecutionReconciliationJobRepository:
     return ExecutionReconciliationJobRepository(db_session)
 
@@ -787,6 +1002,20 @@ def add_job(db_session, bot_id: int, next_attempt_at: datetime) -> ExecutionReco
     ).job
     db_session.commit()
     return job
+
+
+def job_snapshot(job: ExecutionReconciliationJob) -> dict:
+    return {
+        "state": job.state,
+        "next_attempt_at": job.next_attempt_at,
+        "lease_token": job.lease_token,
+        "lease_expires_at": job.lease_expires_at,
+        "automatic_attempt_count": job.automatic_attempt_count,
+        "last_checked_at": job.last_checked_at,
+        "last_resolution": job.last_resolution,
+        "last_failure_category": job.last_failure_category,
+        "resolved_at": job.resolved_at,
+    }
 
 
 def settings_with_delay(monkeypatch, *, delay: int):

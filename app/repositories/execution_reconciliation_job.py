@@ -46,6 +46,16 @@ class ExecutionReconciliationJobRepository:
         statement = select(ExecutionReconciliationJob).where(ExecutionReconciliationJob.bot_id == bot_id)
         return list(self.db.scalars(statement).all())
 
+    def list_filtered(self, *, status: str | None = None, limit: int = 50) -> list[ExecutionReconciliationJob]:
+        statement = select(ExecutionReconciliationJob)
+        if status is not None:
+            statement = statement.where(ExecutionReconciliationJob.state == status)
+        statement = statement.order_by(
+            ExecutionReconciliationJob.created_at.desc(),
+            ExecutionReconciliationJob.id.desc(),
+        ).limit(limit)
+        return list(self.db.scalars(statement).all())
+
     def create_pending(
         self,
         *,

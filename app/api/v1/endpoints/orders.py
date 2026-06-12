@@ -5,10 +5,12 @@ from fastapi import APIRouter, Query
 from app.api.dependencies import DbSession
 from app.core.errors import NotFoundError
 from app.models.execution_attempt import ExecutionAttempt
+from app.models.execution_reconciliation_job import ExecutionReconciliationJob
 from app.models.simulated_fill import SimulatedFill
 from app.models.simulated_order import SimulatedOrder
 from app.repositories.bot import BotRepository
 from app.repositories.execution_attempt import ExecutionAttemptRepository
+from app.repositories.execution_reconciliation_job import ExecutionReconciliationJobRepository
 from app.repositories.portfolio import PortfolioRepository
 from app.schemas.execution import (
     ExecutionAuditMode,
@@ -19,6 +21,8 @@ from app.schemas.execution import (
     ExecutionFillAuditRead,
     ExecutionManualReconciliationRead,
     ExecutionOrderAuditRead,
+    ExecutionReconciliationJobRead,
+    ExecutionReconciliationJobStatus,
     ExecutionReconciliationStatusRead,
     ExecutionSide,
 )
@@ -28,6 +32,25 @@ from app.services.metadata_sanitizer import sanitize_public_metadata
 router = APIRouter()
 
 OrderLimit = Annotated[int, Query(ge=1, le=100)]
+SAFE_RECONCILIATION_RESULT_CODES = {"found", "not_found", "failed", "known_rejected", "already_resolved"}
+SAFE_RECONCILIATION_FAILURE_CODES = {
+    "active_claim_exists",
+    "already_recovered",
+    "config_unavailable",
+    "http_error",
+    "invalid_response",
+    "mismatched_response",
+    "missing_attempt",
+    "missing_bot",
+    "missing_client_order_id",
+    "missing_order_lookup_fields",
+    "missing_symbol",
+    "network_error",
+    "not_status_unknown",
+    "not_unresolved",
+    "timeout",
+    "wrong_mode_or_broker",
+}
 
 
 @router.get("/orders", response_model=list[ExecutionOrderAuditRead])
@@ -90,6 +113,27 @@ async def get_execution_attempt(attempt_id: int, db: DbSession) -> ExecutionAtte
             error_code="execution_attempt_not_found",
         )
     return _build_attempt_read(attempt)
+
+
+@router.get("/execution-reconciliation-jobs", response_model=list[ExecutionReconciliationJobRead])
+async def list_execution_reconciliation_jobs(
+    db: DbSession,
+    status: ExecutionReconciliationJobStatus | None = Query(default=None),
+    limit: OrderLimit = 50,
+) -> list[ExecutionReconciliationJobRead]:
+    jobs = ExecutionReconciliationJobRepository(db).list_filtered(status=status, limit=limit)
+    return [_build_reconciliation_job_read(job) for job in jobs]
+
+
+@router.get("/execution-reconciliation-jobs/{job_id}", response_model=ExecutionReconciliationJobRead)
+async def get_execution_reconciliation_job(job_id: int, db: DbSession) -> ExecutionReconciliationJobRead:
+    job = ExecutionReconciliationJobRepository(db).get_by_id(job_id)
+    if job is None:
+        raise NotFoundError(
+            f"Execution reconciliation job with id {job_id} was not found",
+            error_code="execution_reconciliation_job_not_found",
+        )
+    return _build_reconciliation_job_read(job)
 
 
 @router.get("/orders/{order_id}", response_model=ExecutionOrderAuditRead)
@@ -251,6 +295,30 @@ def _build_attempt_read(attempt: ExecutionAttempt) -> ExecutionAttemptRead:
         metadata=sanitize_public_metadata(attempt.metadata_),
         created_at=attempt.created_at,
     )
+
+
+def _build_reconciliation_job_read(job: ExecutionReconciliationJob) -> ExecutionReconciliationJobRead:
+    return ExecutionReconciliationJobRead(
+        id=job.id,
+        execution_attempt_id=job.execution_attempt_id,
+        bot_id=job.bot_id,
+        status=job.state,
+        automatic_attempt_count=job.automatic_attempt_count,
+        next_attempt_at=job.next_attempt_at,
+        lease_expires_at=job.lease_expires_at,
+        last_checked_at=job.last_checked_at,
+        last_result_code=_safe_reconciliation_code(job.last_resolution, SAFE_RECONCILIATION_RESULT_CODES),
+        last_failure_code=_safe_reconciliation_code(job.last_failure_category, SAFE_RECONCILIATION_FAILURE_CODES),
+        created_at=job.created_at,
+        updated_at=job.updated_at,
+        resolved_at=job.resolved_at,
+    )
+
+
+def _safe_reconciliation_code(value: str | None, allowed: set[str]) -> str | None:
+    if value is None:
+        return None
+    return value if value in allowed else "other"
 
 
 def _normalize_symbol_filter(symbol: str | None) -> str | None:

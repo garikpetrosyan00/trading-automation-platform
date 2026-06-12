@@ -10,6 +10,7 @@ ExecutionStatus = Literal["filled", "rejected"]
 ExecutionAuditStatus = Literal["created", "submitted", "filled", "rejected", "cancelled"]
 ExecutionAuditMode = Literal["paper", "live"]
 ExecutionAttemptMode = Literal["paper", "testnet", "live"]
+ExecutionReconciliationJobStatus = Literal["pending", "claimed", "resolved", "exhausted"]
 ExecutionAttemptStatus = Literal[
     "created",
     "blocked_by_risk",
@@ -153,6 +154,22 @@ class ExecutionReconciliationStatusRead(BaseModel):
     expired_lease_count: int = 0
     exhausted_delayed_reconciliation_count: int = 0
     recent_attempts: list[ExecutionReconciliationAttemptRead] = Field(default_factory=list)
+
+
+class ExecutionReconciliationJobRead(BaseModel):
+    id: int
+    execution_attempt_id: int
+    bot_id: int
+    status: ExecutionReconciliationJobStatus
+    automatic_attempt_count: int
+    next_attempt_at: datetime
+    lease_expires_at: datetime | None = None
+    last_checked_at: datetime | None = None
+    last_result_code: str | None = None
+    last_failure_code: str | None = None
+    created_at: datetime
+    updated_at: datetime
+    resolved_at: datetime | None = None
 
 
 class ExecutionManualReconciliationRead(BaseModel):
