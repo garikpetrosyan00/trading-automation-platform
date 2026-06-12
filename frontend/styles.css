@@ -1281,6 +1281,7 @@ dd {
 .recent-paper-orders-panel,
 .execution-safety-panel,
 .reconciliation-worker-panel,
+.recent-reconciliation-jobs-panel,
 .execution-settings-panel,
 .strategy-parameters-panel,
 .create-strategy-panel,
@@ -1310,6 +1311,7 @@ dd {
 .recent-paper-orders-content,
 .execution-safety-content,
 .reconciliation-worker-content,
+.recent-reconciliation-jobs-content,
 .strategy-parameters-content,
 .backtest-result,
 .backtest-history {
@@ -1325,6 +1327,7 @@ dd {
 .recent-paper-orders-content.empty,
 .execution-safety-content.empty,
 .reconciliation-worker-content.empty,
+.recent-reconciliation-jobs-content.empty,
 .strategy-parameters-content.empty,
 .backtest-result.empty,
 .backtest-history.empty {
@@ -1339,6 +1342,7 @@ dd {
 .recent-paper-orders-content.error,
 .execution-safety-content.error,
 .reconciliation-worker-content.error,
+.recent-reconciliation-jobs-content.error,
 .strategy-parameters-content.error,
 .backtest-history.error {
   background: var(--danger-soft);
@@ -1351,6 +1355,7 @@ dd {
 .recent-paper-orders-content.loading,
 .execution-safety-content.loading,
 .reconciliation-worker-content.loading,
+.recent-reconciliation-jobs-content.loading,
 .strategy-parameters-content.loading,
 .backtest-result.loading,
 .backtest-history.loading {
@@ -1364,6 +1369,7 @@ dd {
 .recent-paper-order-grid,
 .execution-safety-grid,
 .reconciliation-worker-grid,
+.recent-reconciliation-job-grid,
 .strategy-parameters-grid,
 .backtest-result-grid {
   display: grid;
@@ -1379,6 +1385,7 @@ dd {
 .recent-paper-order-grid div,
 .execution-safety-grid div,
 .reconciliation-worker-grid div,
+.recent-reconciliation-job-grid div,
 .strategy-parameters-grid div,
 .backtest-result-grid div {
   display: grid;
@@ -1393,6 +1400,7 @@ dd {
 .recent-paper-order-grid dd,
 .execution-safety-grid dd,
 .reconciliation-worker-grid dd,
+.recent-reconciliation-job-grid dd,
 .strategy-parameters-grid dd {
   overflow-wrap: break-word;
 }
@@ -1760,6 +1768,91 @@ dd {
 }
 
 .reconciliation-worker-note.error {
+  color: var(--danger);
+}
+
+.recent-reconciliation-jobs-help {
+  margin: 4px 0 0;
+  color: var(--muted);
+  font-size: 0.78rem;
+  font-weight: 750;
+}
+
+.recent-reconciliation-jobs-list {
+  display: grid;
+  gap: 10px;
+}
+
+.recent-reconciliation-job {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #ffffff;
+  padding: 12px;
+}
+
+.recent-reconciliation-job-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+
+.recent-reconciliation-job-header div:first-child {
+  min-width: 0;
+}
+
+.recent-reconciliation-job-header strong {
+  display: block;
+  overflow-wrap: anywhere;
+  font-size: 0.9rem;
+}
+
+.reconciliation-job-status {
+  flex: 0 0 auto;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: #ffffff;
+  color: var(--muted);
+  padding: 5px 8px;
+  font-size: 0.7rem;
+  font-weight: 850;
+  line-height: 1;
+}
+
+.reconciliation-job-status.pending,
+.reconciliation-job-status.claimed {
+  border-color: var(--blue);
+  background: var(--blue-soft);
+  color: var(--blue);
+}
+
+.reconciliation-job-status.resolved {
+  border-color: var(--green);
+  background: var(--green-soft);
+  color: var(--green);
+}
+
+.reconciliation-job-status.exhausted {
+  border-color: var(--danger);
+  background: var(--danger-soft);
+  color: var(--danger);
+}
+
+.recent-reconciliation-job-grid {
+  grid-template-columns: repeat(auto-fit, minmax(132px, 1fr));
+  gap: 8px;
+}
+
+.recent-reconciliation-jobs-note {
+  margin: 12px 0 0;
+  color: var(--muted);
+  font-size: 0.82rem;
+  font-weight: 800;
+  overflow-wrap: anywhere;
+}
+
+.recent-reconciliation-jobs-note.error {
   color: var(--danger);
 }
 

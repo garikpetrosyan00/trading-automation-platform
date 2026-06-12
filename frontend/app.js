@@ -27,6 +27,7 @@ let paperPortfolio = null;
 let recentPaperOrders = [];
 let executionSafetyStatus = null;
 let reconciliationWorkerStatus = null;
+let recentReconciliationJobs = [];
 let latestDecisionExplanation = null;
 let isLoadingBots = true;
 let isLoadingSummary = false;
@@ -35,6 +36,7 @@ let isLoadingPaperPortfolio = true;
 let isLoadingRecentPaperOrders = false;
 let isLoadingExecutionSafety = false;
 let isLoadingReconciliationWorker = true;
+let isLoadingRecentReconciliationJobs = true;
 let isLoadingStrategies = false;
 let isTogglingPause = false;
 let isRunningNow = false;
@@ -70,6 +72,7 @@ let paperPortfolioError = "";
 let recentPaperOrdersError = "";
 let executionSafetyError = "";
 let reconciliationWorkerError = "";
+let recentReconciliationJobsError = "";
 let actionMessage = "";
 let actionMessageType = "";
 let createBotMessage = "";
@@ -264,6 +267,26 @@ const translations = {
     reconciliation_worker_initialized: "Initialized",
     reconciliation_worker_never_started: "Never started",
     reconciliation_worker_seconds: "{seconds}s",
+    recent_reconciliation_jobs: "Recent Reconciliation Jobs",
+    recent_reconciliation_jobs_aria: "Recent Reconciliation Jobs",
+    recent_reconciliation_jobs_help: "Read-only durable reconciliation job audit.",
+    recent_reconciliation_jobs_loading: "Loading reconciliation jobs…",
+    recent_reconciliation_jobs_unavailable: "Reconciliation jobs unavailable",
+    recent_reconciliation_jobs_empty: "No reconciliation jobs found.",
+    reconciliation_job_status_pending: "Pending",
+    reconciliation_job_status_claimed: "Claimed",
+    reconciliation_job_status_resolved: "Resolved",
+    reconciliation_job_status_exhausted: "Exhausted",
+    reconciliation_job_status_unknown: "Unknown",
+    reconciliation_job_id_label: "Job",
+    reconciliation_job_execution_attempt_label: "Execution attempt",
+    reconciliation_job_bot_label: "Bot",
+    reconciliation_job_attempt_count_label: "Attempts",
+    reconciliation_job_next_attempt_label: "Next attempt",
+    reconciliation_job_last_checked_label: "Last checked",
+    reconciliation_job_result_label: "Result",
+    reconciliation_job_failure_label: "Failure",
+    reconciliation_job_resolved_label: "Resolved",
     global_execution_enabled_label: "Global execution",
     paper_execution_enabled_label: "Paper execution",
     live_execution_enabled_label: "Live execution",
@@ -991,6 +1014,26 @@ const translations = {
     reconciliation_worker_initialized: "Սկզբնավորված",
     reconciliation_worker_never_started: "Երբեք չի մեկնարկել",
     reconciliation_worker_seconds: "{seconds}վ",
+    recent_reconciliation_jobs: "Վերջին համադրման job-երը",
+    recent_reconciliation_jobs_aria: "Վերջին համադրման job-երը",
+    recent_reconciliation_jobs_help: "Durable reconciliation job-երի audit-ը՝ միայն դիտելու համար։",
+    recent_reconciliation_jobs_loading: "Համադրման job-երը բեռնվում են…",
+    recent_reconciliation_jobs_unavailable: "Համադրման job-երը հասանելի չեն",
+    recent_reconciliation_jobs_empty: "Համադրման job-եր չկան։",
+    reconciliation_job_status_pending: "Սպասում է",
+    reconciliation_job_status_claimed: "Claimed",
+    reconciliation_job_status_resolved: "Լուծված",
+    reconciliation_job_status_exhausted: "Սպառված",
+    reconciliation_job_status_unknown: "Անհայտ",
+    reconciliation_job_id_label: "Job",
+    reconciliation_job_execution_attempt_label: "Execution attempt",
+    reconciliation_job_bot_label: "Bot",
+    reconciliation_job_attempt_count_label: "Փորձեր",
+    reconciliation_job_next_attempt_label: "Հաջորդ փորձ",
+    reconciliation_job_last_checked_label: "Վերջին ստուգում",
+    reconciliation_job_result_label: "Արդյունք",
+    reconciliation_job_failure_label: "Խափանում",
+    reconciliation_job_resolved_label: "Լուծվել է",
     global_execution_enabled_label: "Ընդհանուր կատարում",
     paper_execution_enabled_label: "Paper կատարում",
     live_execution_enabled_label: "Live կատարում",
@@ -1701,6 +1744,10 @@ const reconciliationWorkerPanel = document.querySelector(".reconciliation-worker
 const reconciliationWorkerHeading = document.querySelector("#reconciliation-worker-heading");
 const reconciliationWorkerHelp = document.querySelector("#reconciliation-worker-help");
 const reconciliationWorkerContent = document.querySelector("#reconciliation-worker-content");
+const recentReconciliationJobsPanel = document.querySelector(".recent-reconciliation-jobs-panel");
+const recentReconciliationJobsHeading = document.querySelector("#recent-reconciliation-jobs-heading");
+const recentReconciliationJobsHelp = document.querySelector("#recent-reconciliation-jobs-help");
+const recentReconciliationJobsContent = document.querySelector("#recent-reconciliation-jobs-content");
 const liveMarketPanel = document.querySelector(".live-market-panel");
 const liveMarketHeading = document.querySelector("#live-market-heading");
 const liveMarketHelp = document.querySelector("#live-market-help");
@@ -2048,6 +2095,9 @@ function applyStaticTranslations() {
   reconciliationWorkerPanel?.setAttribute("aria-label", t("reconciliation_worker_aria"));
   reconciliationWorkerHeading.textContent = t("reconciliation_worker");
   reconciliationWorkerHelp.textContent = t("reconciliation_worker_help");
+  recentReconciliationJobsPanel?.setAttribute("aria-label", t("recent_reconciliation_jobs_aria"));
+  recentReconciliationJobsHeading.textContent = t("recent_reconciliation_jobs");
+  recentReconciliationJobsHelp.textContent = t("recent_reconciliation_jobs_help");
   liveMarketPanel?.setAttribute("aria-label", t("live_market_aria"));
   liveMarketHeading.textContent = t("live_market");
   liveMarketHelp.textContent = t("live_market_help");
@@ -2465,6 +2515,29 @@ function normalizeReconciliationWorkerStatus(rawStatus) {
     isStale: rawStatus.is_stale ?? rawStatus.isStale ?? null,
     updatedAt: rawStatus.updated_at ?? rawStatus.updatedAt ?? null,
   };
+}
+
+function normalizeReconciliationJob(rawJob) {
+  if (!rawJob || typeof rawJob !== "object") return null;
+  return {
+    id: rawJob.id ?? null,
+    executionAttemptId: rawJob.execution_attempt_id ?? rawJob.executionAttemptId ?? null,
+    botId: rawJob.bot_id ?? rawJob.botId ?? null,
+    status: rawJob.status ?? null,
+    automaticAttemptCount:
+      rawJob.automatic_attempt_count ?? rawJob.automaticAttemptCount ?? null,
+    nextAttemptAt: rawJob.next_attempt_at ?? rawJob.nextAttemptAt ?? null,
+    lastCheckedAt: rawJob.last_checked_at ?? rawJob.lastCheckedAt ?? null,
+    lastResultCode: rawJob.last_result_code ?? rawJob.lastResultCode ?? null,
+    lastFailureCode: rawJob.last_failure_code ?? rawJob.lastFailureCode ?? null,
+    resolvedAt: rawJob.resolved_at ?? rawJob.resolvedAt ?? null,
+  };
+}
+
+function normalizeReconciliationJobs(data) {
+  const rawJobs = Array.isArray(data) ? data : data?.items ?? [];
+  if (!Array.isArray(rawJobs)) return [];
+  return rawJobs.map(normalizeReconciliationJob).filter(Boolean);
 }
 
 function normalizeBacktestResult(rawResult) {
@@ -5770,6 +5843,17 @@ function applyReconciliationWorkerResult(result) {
   isLoadingReconciliationWorker = false;
 }
 
+function applyRecentReconciliationJobsResult(result) {
+  if (result.status === "fulfilled") {
+    recentReconciliationJobs = normalizeReconciliationJobs(result.value);
+    recentReconciliationJobsError = "";
+  } else {
+    recentReconciliationJobs = [];
+    recentReconciliationJobsError = t("recent_reconciliation_jobs_unavailable");
+  }
+  isLoadingRecentReconciliationJobs = false;
+}
+
 function clearRecentPaperOrders() {
   recentPaperOrders = [];
   recentPaperOrdersError = "";
@@ -5794,6 +5878,20 @@ async function loadReconciliationWorkerStatus({ silent = false } = {}) {
   ]);
   applyReconciliationWorkerResult(result[0]);
   renderReconciliationWorker();
+}
+
+async function loadRecentReconciliationJobs({ silent = false } = {}) {
+  if (!silent) {
+    recentReconciliationJobsError = "";
+    isLoadingRecentReconciliationJobs = true;
+    renderRecentReconciliationJobs();
+  }
+
+  const result = await Promise.allSettled([
+    fetchJson("/api/v1/execution-reconciliation-jobs?limit=10"),
+  ]);
+  applyRecentReconciliationJobsResult(result[0]);
+  renderRecentReconciliationJobs();
 }
 
 async function loadExecutionProfile(botId) {
@@ -6014,6 +6112,7 @@ async function loadBots() {
       clearRecentPaperOrders();
       clearExecutionSafety();
       await loadReconciliationWorkerStatus({ silent: true });
+      await loadRecentReconciliationJobs({ silent: true });
       await loadBacktestHistory();
     }
   } catch (error) {
@@ -6030,6 +6129,7 @@ async function loadBots() {
     botListError = requestErrorMessage(error, t("could_not_load_bots"));
     await loadPaperPortfolio({ silent: true });
     await loadReconciliationWorkerStatus({ silent: true });
+    await loadRecentReconciliationJobs({ silent: true });
     render();
   }
 }
@@ -6053,6 +6153,7 @@ async function refreshSelectedData() {
     isLoadingRecentPaperOrders = true;
     isLoadingExecutionSafety = true;
     isLoadingReconciliationWorker = true;
+    isLoadingRecentReconciliationJobs = true;
     const [
       summaryResult,
       configResult,
@@ -6061,6 +6162,7 @@ async function refreshSelectedData() {
       ordersResult,
       executionSafetyResult,
       reconciliationWorkerResult,
+      recentReconciliationJobsResult,
     ] = await Promise.allSettled([
       fetchJson(`/api/v1/bots/${selectedBotId}/summary`),
       fetchJson(`/api/v1/bots/${selectedBotId}`),
@@ -6069,12 +6171,14 @@ async function refreshSelectedData() {
       fetchJson(`/api/v1/bots/${selectedBotId}/orders?limit=10`),
       fetchJson(`/api/v1/bots/${selectedBotId}/execution-safety/status`),
       fetchJson("/api/v1/execution-reconciliation-worker/status"),
+      fetchJson("/api/v1/execution-reconciliation-jobs?limit=10"),
     ]);
 
     applyPaperPortfolioResult(portfolioResult);
     applyRecentPaperOrdersResult(ordersResult);
     applyExecutionSafetyResult(executionSafetyResult);
     applyReconciliationWorkerResult(reconciliationWorkerResult);
+    applyRecentReconciliationJobsResult(recentReconciliationJobsResult);
 
     if (summaryResult.status !== "fulfilled") {
       isLoadingPerformance = false;
@@ -6107,6 +6211,8 @@ async function refreshSelectedData() {
     isLoadingPerformance = false;
     clearRecentPaperOrders();
     clearExecutionSafety();
+    await loadReconciliationWorkerStatus({ silent: true });
+    await loadRecentReconciliationJobs({ silent: true });
   }
   await loadBacktestHistory();
   refreshMessage = "";
@@ -6143,6 +6249,7 @@ async function refreshDashboardData({ silent = false } = {}) {
       isLoadingRecentPaperOrders = true;
       isLoadingExecutionSafety = true;
       isLoadingReconciliationWorker = true;
+      isLoadingRecentReconciliationJobs = true;
       const [
         summaryResult,
         configResult,
@@ -6151,6 +6258,7 @@ async function refreshDashboardData({ silent = false } = {}) {
         ordersResult,
         executionSafetyResult,
         reconciliationWorkerResult,
+        recentReconciliationJobsResult,
       ] = await Promise.allSettled([
         fetchJson(`/api/v1/bots/${selectedBotId}/summary`),
         fetchJson(`/api/v1/bots/${selectedBotId}`),
@@ -6159,12 +6267,14 @@ async function refreshDashboardData({ silent = false } = {}) {
         fetchJson(`/api/v1/bots/${selectedBotId}/orders?limit=10`),
         fetchJson(`/api/v1/bots/${selectedBotId}/execution-safety/status`),
         fetchJson("/api/v1/execution-reconciliation-worker/status"),
+        fetchJson("/api/v1/execution-reconciliation-jobs?limit=10"),
       ]);
 
       applyPaperPortfolioResult(portfolioResult);
       applyRecentPaperOrdersResult(ordersResult);
       applyExecutionSafetyResult(executionSafetyResult);
       applyReconciliationWorkerResult(reconciliationWorkerResult);
+      applyRecentReconciliationJobsResult(recentReconciliationJobsResult);
 
       if (summaryResult.status !== "fulfilled") {
         isLoadingPerformance = false;
@@ -6198,6 +6308,7 @@ async function refreshDashboardData({ silent = false } = {}) {
       clearRecentPaperOrders();
       clearExecutionSafety();
       await loadReconciliationWorkerStatus({ silent: true });
+      await loadRecentReconciliationJobs({ silent: true });
       summaryError = "";
     }
     await loadBacktestHistory();
@@ -6216,6 +6327,7 @@ async function refreshDashboardData({ silent = false } = {}) {
     isLoadingRecentPaperOrders = false;
     isLoadingExecutionSafety = false;
     isLoadingReconciliationWorker = false;
+    isLoadingRecentReconciliationJobs = false;
     render();
   }
 }
@@ -7956,6 +8068,7 @@ async function loadSelectedSummary(botId) {
   isLoadingRecentPaperOrders = true;
   isLoadingExecutionSafety = true;
   isLoadingReconciliationWorker = true;
+  isLoadingRecentReconciliationJobs = true;
   selectedSummary = null;
   selectedPerformance = null;
   selectedBotConfig = null;
@@ -7972,6 +8085,7 @@ async function loadSelectedSummary(botId) {
       ordersResult,
       executionSafetyResult,
       reconciliationWorkerResult,
+      recentReconciliationJobsResult,
     ] = await Promise.allSettled([
       fetchJson(`/api/v1/bots/${botId}/summary`),
       fetchJson(`/api/v1/bots/${botId}`),
@@ -7981,12 +8095,14 @@ async function loadSelectedSummary(botId) {
       fetchJson(`/api/v1/bots/${botId}/orders?limit=10`),
       fetchJson(`/api/v1/bots/${botId}/execution-safety/status`),
       fetchJson("/api/v1/execution-reconciliation-worker/status"),
+      fetchJson("/api/v1/execution-reconciliation-jobs?limit=10"),
     ]);
 
     applyPaperPortfolioResult(portfolioResult);
     applyRecentPaperOrdersResult(ordersResult);
     applyExecutionSafetyResult(executionSafetyResult);
     applyReconciliationWorkerResult(reconciliationWorkerResult);
+    applyRecentReconciliationJobsResult(recentReconciliationJobsResult);
 
     if (summaryResult.status !== "fulfilled") {
       throw summaryResult.reason;
@@ -8019,6 +8135,7 @@ async function loadSelectedSummary(botId) {
     isLoadingRecentPaperOrders = false;
     isLoadingExecutionSafety = false;
     isLoadingReconciliationWorker = false;
+    isLoadingRecentReconciliationJobs = false;
   }
 
   render();
@@ -8870,6 +8987,120 @@ function safeExecutionSafetyMetadata(metadata) {
     .filter((item) => item.value);
 }
 
+function reconciliationJobStatusLabel(status) {
+  const normalized = normalizeStrategyType(status);
+  const labels = {
+    pending: "reconciliation_job_status_pending",
+    claimed: "reconciliation_job_status_claimed",
+    resolved: "reconciliation_job_status_resolved",
+    exhausted: "reconciliation_job_status_exhausted",
+  };
+  return t(labels[normalized] || "reconciliation_job_status_unknown");
+}
+
+function reconciliationJobStatusClass(status) {
+  const normalized = normalizeStrategyType(status);
+  if (normalized === "resolved") return "reconciliation-job-status resolved";
+  if (normalized === "exhausted") return "reconciliation-job-status exhausted";
+  if (normalized === "claimed") return "reconciliation-job-status claimed";
+  if (normalized === "pending") return "reconciliation-job-status pending";
+  return "reconciliation-job-status";
+}
+
+function reconciliationJobIdValue(value) {
+  const formatted = formatValue(value);
+  return formatted === "—" ? formatted : `#${formatted}`;
+}
+
+function renderRecentReconciliationJobs() {
+  recentReconciliationJobsContent.innerHTML = "";
+
+  if (isLoadingRecentReconciliationJobs && recentReconciliationJobs.length === 0) {
+    recentReconciliationJobsContent.textContent = t("recent_reconciliation_jobs_loading");
+    recentReconciliationJobsContent.className = "recent-reconciliation-jobs-content empty loading";
+    return;
+  }
+
+  if (recentReconciliationJobsError && recentReconciliationJobs.length === 0) {
+    recentReconciliationJobsContent.textContent = recentReconciliationJobsError;
+    recentReconciliationJobsContent.className = "recent-reconciliation-jobs-content empty error";
+    return;
+  }
+
+  if (recentReconciliationJobs.length === 0) {
+    recentReconciliationJobsContent.textContent = t("recent_reconciliation_jobs_empty");
+    recentReconciliationJobsContent.className = "recent-reconciliation-jobs-content empty";
+    return;
+  }
+
+  recentReconciliationJobsContent.className = "recent-reconciliation-jobs-content";
+  const list = document.createElement("div");
+  list.className = "recent-reconciliation-jobs-list";
+
+  recentReconciliationJobs.forEach((job) => {
+    const item = document.createElement("article");
+    item.className = "recent-reconciliation-job";
+
+    const header = document.createElement("div");
+    header.className = "recent-reconciliation-job-header";
+    const identity = document.createElement("div");
+    const title = document.createElement("strong");
+    title.textContent = `${t("reconciliation_job_id_label")} ${reconciliationJobIdValue(job.id)}`;
+    identity.append(title);
+
+    const statusBadge = document.createElement("span");
+    statusBadge.className = reconciliationJobStatusClass(job.status);
+    statusBadge.textContent = reconciliationJobStatusLabel(job.status);
+    header.append(identity, statusBadge);
+
+    const metrics = document.createElement("dl");
+    metrics.className = "recent-reconciliation-job-grid";
+    [
+      {
+        label: t("reconciliation_job_execution_attempt_label"),
+        value: reconciliationJobIdValue(job.executionAttemptId),
+      },
+      { label: t("reconciliation_job_bot_label"), value: reconciliationJobIdValue(job.botId) },
+      {
+        label: t("reconciliation_job_attempt_count_label"),
+        value: formatDecimal(job.automaticAttemptCount, "0"),
+      },
+      {
+        label: t("reconciliation_job_next_attempt_label"),
+        value: formatUtcDateTime(job.nextAttemptAt),
+      },
+      {
+        label: t("reconciliation_job_last_checked_label"),
+        value: formatUtcDateTime(job.lastCheckedAt),
+      },
+      {
+        label: t("reconciliation_job_result_label"),
+        value: formatValue(job.lastResultCode),
+      },
+      {
+        label: t("reconciliation_job_failure_label"),
+        value: formatValue(job.lastFailureCode),
+      },
+      {
+        label: t("reconciliation_job_resolved_label"),
+        value: formatUtcDateTime(job.resolvedAt),
+      },
+    ].forEach((metric) => appendMetric(metrics, metric));
+
+    item.append(header, metrics);
+    list.append(item);
+  });
+
+  recentReconciliationJobsContent.append(list);
+
+  if (recentReconciliationJobsError) {
+    const error = document.createElement("p");
+    error.className = "recent-reconciliation-jobs-note error";
+    error.textContent = recentReconciliationJobsError;
+    recentReconciliationJobsContent.append(error);
+  }
+}
+
 function reconciliationWorkerEnabledLabel(value) {
   if (value === true) return t("execution_safety_enabled");
   if (value === false) return t("execution_safety_disabled");
@@ -9551,6 +9782,7 @@ function render() {
   renderRecentPaperOrders();
   renderExecutionSafety();
   renderReconciliationWorker();
+  renderRecentReconciliationJobs();
   renderLiveMarket();
   renderDecisionExplanation();
   renderStrategyParametersForm();
