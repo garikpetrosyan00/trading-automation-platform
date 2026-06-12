@@ -1280,6 +1280,7 @@ dd {
 .paper-portfolio-panel,
 .recent-paper-orders-panel,
 .execution-safety-panel,
+.reconciliation-worker-panel,
 .execution-settings-panel,
 .strategy-parameters-panel,
 .create-strategy-panel,
@@ -1308,6 +1309,7 @@ dd {
 .paper-portfolio-content,
 .recent-paper-orders-content,
 .execution-safety-content,
+.reconciliation-worker-content,
 .strategy-parameters-content,
 .backtest-result,
 .backtest-history {
@@ -1322,6 +1324,7 @@ dd {
 .paper-portfolio-content.empty,
 .recent-paper-orders-content.empty,
 .execution-safety-content.empty,
+.reconciliation-worker-content.empty,
 .strategy-parameters-content.empty,
 .backtest-result.empty,
 .backtest-history.empty {
@@ -1335,6 +1338,7 @@ dd {
 .paper-portfolio-content.error,
 .recent-paper-orders-content.error,
 .execution-safety-content.error,
+.reconciliation-worker-content.error,
 .strategy-parameters-content.error,
 .backtest-history.error {
   background: var(--danger-soft);
@@ -1346,6 +1350,7 @@ dd {
 .paper-portfolio-content.loading,
 .recent-paper-orders-content.loading,
 .execution-safety-content.loading,
+.reconciliation-worker-content.loading,
 .strategy-parameters-content.loading,
 .backtest-result.loading,
 .backtest-history.loading {
@@ -1358,6 +1363,7 @@ dd {
 .paper-portfolio-position-grid,
 .recent-paper-order-grid,
 .execution-safety-grid,
+.reconciliation-worker-grid,
 .strategy-parameters-grid,
 .backtest-result-grid {
   display: grid;
@@ -1372,6 +1378,7 @@ dd {
 .paper-portfolio-position-grid div,
 .recent-paper-order-grid div,
 .execution-safety-grid div,
+.reconciliation-worker-grid div,
 .strategy-parameters-grid div,
 .backtest-result-grid div {
   display: grid;
@@ -1385,6 +1392,7 @@ dd {
 .paper-portfolio-position-grid dd,
 .recent-paper-order-grid dd,
 .execution-safety-grid dd,
+.reconciliation-worker-grid dd,
 .strategy-parameters-grid dd {
   overflow-wrap: break-word;
 }
@@ -1675,6 +1683,83 @@ dd {
 }
 
 .execution-safety-note.error {
+  color: var(--danger);
+}
+
+.reconciliation-worker-help {
+  margin: 4px 0 0;
+  color: var(--muted);
+  font-size: 0.78rem;
+  font-weight: 750;
+}
+
+.reconciliation-worker-state {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+  min-width: 0;
+}
+
+.reconciliation-worker-state-badge {
+  flex: 0 0 auto;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: #ffffff;
+  color: var(--muted);
+  padding: 5px 9px;
+  font-size: 0.72rem;
+  font-weight: 850;
+  line-height: 1;
+}
+
+.reconciliation-worker-state-badge.healthy {
+  border-color: var(--green);
+  background: var(--green-soft);
+  color: var(--green);
+}
+
+.reconciliation-worker-state-badge.warning {
+  border-color: var(--amber);
+  background: var(--amber-soft);
+  color: var(--amber);
+}
+
+.reconciliation-worker-state-badge.neutral {
+  border-color: var(--line);
+  background: #ffffff;
+  color: var(--muted);
+}
+
+.reconciliation-worker-summary {
+  flex: 1 1 auto;
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.82rem;
+  font-weight: 800;
+  overflow-wrap: anywhere;
+  text-align: right;
+}
+
+.reconciliation-worker-grid {
+  grid-template-columns: repeat(auto-fit, minmax(132px, 1fr));
+  gap: 8px;
+}
+
+.reconciliation-worker-grid .negative {
+  color: var(--amber);
+}
+
+.reconciliation-worker-note {
+  margin: 12px 0 0;
+  color: var(--muted);
+  font-size: 0.82rem;
+  font-weight: 800;
+  overflow-wrap: anywhere;
+}
+
+.reconciliation-worker-note.error {
   color: var(--danger);
 }
 

@@ -26,6 +26,7 @@ let selectedPerformance = null;
 let paperPortfolio = null;
 let recentPaperOrders = [];
 let executionSafetyStatus = null;
+let reconciliationWorkerStatus = null;
 let latestDecisionExplanation = null;
 let isLoadingBots = true;
 let isLoadingSummary = false;
@@ -33,6 +34,7 @@ let isLoadingPerformance = false;
 let isLoadingPaperPortfolio = true;
 let isLoadingRecentPaperOrders = false;
 let isLoadingExecutionSafety = false;
+let isLoadingReconciliationWorker = true;
 let isLoadingStrategies = false;
 let isTogglingPause = false;
 let isRunningNow = false;
@@ -67,6 +69,7 @@ let performanceError = "";
 let paperPortfolioError = "";
 let recentPaperOrdersError = "";
 let executionSafetyError = "";
+let reconciliationWorkerError = "";
 let actionMessage = "";
 let actionMessageType = "";
 let createBotMessage = "";
@@ -232,6 +235,35 @@ const translations = {
     execution_safety_reason_label: "Reason",
     execution_safety_metadata_label: "Details",
     execution_safety_utc_day_start_label: "UTC day start",
+    reconciliation_worker: "Reconciliation Worker",
+    reconciliation_worker_aria: "Reconciliation Worker",
+    reconciliation_worker_help: "Read-only delayed reconciliation worker status.",
+    reconciliation_worker_loading: "Loading reconciliation worker…",
+    reconciliation_worker_unavailable: "Reconciliation worker status unavailable",
+    reconciliation_worker_not_started: "Never started",
+    reconciliation_worker_disabled_summary: "Configured disabled. No automatic worker is expected.",
+    reconciliation_worker_recent_summary: "Running with a recent heartbeat.",
+    reconciliation_worker_stale_summary: "Running with a stale heartbeat.",
+    reconciliation_worker_stopped_summary: "Stopped.",
+    reconciliation_worker_unknown_summary: "Worker state unknown.",
+    reconciliation_worker_configured_label: "Configured",
+    reconciliation_worker_initialized_label: "Initialized",
+    reconciliation_worker_state_label: "State",
+    reconciliation_worker_heartbeat_label: "Heartbeat",
+    reconciliation_worker_stale_threshold_label: "Stale threshold",
+    reconciliation_worker_last_started_label: "Last started",
+    reconciliation_worker_last_heartbeat_label: "Last heartbeat",
+    reconciliation_worker_last_stopped_label: "Last stopped",
+    reconciliation_worker_last_cycle_finished_label: "Last cycle finished",
+    reconciliation_worker_last_result_label: "Last result",
+    reconciliation_worker_last_job_label: "Last job",
+    reconciliation_worker_updated_label: "Updated",
+    reconciliation_worker_recent_heartbeat: "Recent",
+    reconciliation_worker_stale_heartbeat: "Stale",
+    reconciliation_worker_not_available: "—",
+    reconciliation_worker_initialized: "Initialized",
+    reconciliation_worker_never_started: "Never started",
+    reconciliation_worker_seconds: "{seconds}s",
     global_execution_enabled_label: "Global execution",
     paper_execution_enabled_label: "Paper execution",
     live_execution_enabled_label: "Live execution",
@@ -930,6 +962,35 @@ const translations = {
     execution_safety_reason_label: "Պատճառ",
     execution_safety_metadata_label: "Մանրամասներ",
     execution_safety_utc_day_start_label: "UTC օրվա սկիզբ",
+    reconciliation_worker: "Համադրման worker",
+    reconciliation_worker_aria: "Համադրման worker",
+    reconciliation_worker_help: "Delayed reconciliation worker-ի վիճակը՝ միայն դիտելու համար։",
+    reconciliation_worker_loading: "Համադրման worker-ը բեռնվում է…",
+    reconciliation_worker_unavailable: "Համադրման worker-ի վիճակը հասանելի չէ",
+    reconciliation_worker_not_started: "Երբեք չի մեկնարկել",
+    reconciliation_worker_disabled_summary: "Կարգավորված է անջատված։ Ավտոմատ worker չի սպասվում։",
+    reconciliation_worker_recent_summary: "Աշխատում է՝ վերջին heartbeat-ով։",
+    reconciliation_worker_stale_summary: "Աշխատում է՝ հնացած heartbeat-ով։",
+    reconciliation_worker_stopped_summary: "Կանգնեցված է։",
+    reconciliation_worker_unknown_summary: "Worker-ի վիճակը անհայտ է։",
+    reconciliation_worker_configured_label: "Կարգավորում",
+    reconciliation_worker_initialized_label: "Սկզբնավորված",
+    reconciliation_worker_state_label: "Վիճակ",
+    reconciliation_worker_heartbeat_label: "Heartbeat",
+    reconciliation_worker_stale_threshold_label: "Հնանալու շեմ",
+    reconciliation_worker_last_started_label: "Վերջին մեկնարկ",
+    reconciliation_worker_last_heartbeat_label: "Վերջին heartbeat",
+    reconciliation_worker_last_stopped_label: "Վերջին կանգ",
+    reconciliation_worker_last_cycle_finished_label: "Վերջին ցիկլի ավարտ",
+    reconciliation_worker_last_result_label: "Վերջին արդյունք",
+    reconciliation_worker_last_job_label: "Վերջին job",
+    reconciliation_worker_updated_label: "Թարմացվել է",
+    reconciliation_worker_recent_heartbeat: "Վերջին",
+    reconciliation_worker_stale_heartbeat: "Հնացած",
+    reconciliation_worker_not_available: "—",
+    reconciliation_worker_initialized: "Սկզբնավորված",
+    reconciliation_worker_never_started: "Երբեք չի մեկնարկել",
+    reconciliation_worker_seconds: "{seconds}վ",
     global_execution_enabled_label: "Ընդհանուր կատարում",
     paper_execution_enabled_label: "Paper կատարում",
     live_execution_enabled_label: "Live կատարում",
@@ -1636,6 +1697,10 @@ const executionSafetyPanel = document.querySelector(".execution-safety-panel");
 const executionSafetyHeading = document.querySelector("#execution-safety-heading");
 const executionSafetyHelp = document.querySelector("#execution-safety-help");
 const executionSafetyContent = document.querySelector("#execution-safety-content");
+const reconciliationWorkerPanel = document.querySelector(".reconciliation-worker-panel");
+const reconciliationWorkerHeading = document.querySelector("#reconciliation-worker-heading");
+const reconciliationWorkerHelp = document.querySelector("#reconciliation-worker-help");
+const reconciliationWorkerContent = document.querySelector("#reconciliation-worker-content");
 const liveMarketPanel = document.querySelector(".live-market-panel");
 const liveMarketHeading = document.querySelector("#live-market-heading");
 const liveMarketHelp = document.querySelector("#live-market-help");
@@ -1980,6 +2045,9 @@ function applyStaticTranslations() {
   executionSafetyPanel?.setAttribute("aria-label", t("execution_safety_aria"));
   executionSafetyHeading.textContent = t("execution_safety");
   executionSafetyHelp.textContent = t("execution_safety_help");
+  reconciliationWorkerPanel?.setAttribute("aria-label", t("reconciliation_worker_aria"));
+  reconciliationWorkerHeading.textContent = t("reconciliation_worker");
+  reconciliationWorkerHelp.textContent = t("reconciliation_worker_help");
   liveMarketPanel?.setAttribute("aria-label", t("live_market_aria"));
   liveMarketHeading.textContent = t("live_market");
   liveMarketHelp.textContent = t("live_market_help");
@@ -2372,6 +2440,30 @@ function normalizeExecutionSafety(rawStatus) {
       rawStatus.metadata && typeof rawStatus.metadata === "object" && !Array.isArray(rawStatus.metadata)
         ? rawStatus.metadata
         : {},
+  };
+}
+
+function normalizeReconciliationWorkerStatus(rawStatus) {
+  if (!rawStatus || typeof rawStatus !== "object") return null;
+  return {
+    initialized: rawStatus.initialized ?? null,
+    configuredEnabled: rawStatus.configured_enabled ?? rawStatus.configuredEnabled ?? null,
+    state: rawStatus.state ?? null,
+    lastStartedAt: rawStatus.last_started_at ?? rawStatus.lastStartedAt ?? null,
+    lastHeartbeatAt: rawStatus.last_heartbeat_at ?? rawStatus.lastHeartbeatAt ?? null,
+    lastStoppedAt: rawStatus.last_stopped_at ?? rawStatus.lastStoppedAt ?? null,
+    lastCycleFinishedAt:
+      rawStatus.last_cycle_finished_at ?? rawStatus.lastCycleFinishedAt ?? null,
+    lastCycleResultCode:
+      rawStatus.last_cycle_result_code ?? rawStatus.lastCycleResultCode ?? null,
+    lastProcessedReconciliationJobId:
+      rawStatus.last_processed_reconciliation_job_id ??
+      rawStatus.lastProcessedReconciliationJobId ??
+      null,
+    heartbeatStaleAfterSeconds:
+      rawStatus.heartbeat_stale_after_seconds ?? rawStatus.heartbeatStaleAfterSeconds ?? null,
+    isStale: rawStatus.is_stale ?? rawStatus.isStale ?? null,
+    updatedAt: rawStatus.updated_at ?? rawStatus.updatedAt ?? null,
   };
 }
 
@@ -5667,6 +5759,17 @@ function applyExecutionSafetyResult(result) {
   isLoadingExecutionSafety = false;
 }
 
+function applyReconciliationWorkerResult(result) {
+  if (result.status === "fulfilled") {
+    reconciliationWorkerStatus = normalizeReconciliationWorkerStatus(result.value);
+    reconciliationWorkerError = "";
+  } else {
+    reconciliationWorkerStatus = null;
+    reconciliationWorkerError = requestErrorMessage(result.reason, t("reconciliation_worker_unavailable"));
+  }
+  isLoadingReconciliationWorker = false;
+}
+
 function clearRecentPaperOrders() {
   recentPaperOrders = [];
   recentPaperOrdersError = "";
@@ -5677,6 +5780,20 @@ function clearExecutionSafety() {
   executionSafetyStatus = null;
   executionSafetyError = "";
   isLoadingExecutionSafety = false;
+}
+
+async function loadReconciliationWorkerStatus({ silent = false } = {}) {
+  if (!silent) {
+    reconciliationWorkerError = "";
+    isLoadingReconciliationWorker = true;
+    renderReconciliationWorker();
+  }
+
+  const result = await Promise.allSettled([
+    fetchJson("/api/v1/execution-reconciliation-worker/status"),
+  ]);
+  applyReconciliationWorkerResult(result[0]);
+  renderReconciliationWorker();
 }
 
 async function loadExecutionProfile(botId) {
@@ -5896,6 +6013,7 @@ async function loadBots() {
       isLoadingPerformance = false;
       clearRecentPaperOrders();
       clearExecutionSafety();
+      await loadReconciliationWorkerStatus({ silent: true });
       await loadBacktestHistory();
     }
   } catch (error) {
@@ -5911,6 +6029,7 @@ async function loadBots() {
     isLoadingBots = false;
     botListError = requestErrorMessage(error, t("could_not_load_bots"));
     await loadPaperPortfolio({ silent: true });
+    await loadReconciliationWorkerStatus({ silent: true });
     render();
   }
 }
@@ -5933,6 +6052,7 @@ async function refreshSelectedData() {
     isLoadingPaperPortfolio = true;
     isLoadingRecentPaperOrders = true;
     isLoadingExecutionSafety = true;
+    isLoadingReconciliationWorker = true;
     const [
       summaryResult,
       configResult,
@@ -5940,6 +6060,7 @@ async function refreshSelectedData() {
       portfolioResult,
       ordersResult,
       executionSafetyResult,
+      reconciliationWorkerResult,
     ] = await Promise.allSettled([
       fetchJson(`/api/v1/bots/${selectedBotId}/summary`),
       fetchJson(`/api/v1/bots/${selectedBotId}`),
@@ -5947,11 +6068,13 @@ async function refreshSelectedData() {
       fetchJson("/api/v1/paper-portfolio"),
       fetchJson(`/api/v1/bots/${selectedBotId}/orders?limit=10`),
       fetchJson(`/api/v1/bots/${selectedBotId}/execution-safety/status`),
+      fetchJson("/api/v1/execution-reconciliation-worker/status"),
     ]);
 
     applyPaperPortfolioResult(portfolioResult);
     applyRecentPaperOrdersResult(ordersResult);
     applyExecutionSafetyResult(executionSafetyResult);
+    applyReconciliationWorkerResult(reconciliationWorkerResult);
 
     if (summaryResult.status !== "fulfilled") {
       isLoadingPerformance = false;
@@ -6019,6 +6142,7 @@ async function refreshDashboardData({ silent = false } = {}) {
       isLoadingPaperPortfolio = true;
       isLoadingRecentPaperOrders = true;
       isLoadingExecutionSafety = true;
+      isLoadingReconciliationWorker = true;
       const [
         summaryResult,
         configResult,
@@ -6026,6 +6150,7 @@ async function refreshDashboardData({ silent = false } = {}) {
         portfolioResult,
         ordersResult,
         executionSafetyResult,
+        reconciliationWorkerResult,
       ] = await Promise.allSettled([
         fetchJson(`/api/v1/bots/${selectedBotId}/summary`),
         fetchJson(`/api/v1/bots/${selectedBotId}`),
@@ -6033,11 +6158,13 @@ async function refreshDashboardData({ silent = false } = {}) {
         fetchJson("/api/v1/paper-portfolio"),
         fetchJson(`/api/v1/bots/${selectedBotId}/orders?limit=10`),
         fetchJson(`/api/v1/bots/${selectedBotId}/execution-safety/status`),
+        fetchJson("/api/v1/execution-reconciliation-worker/status"),
       ]);
 
       applyPaperPortfolioResult(portfolioResult);
       applyRecentPaperOrdersResult(ordersResult);
       applyExecutionSafetyResult(executionSafetyResult);
+      applyReconciliationWorkerResult(reconciliationWorkerResult);
 
       if (summaryResult.status !== "fulfilled") {
         isLoadingPerformance = false;
@@ -6070,6 +6197,7 @@ async function refreshDashboardData({ silent = false } = {}) {
       isLoadingPerformance = false;
       clearRecentPaperOrders();
       clearExecutionSafety();
+      await loadReconciliationWorkerStatus({ silent: true });
       summaryError = "";
     }
     await loadBacktestHistory();
@@ -6087,6 +6215,7 @@ async function refreshDashboardData({ silent = false } = {}) {
     isLoadingPaperPortfolio = false;
     isLoadingRecentPaperOrders = false;
     isLoadingExecutionSafety = false;
+    isLoadingReconciliationWorker = false;
     render();
   }
 }
@@ -7826,6 +7955,7 @@ async function loadSelectedSummary(botId) {
   isLoadingPaperPortfolio = true;
   isLoadingRecentPaperOrders = true;
   isLoadingExecutionSafety = true;
+  isLoadingReconciliationWorker = true;
   selectedSummary = null;
   selectedPerformance = null;
   selectedBotConfig = null;
@@ -7841,6 +7971,7 @@ async function loadSelectedSummary(botId) {
       portfolioResult,
       ordersResult,
       executionSafetyResult,
+      reconciliationWorkerResult,
     ] = await Promise.allSettled([
       fetchJson(`/api/v1/bots/${botId}/summary`),
       fetchJson(`/api/v1/bots/${botId}`),
@@ -7849,11 +7980,13 @@ async function loadSelectedSummary(botId) {
       fetchJson("/api/v1/paper-portfolio"),
       fetchJson(`/api/v1/bots/${botId}/orders?limit=10`),
       fetchJson(`/api/v1/bots/${botId}/execution-safety/status`),
+      fetchJson("/api/v1/execution-reconciliation-worker/status"),
     ]);
 
     applyPaperPortfolioResult(portfolioResult);
     applyRecentPaperOrdersResult(ordersResult);
     applyExecutionSafetyResult(executionSafetyResult);
+    applyReconciliationWorkerResult(reconciliationWorkerResult);
 
     if (summaryResult.status !== "fulfilled") {
       throw summaryResult.reason;
@@ -7885,6 +8018,7 @@ async function loadSelectedSummary(botId) {
     isLoadingPaperPortfolio = false;
     isLoadingRecentPaperOrders = false;
     isLoadingExecutionSafety = false;
+    isLoadingReconciliationWorker = false;
   }
 
   render();
@@ -8736,6 +8870,154 @@ function safeExecutionSafetyMetadata(metadata) {
     .filter((item) => item.value);
 }
 
+function reconciliationWorkerEnabledLabel(value) {
+  if (value === true) return t("execution_safety_enabled");
+  if (value === false) return t("execution_safety_disabled");
+  return "—";
+}
+
+function reconciliationWorkerInitializedLabel(value) {
+  return value === true ? t("reconciliation_worker_initialized") : t("reconciliation_worker_never_started");
+}
+
+function reconciliationWorkerHeartbeatLabel(status) {
+  if (!status?.lastHeartbeatAt) return t("reconciliation_worker_not_available");
+  return status.isStale === true
+    ? t("reconciliation_worker_stale_heartbeat")
+    : t("reconciliation_worker_recent_heartbeat");
+}
+
+function reconciliationWorkerThresholdLabel(value) {
+  const seconds = Number(value);
+  if (!Number.isFinite(seconds)) return "—";
+  return t("reconciliation_worker_seconds", { seconds: formatDecimal(seconds, "0") });
+}
+
+function reconciliationWorkerSummary(status) {
+  if (!status?.initialized) {
+    return {
+      label: t("reconciliation_worker_not_started"),
+      summary: t("reconciliation_worker_not_started"),
+      className: "reconciliation-worker-state-badge neutral",
+    };
+  }
+  if (status.configuredEnabled === false) {
+    return {
+      label: t("execution_safety_disabled"),
+      summary: t("reconciliation_worker_disabled_summary"),
+      className: "reconciliation-worker-state-badge neutral",
+    };
+  }
+  if (status.state === "running" && status.isStale === true) {
+    return {
+      label: t("reconciliation_worker_stale_heartbeat"),
+      summary: t("reconciliation_worker_stale_summary"),
+      className: "reconciliation-worker-state-badge warning",
+    };
+  }
+  if (status.state === "running") {
+    return {
+      label: t("reconciliation_worker_recent_heartbeat"),
+      summary: t("reconciliation_worker_recent_summary"),
+      className: "reconciliation-worker-state-badge healthy",
+    };
+  }
+  if (status.state === "stopped") {
+    return {
+      label: t("reconciliation_worker_stopped_summary"),
+      summary: t("reconciliation_worker_stopped_summary"),
+      className: "reconciliation-worker-state-badge neutral",
+    };
+  }
+  return {
+    label: t("health_unknown"),
+    summary: t("reconciliation_worker_unknown_summary"),
+    className: "reconciliation-worker-state-badge neutral",
+  };
+}
+
+function renderReconciliationWorker() {
+  reconciliationWorkerContent.innerHTML = "";
+
+  if (isLoadingReconciliationWorker && !reconciliationWorkerStatus) {
+    reconciliationWorkerContent.textContent = t("reconciliation_worker_loading");
+    reconciliationWorkerContent.className = "reconciliation-worker-content empty loading";
+    return;
+  }
+
+  if (reconciliationWorkerError && !reconciliationWorkerStatus) {
+    reconciliationWorkerContent.textContent = reconciliationWorkerError;
+    reconciliationWorkerContent.className = "reconciliation-worker-content empty error";
+    return;
+  }
+
+  if (!reconciliationWorkerStatus) {
+    reconciliationWorkerContent.textContent = t("reconciliation_worker_unavailable");
+    reconciliationWorkerContent.className = "reconciliation-worker-content empty";
+    return;
+  }
+
+  const status = reconciliationWorkerStatus;
+  const summary = reconciliationWorkerSummary(status);
+  const metrics = [
+    {
+      label: t("reconciliation_worker_configured_label"),
+      value: reconciliationWorkerEnabledLabel(status.configuredEnabled),
+    },
+    {
+      label: t("reconciliation_worker_initialized_label"),
+      value: reconciliationWorkerInitializedLabel(status.initialized),
+    },
+    { label: t("reconciliation_worker_state_label"), value: status.state ? formatStatus(status.state) : "—" },
+    {
+      label: t("reconciliation_worker_heartbeat_label"),
+      value: reconciliationWorkerHeartbeatLabel(status),
+      valueClass: status.isStale === true ? "negative" : "",
+    },
+    {
+      label: t("reconciliation_worker_stale_threshold_label"),
+      value: reconciliationWorkerThresholdLabel(status.heartbeatStaleAfterSeconds),
+    },
+    { label: t("reconciliation_worker_last_started_label"), value: formatUtcDateTime(status.lastStartedAt) },
+    { label: t("reconciliation_worker_last_heartbeat_label"), value: formatUtcDateTime(status.lastHeartbeatAt) },
+    { label: t("reconciliation_worker_last_stopped_label"), value: formatUtcDateTime(status.lastStoppedAt) },
+    {
+      label: t("reconciliation_worker_last_cycle_finished_label"),
+      value: formatUtcDateTime(status.lastCycleFinishedAt),
+    },
+    { label: t("reconciliation_worker_last_result_label"), value: formatValue(status.lastCycleResultCode) },
+    {
+      label: t("reconciliation_worker_last_job_label"),
+      value: formatValue(status.lastProcessedReconciliationJobId),
+    },
+    { label: t("reconciliation_worker_updated_label"), value: formatUtcDateTime(status.updatedAt) },
+  ];
+
+  const state = document.createElement("div");
+  state.className = "reconciliation-worker-state";
+  const badge = document.createElement("span");
+  badge.className = summary.className;
+  badge.textContent = summary.label;
+  const summaryEl = document.createElement("p");
+  summaryEl.className = "reconciliation-worker-summary";
+  summaryEl.textContent = summary.summary;
+  state.append(badge, summaryEl);
+
+  const grid = document.createElement("dl");
+  grid.className = "reconciliation-worker-grid";
+  metrics.forEach((item) => appendMetric(grid, item));
+
+  reconciliationWorkerContent.className = "reconciliation-worker-content";
+  reconciliationWorkerContent.append(state, grid);
+
+  if (reconciliationWorkerError) {
+    const error = document.createElement("p");
+    error.className = "reconciliation-worker-note error";
+    error.textContent = reconciliationWorkerError;
+    reconciliationWorkerContent.append(error);
+  }
+}
+
 function renderExecutionSafety() {
   executionSafetyContent.innerHTML = "";
 
@@ -9268,6 +9550,7 @@ function render() {
   renderPaperPortfolio();
   renderRecentPaperOrders();
   renderExecutionSafety();
+  renderReconciliationWorker();
   renderLiveMarket();
   renderDecisionExplanation();
   renderStrategyParametersForm();
