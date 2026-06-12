@@ -3,6 +3,7 @@ from typing import Annotated
 from fastapi import APIRouter, Query
 
 from app.api.dependencies import DbSession
+from app.core.config import get_settings
 from app.core.errors import NotFoundError
 from app.models.execution_attempt import ExecutionAttempt
 from app.models.execution_reconciliation_job import ExecutionReconciliationJob
@@ -11,6 +12,7 @@ from app.models.simulated_order import SimulatedOrder
 from app.repositories.bot import BotRepository
 from app.repositories.execution_attempt import ExecutionAttemptRepository
 from app.repositories.execution_reconciliation_job import ExecutionReconciliationJobRepository
+from app.repositories.execution_reconciliation_worker_status import ExecutionReconciliationWorkerStatusRepository
 from app.repositories.portfolio import PortfolioRepository
 from app.schemas.execution import (
     ExecutionAuditMode,
@@ -24,9 +26,11 @@ from app.schemas.execution import (
     ExecutionReconciliationJobRead,
     ExecutionReconciliationJobStatus,
     ExecutionReconciliationStatusRead,
+    ExecutionReconciliationWorkerStatusRead,
     ExecutionSide,
 )
 from app.services.execution_reconciliation import ExecutionReconciliationStatusService
+from app.services.execution_reconciliation_worker_status import ExecutionReconciliationWorkerStatusService
 from app.services.metadata_sanitizer import sanitize_public_metadata
 
 router = APIRouter()
@@ -134,6 +138,15 @@ async def get_execution_reconciliation_job(job_id: int, db: DbSession) -> Execut
             error_code="execution_reconciliation_job_not_found",
         )
     return _build_reconciliation_job_read(job)
+
+
+@router.get("/execution-reconciliation-worker/status", response_model=ExecutionReconciliationWorkerStatusRead)
+async def get_execution_reconciliation_worker_status(db: DbSession) -> ExecutionReconciliationWorkerStatusRead:
+    snapshot = ExecutionReconciliationWorkerStatusService(
+        ExecutionReconciliationWorkerStatusRepository(db),
+        settings=get_settings(),
+    ).get_status()
+    return ExecutionReconciliationWorkerStatusRead(**snapshot.__dict__)
 
 
 @router.get("/orders/{order_id}", response_model=ExecutionOrderAuditRead)

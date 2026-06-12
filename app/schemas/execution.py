@@ -11,6 +11,7 @@ ExecutionAuditStatus = Literal["created", "submitted", "filled", "rejected", "ca
 ExecutionAuditMode = Literal["paper", "live"]
 ExecutionAttemptMode = Literal["paper", "testnet", "live"]
 ExecutionReconciliationJobStatus = Literal["pending", "claimed", "resolved", "exhausted"]
+ExecutionReconciliationWorkerState = Literal["running", "stopped"]
 ExecutionAttemptStatus = Literal[
     "created",
     "blocked_by_risk",
@@ -170,6 +171,23 @@ class ExecutionReconciliationJobRead(BaseModel):
     created_at: datetime
     updated_at: datetime
     resolved_at: datetime | None = None
+
+
+class ExecutionReconciliationWorkerStatusRead(BaseModel):
+    worker_name: str
+    initialized: bool
+    configured_enabled: bool
+    state: ExecutionReconciliationWorkerState | None = None
+    last_started_at: datetime | None = None
+    last_heartbeat_at: datetime | None = None
+    last_stopped_at: datetime | None = None
+    last_cycle_started_at: datetime | None = None
+    last_cycle_finished_at: datetime | None = None
+    last_cycle_result_code: str | None = None
+    last_processed_reconciliation_job_id: int | None = None
+    heartbeat_stale_after_seconds: int
+    is_stale: bool
+    updated_at: datetime | None = None
 
 
 class ExecutionManualReconciliationRead(BaseModel):

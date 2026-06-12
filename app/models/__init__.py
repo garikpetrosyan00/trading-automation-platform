@@ -7,6 +7,7 @@ from app.models.execution_profile import ExecutionProfile
 from app.models.execution_attempt import ExecutionAttempt
 from app.models.execution_daily_quota_usage import ExecutionDailyQuotaUsage
 from app.models.execution_reconciliation_job import ExecutionReconciliationJob
+from app.models.execution_reconciliation_worker_status import ExecutionReconciliationWorkerStatus
 from app.models.market_candle import MarketCandle
 from app.models.notification_rule import NotificationRule
 from app.models.paper_accounting_event import PaperAccountingEvent
@@ -25,6 +26,7 @@ __all__ = [
     "ExecutionAttempt",
     "ExecutionDailyQuotaUsage",
     "ExecutionReconciliationJob",
+    "ExecutionReconciliationWorkerStatus",
     "MarketCandle",
     "BotRun",
     "RunEvent",

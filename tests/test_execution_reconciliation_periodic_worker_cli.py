@@ -8,18 +8,21 @@ from pydantic import ValidationError
 from app.cli import run_execution_reconciliation_worker as cli
 from app.core.config import Settings
 from app.repositories.execution_attempt import ExecutionAttemptRepository
+from app.repositories.execution_reconciliation_worker_status import ExecutionReconciliationWorkerStatusRepository
 from app.repositories.portfolio import PortfolioRepository
 from app.services.brokers.binance import BinanceOrderHttpResponse, BinanceTestnetOrderClient, BinanceTestnetOrderQueryClientError
 from app.services.execution_reconciliation_worker import (
     AutomaticReconciliationBatchSummary,
     AutomaticReconciliationJobResult,
 )
+from app.services.execution_reconciliation_worker_status import ExecutionReconciliationWorkerStatusService
 from tests.test_execution_reconciliation_jobs import NOW, add_job, job_repository, worker_service
 
 
 def test_periodic_worker_is_disabled_by_default() -> None:
     assert Settings(_env_file=None).binance_testnet_reconciliation_worker_enabled is False
     assert Settings(_env_file=None).binance_testnet_reconciliation_worker_poll_interval_seconds == 30
+    assert Settings(_env_file=None).binance_testnet_reconciliation_worker_heartbeat_stale_after_seconds == 120
 
 
 def test_periodic_worker_disabled_exits_without_processing_or_binance_query(monkeypatch) -> None:
@@ -34,6 +37,7 @@ def test_periodic_worker_disabled_exits_without_processing_or_binance_query(monk
     exit_code = cli.main(
         [],
         worker_factory=fake_worker_factory(calls),
+        heartbeat_service_factory=failing_heartbeat_factory(),
         settings_provider=lambda: worker_settings(enabled=False),
         stdout=stdout,
         stderr=StringIO(),
@@ -47,6 +51,7 @@ def test_periodic_worker_disabled_exits_without_processing_or_binance_query(monk
 
 def test_periodic_worker_enabled_calls_single_job_path_once_per_cycle() -> None:
     calls = []
+    heartbeat_calls = []
     sleeps = []
     stop_controller = cli.StopController()
 
@@ -58,6 +63,7 @@ def test_periodic_worker_enabled_calls_single_job_path_once_per_cycle() -> None:
     exit_code = cli.run_loop(
         settings=worker_settings(enabled=True, poll_interval=7),
         worker_factory=fake_worker_factory(calls),
+        heartbeat_service_factory=fake_heartbeat_factory(heartbeat_calls),
         sleep=sleep_once,
         stdout=stdout,
         stop_controller=stop_controller,
@@ -65,6 +71,12 @@ def test_periodic_worker_enabled_calls_single_job_path_once_per_cycle() -> None:
 
     assert exit_code == 0
     assert calls == ["process_due_job"]
+    assert heartbeat_calls == [
+        "mark_worker_started",
+        "mark_cycle_started",
+        "mark_cycle_completed:found:1",
+        "mark_worker_stopped",
+    ]
     assert sleeps == [7]
     lines = [json.loads(line) for line in stdout.getvalue().splitlines()]
     assert [line["event"] for line in lines] == ["worker_started", "worker_cycle_completed", "worker_stopped"]
@@ -100,6 +112,7 @@ def test_periodic_worker_multiple_due_jobs_are_not_batch_drained_in_one_cycle(
     cli.run_loop(
         settings=worker_settings(enabled=True),
         worker_factory=real_worker_factory(db_session),
+        heartbeat_service_factory=real_heartbeat_factory(db_session),
         sleep=stop_after_sleep,
         stdout=StringIO(),
         stop_controller=stop_controller,
@@ -128,6 +141,7 @@ def test_periodic_worker_sigterm_style_stop_is_graceful() -> None:
     exit_code = cli.run_loop(
         settings=worker_settings(enabled=True),
         worker_factory=fake_worker_factory(calls),
+        heartbeat_service_factory=fake_heartbeat_factory([]),
         sleep=request_sigterm,
         stdout=stdout,
         stop_controller=stop_controller,
@@ -150,6 +164,7 @@ def test_periodic_worker_unexpected_cycle_exception_is_safe_and_continues_to_nex
     exit_code = cli.run_loop(
         settings=worker_settings(enabled=True, poll_interval=9),
         worker_factory=failing_worker_factory("unsafe-api-secret signature raw Binance payload headers"),
+        heartbeat_service_factory=fake_heartbeat_factory([]),
         sleep=sleep_once,
         stdout=stdout,
         stop_controller=stop_controller,
@@ -282,6 +297,7 @@ def test_periodic_worker_output_contains_no_sensitive_request_data() -> None:
                 ],
             ),
         ),
+        heartbeat_service_factory=fake_heartbeat_factory([]),
         sleep=stop_after_sleep,
         stdout=stdout,
         stop_controller=stop_controller,
@@ -334,6 +350,7 @@ def run_one_cycle(db_session) -> StringIO:
     cli.run_loop(
         settings=worker_settings(enabled=True),
         worker_factory=real_worker_factory(db_session),
+        heartbeat_service_factory=real_heartbeat_factory(db_session),
         sleep=stop_after_sleep,
         stdout=stdout,
         stop_controller=stop_controller,
@@ -358,6 +375,7 @@ def worker_settings(*, enabled: bool, poll_interval: int = 30) -> Settings:
         BINANCE_TESTNET_RECONCILIATION_BATCH_SIZE=10,
         BINANCE_TESTNET_RECONCILIATION_WORKER_ENABLED=enabled,
         BINANCE_TESTNET_RECONCILIATION_WORKER_POLL_INTERVAL_SECONDS=poll_interval,
+        BINANCE_TESTNET_RECONCILIATION_WORKER_HEARTBEAT_STALE_AFTER_SECONDS=120,
     )
 
 
@@ -413,5 +431,49 @@ def failing_worker_factory(message: str):
     @contextmanager
     def factory():
         yield FailingWorker()
+
+    return factory
+
+
+def real_heartbeat_factory(db_session):
+    @contextmanager
+    def factory(settings):
+        yield ExecutionReconciliationWorkerStatusService(
+            ExecutionReconciliationWorkerStatusRepository(db_session),
+            settings=settings,
+        )
+
+    return factory
+
+
+def fake_heartbeat_factory(calls: list[str]):
+    class FakeHeartbeatService:
+        def mark_worker_started(self):
+            calls.append("mark_worker_started")
+
+        def mark_cycle_started(self):
+            calls.append("mark_cycle_started")
+
+        def mark_cycle_completed(self, *, result_code, processed_reconciliation_job_id=None):
+            calls.append(f"mark_cycle_completed:{result_code}:{processed_reconciliation_job_id}")
+
+        def mark_cycle_failed(self):
+            calls.append("mark_cycle_failed")
+
+        def mark_worker_stopped(self):
+            calls.append("mark_worker_stopped")
+
+    @contextmanager
+    def factory(settings):
+        yield FakeHeartbeatService()
+
+    return factory
+
+
+def failing_heartbeat_factory():
+    @contextmanager
+    def factory(settings):
+        raise AssertionError("Disabled periodic worker must not create heartbeat state")
+        yield
 
     return factory

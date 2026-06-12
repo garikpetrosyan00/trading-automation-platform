@@ -111,6 +111,12 @@ class Settings(BaseSettings):
         le=3600,
         validation_alias=AliasChoices("BINANCE_TESTNET_RECONCILIATION_WORKER_POLL_INTERVAL_SECONDS"),
     )
+    binance_testnet_reconciliation_worker_heartbeat_stale_after_seconds: int = Field(
+        default=120,
+        gt=0,
+        le=86400,
+        validation_alias=AliasChoices("BINANCE_TESTNET_RECONCILIATION_WORKER_HEARTBEAT_STALE_AFTER_SECONDS"),
+    )
     binance_testnet_api_key: str | None = Field(
         default=None,
         validation_alias=AliasChoices("BINANCE_TESTNET_API_KEY"),
