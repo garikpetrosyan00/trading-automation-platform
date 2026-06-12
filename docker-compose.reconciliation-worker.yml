@@ -1,0 +1,14 @@
+version: "3.9"
+
+services:
+  execution-reconciliation-worker:
+    build: .
+    command: python -m app.cli.run_execution_reconciliation_worker
+    env_file:
+      - .env
+    environment:
+      BINANCE_TESTNET_RECONCILIATION_WORKER_ENABLED: ${BINANCE_TESTNET_RECONCILIATION_WORKER_ENABLED:-false}
+    volumes:
+      - .:/app
+    depends_on:
+      - postgres
