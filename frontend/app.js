@@ -25,6 +25,7 @@ let selectedSummary = null;
 let selectedPerformance = null;
 let paperPortfolio = null;
 let recentPaperOrders = [];
+let recentExecutionAttempts = [];
 let executionSafetyStatus = null;
 let reconciliationWorkerStatus = null;
 let recentReconciliationJobs = [];
@@ -34,6 +35,7 @@ let isLoadingSummary = false;
 let isLoadingPerformance = false;
 let isLoadingPaperPortfolio = true;
 let isLoadingRecentPaperOrders = false;
+let isLoadingRecentExecutionAttempts = false;
 let isLoadingExecutionSafety = false;
 let isLoadingReconciliationWorker = true;
 let isLoadingRecentReconciliationJobs = true;
@@ -70,6 +72,7 @@ let summaryError = "";
 let performanceError = "";
 let paperPortfolioError = "";
 let recentPaperOrdersError = "";
+let recentExecutionAttemptsError = "";
 let executionSafetyError = "";
 let reconciliationWorkerError = "";
 let recentReconciliationJobsError = "";
@@ -204,6 +207,27 @@ const translations = {
     recent_paper_orders_unavailable: "Recent paper orders unavailable",
     recent_paper_orders_select_bot: "Select a bot to view recent paper orders.",
     recent_paper_orders_empty: "No recent paper orders for this bot.",
+    recent_execution_attempts: "Recent Execution Attempts",
+    recent_execution_attempts_aria: "Recent Execution Attempts",
+    recent_execution_attempts_help: "Read-only execution attempt audit for the selected bot.",
+    recent_execution_attempts_loading: "Loading execution attempts…",
+    recent_execution_attempts_unavailable: "Execution attempts unavailable",
+    recent_execution_attempts_select_bot: "Select a bot to view execution attempts.",
+    recent_execution_attempts_empty: "No execution attempts found.",
+    execution_attempt_id_label: "Attempt",
+    execution_attempt_bot_label: "Bot",
+    execution_attempt_mode_label: "Mode",
+    execution_attempt_broker_label: "Broker",
+    execution_attempt_side_label: "Side",
+    execution_attempt_quantity_label: "Quantity",
+    execution_attempt_dry_run_label: "Dry-run",
+    execution_attempt_status_label: "Final status",
+    execution_attempt_reason_label: "Reason",
+    execution_attempt_status_code_label: "Status code",
+    execution_attempt_exchange_status_label: "Exchange status",
+    execution_attempt_order_label: "Order",
+    execution_attempt_created_label: "Created",
+    execution_attempt_updated_label: "Updated",
     order_side_buy: "Buy",
     order_side_sell: "Sell",
     order_status_created: "Created",
@@ -961,6 +985,27 @@ const translations = {
     recent_paper_orders_unavailable: "Վերջին paper պատվերները հասանելի չեն",
     recent_paper_orders_select_bot: "Ընտրիր Bot՝ վերջին paper պատվերները դիտելու համար։",
     recent_paper_orders_empty: "Այս Bot-ի համար վերջին paper պատվերներ չկան։",
+    recent_execution_attempts: "Վերջին execution attempt-ները",
+    recent_execution_attempts_aria: "Վերջին execution attempt-ները",
+    recent_execution_attempts_help: "Ընտրված Bot-ի execution attempt-ների audit-ը՝ միայն դիտելու համար։",
+    recent_execution_attempts_loading: "Execution attempt-ները բեռնվում են…",
+    recent_execution_attempts_unavailable: "Execution attempt-ները հասանելի չեն",
+    recent_execution_attempts_select_bot: "Ընտրիր Bot՝ execution attempt-ները դիտելու համար։",
+    recent_execution_attempts_empty: "Execution attempt-ներ չկան։",
+    execution_attempt_id_label: "Attempt",
+    execution_attempt_bot_label: "Bot",
+    execution_attempt_mode_label: "Ռեժիմ",
+    execution_attempt_broker_label: "Broker",
+    execution_attempt_side_label: "Կողմ",
+    execution_attempt_quantity_label: "Քանակ",
+    execution_attempt_dry_run_label: "Dry-run",
+    execution_attempt_status_label: "Վերջնական վիճակ",
+    execution_attempt_reason_label: "Պատճառ",
+    execution_attempt_status_code_label: "Status code",
+    execution_attempt_exchange_status_label: "Exchange status",
+    execution_attempt_order_label: "Order",
+    execution_attempt_created_label: "Ստեղծվել է",
+    execution_attempt_updated_label: "Թարմացվել է",
     order_side_buy: "Գնում",
     order_side_sell: "Վաճառք",
     order_status_created: "Ստեղծված",
@@ -1756,6 +1801,10 @@ const recentPaperOrdersPanel = document.querySelector(".recent-paper-orders-pane
 const recentPaperOrdersHeading = document.querySelector("#recent-paper-orders-heading");
 const recentPaperOrdersHelp = document.querySelector("#recent-paper-orders-help");
 const recentPaperOrdersContent = document.querySelector("#recent-paper-orders-content");
+const recentExecutionAttemptsPanel = document.querySelector(".recent-execution-attempts-panel");
+const recentExecutionAttemptsHeading = document.querySelector("#recent-execution-attempts-heading");
+const recentExecutionAttemptsHelp = document.querySelector("#recent-execution-attempts-help");
+const recentExecutionAttemptsContent = document.querySelector("#recent-execution-attempts-content");
 const executionSafetyPanel = document.querySelector(".execution-safety-panel");
 const executionSafetyHeading = document.querySelector("#execution-safety-heading");
 const executionSafetyHelp = document.querySelector("#execution-safety-help");
@@ -2109,6 +2158,9 @@ function applyStaticTranslations() {
   recentPaperOrdersPanel?.setAttribute("aria-label", t("recent_paper_orders_aria"));
   recentPaperOrdersHeading.textContent = t("recent_paper_orders");
   recentPaperOrdersHelp.textContent = t("recent_paper_orders_help");
+  recentExecutionAttemptsPanel?.setAttribute("aria-label", t("recent_execution_attempts_aria"));
+  recentExecutionAttemptsHeading.textContent = t("recent_execution_attempts");
+  recentExecutionAttemptsHelp.textContent = t("recent_execution_attempts_help");
   executionSafetyPanel?.setAttribute("aria-label", t("execution_safety_aria"));
   executionSafetyHeading.textContent = t("execution_safety");
   executionSafetyHelp.textContent = t("execution_safety_help");
@@ -2463,6 +2515,41 @@ function normalizePaperOrder(rawOrder) {
 function normalizePaperOrders(data) {
   const rawOrders = Array.isArray(data) ? data : data?.items ?? [];
   return Array.isArray(rawOrders) ? rawOrders.map(normalizePaperOrder) : [];
+}
+
+function normalizeExecutionAttempt(rawAttempt) {
+  if (!rawAttempt || typeof rawAttempt !== "object") return null;
+  const safeMetadata =
+    rawAttempt.metadata && typeof rawAttempt.metadata === "object" && !Array.isArray(rawAttempt.metadata)
+      ? rawAttempt.metadata
+      : {};
+  return {
+    id: rawAttempt.id ?? null,
+    botId: rawAttempt.bot_id ?? rawAttempt.botId ?? null,
+    mode: rawAttempt.mode ?? null,
+    broker: rawAttempt.broker ?? null,
+    side: rawAttempt.side ?? null,
+    quantity:
+      rawAttempt.quantity ??
+      rawAttempt.requested_quantity ??
+      rawAttempt.requestedQuantity ??
+      null,
+    dryRun: rawAttempt.dry_run ?? rawAttempt.dryRun ?? safeMetadata.dry_run ?? null,
+    finalStatus: rawAttempt.final_status ?? rawAttempt.finalStatus ?? null,
+    finalReason: rawAttempt.final_reason ?? rawAttempt.finalReason ?? null,
+    statusCode: rawAttempt.status_code ?? rawAttempt.statusCode ?? safeMetadata.status_code ?? null,
+    exchangeStatus:
+      rawAttempt.exchange_status ?? rawAttempt.exchangeStatus ?? safeMetadata.exchange_status ?? null,
+    orderId: rawAttempt.order_id ?? rawAttempt.orderId ?? null,
+    createdAt: rawAttempt.created_at ?? rawAttempt.createdAt ?? null,
+    updatedAt: rawAttempt.updated_at ?? rawAttempt.updatedAt ?? null,
+  };
+}
+
+function normalizeExecutionAttempts(data) {
+  const rawAttempts = Array.isArray(data) ? data : data?.items ?? [];
+  if (!Array.isArray(rawAttempts)) return [];
+  return rawAttempts.map(normalizeExecutionAttempt).filter(Boolean);
 }
 
 function normalizeExecutionSafety(rawStatus) {
@@ -5857,6 +5944,20 @@ function applyRecentPaperOrdersResult(result) {
   isLoadingRecentPaperOrders = false;
 }
 
+function applyRecentExecutionAttemptsResult(result) {
+  if (result.status === "fulfilled") {
+    recentExecutionAttempts = normalizeExecutionAttempts(result.value);
+    recentExecutionAttemptsError = "";
+  } else {
+    recentExecutionAttempts = [];
+    recentExecutionAttemptsError = requestErrorMessage(
+      result.reason,
+      t("recent_execution_attempts_unavailable"),
+    );
+  }
+  isLoadingRecentExecutionAttempts = false;
+}
+
 function applyExecutionSafetyResult(result) {
   if (result.status === "fulfilled") {
     executionSafetyStatus = normalizeExecutionSafety(result.value);
@@ -5894,6 +5995,12 @@ function clearRecentPaperOrders() {
   recentPaperOrders = [];
   recentPaperOrdersError = "";
   isLoadingRecentPaperOrders = false;
+}
+
+function clearRecentExecutionAttempts() {
+  recentExecutionAttempts = [];
+  recentExecutionAttemptsError = "";
+  isLoadingRecentExecutionAttempts = false;
 }
 
 function clearExecutionSafety() {
@@ -6187,6 +6294,7 @@ async function refreshSelectedData() {
     isLoadingPerformance = true;
     isLoadingPaperPortfolio = true;
     isLoadingRecentPaperOrders = true;
+    isLoadingRecentExecutionAttempts = true;
     isLoadingExecutionSafety = true;
     isLoadingReconciliationWorker = true;
     isLoadingRecentReconciliationJobs = true;
@@ -6196,6 +6304,7 @@ async function refreshSelectedData() {
       performanceResult,
       portfolioResult,
       ordersResult,
+      executionAttemptsResult,
       executionSafetyResult,
       reconciliationWorkerResult,
       recentReconciliationJobsResult,
@@ -6205,6 +6314,7 @@ async function refreshSelectedData() {
       fetchJson(`/api/v1/bots/${selectedBotId}/performance`),
       fetchJson("/api/v1/paper-portfolio"),
       fetchJson(`/api/v1/bots/${selectedBotId}/orders?limit=10`),
+      fetchJson(`/api/v1/bots/${selectedBotId}/execution-attempts?limit=10`),
       fetchJson(`/api/v1/bots/${selectedBotId}/execution-safety/status`),
       fetchJson("/api/v1/execution-reconciliation-worker/status"),
       fetchJson("/api/v1/execution-reconciliation-jobs?limit=10"),
@@ -6212,6 +6322,7 @@ async function refreshSelectedData() {
 
     applyPaperPortfolioResult(portfolioResult);
     applyRecentPaperOrdersResult(ordersResult);
+    applyRecentExecutionAttemptsResult(executionAttemptsResult);
     applyExecutionSafetyResult(executionSafetyResult);
     applyReconciliationWorkerResult(reconciliationWorkerResult);
     applyRecentReconciliationJobsResult(recentReconciliationJobsResult);
@@ -6246,6 +6357,7 @@ async function refreshSelectedData() {
     performanceError = "";
     isLoadingPerformance = false;
     clearRecentPaperOrders();
+    clearRecentExecutionAttempts();
     clearExecutionSafety();
     await loadReconciliationWorkerStatus({ silent: true });
     await loadRecentReconciliationJobs({ silent: true });
@@ -6283,6 +6395,7 @@ async function refreshDashboardData({ silent = false } = {}) {
       isLoadingPerformance = true;
       isLoadingPaperPortfolio = true;
       isLoadingRecentPaperOrders = true;
+      isLoadingRecentExecutionAttempts = true;
       isLoadingExecutionSafety = true;
       isLoadingReconciliationWorker = true;
       isLoadingRecentReconciliationJobs = true;
@@ -6292,6 +6405,7 @@ async function refreshDashboardData({ silent = false } = {}) {
         performanceResult,
         portfolioResult,
         ordersResult,
+        executionAttemptsResult,
         executionSafetyResult,
         reconciliationWorkerResult,
         recentReconciliationJobsResult,
@@ -6301,6 +6415,7 @@ async function refreshDashboardData({ silent = false } = {}) {
         fetchJson(`/api/v1/bots/${selectedBotId}/performance`),
         fetchJson("/api/v1/paper-portfolio"),
         fetchJson(`/api/v1/bots/${selectedBotId}/orders?limit=10`),
+        fetchJson(`/api/v1/bots/${selectedBotId}/execution-attempts?limit=10`),
         fetchJson(`/api/v1/bots/${selectedBotId}/execution-safety/status`),
         fetchJson("/api/v1/execution-reconciliation-worker/status"),
         fetchJson("/api/v1/execution-reconciliation-jobs?limit=10"),
@@ -6308,6 +6423,7 @@ async function refreshDashboardData({ silent = false } = {}) {
 
       applyPaperPortfolioResult(portfolioResult);
       applyRecentPaperOrdersResult(ordersResult);
+      applyRecentExecutionAttemptsResult(executionAttemptsResult);
       applyExecutionSafetyResult(executionSafetyResult);
       applyReconciliationWorkerResult(reconciliationWorkerResult);
       applyRecentReconciliationJobsResult(recentReconciliationJobsResult);
@@ -6342,6 +6458,7 @@ async function refreshDashboardData({ silent = false } = {}) {
       performanceError = "";
       isLoadingPerformance = false;
       clearRecentPaperOrders();
+      clearRecentExecutionAttempts();
       clearExecutionSafety();
       await loadReconciliationWorkerStatus({ silent: true });
       await loadRecentReconciliationJobs({ silent: true });
@@ -6361,6 +6478,7 @@ async function refreshDashboardData({ silent = false } = {}) {
     isLoadingPerformance = false;
     isLoadingPaperPortfolio = false;
     isLoadingRecentPaperOrders = false;
+    isLoadingRecentExecutionAttempts = false;
     isLoadingExecutionSafety = false;
     isLoadingReconciliationWorker = false;
     isLoadingRecentReconciliationJobs = false;
@@ -8102,6 +8220,7 @@ async function loadSelectedSummary(botId) {
   isLoadingPerformance = true;
   isLoadingPaperPortfolio = true;
   isLoadingRecentPaperOrders = true;
+  isLoadingRecentExecutionAttempts = true;
   isLoadingExecutionSafety = true;
   isLoadingReconciliationWorker = true;
   isLoadingRecentReconciliationJobs = true;
@@ -8119,6 +8238,7 @@ async function loadSelectedSummary(botId) {
       performanceResult,
       portfolioResult,
       ordersResult,
+      executionAttemptsResult,
       executionSafetyResult,
       reconciliationWorkerResult,
       recentReconciliationJobsResult,
@@ -8129,6 +8249,7 @@ async function loadSelectedSummary(botId) {
       fetchJson(`/api/v1/bots/${botId}/performance`),
       fetchJson("/api/v1/paper-portfolio"),
       fetchJson(`/api/v1/bots/${botId}/orders?limit=10`),
+      fetchJson(`/api/v1/bots/${botId}/execution-attempts?limit=10`),
       fetchJson(`/api/v1/bots/${botId}/execution-safety/status`),
       fetchJson("/api/v1/execution-reconciliation-worker/status"),
       fetchJson("/api/v1/execution-reconciliation-jobs?limit=10"),
@@ -8136,6 +8257,7 @@ async function loadSelectedSummary(botId) {
 
     applyPaperPortfolioResult(portfolioResult);
     applyRecentPaperOrdersResult(ordersResult);
+    applyRecentExecutionAttemptsResult(executionAttemptsResult);
     applyExecutionSafetyResult(executionSafetyResult);
     applyReconciliationWorkerResult(reconciliationWorkerResult);
     applyRecentReconciliationJobsResult(recentReconciliationJobsResult);
@@ -8162,6 +8284,7 @@ async function loadSelectedSummary(botId) {
     selectedBotConfig = null;
     selectedExecutionProfile = null;
     clearRecentPaperOrders();
+    clearRecentExecutionAttempts();
     clearExecutionSafety();
     summaryError = requestErrorMessage(error, t("could_not_load_bot_details"));
   } finally {
@@ -8169,6 +8292,7 @@ async function loadSelectedSummary(botId) {
     isLoadingPerformance = false;
     isLoadingPaperPortfolio = false;
     isLoadingRecentPaperOrders = false;
+    isLoadingRecentExecutionAttempts = false;
     isLoadingExecutionSafety = false;
     isLoadingReconciliationWorker = false;
     isLoadingRecentReconciliationJobs = false;
@@ -8924,6 +9048,135 @@ function renderRecentPaperOrders() {
     error.className = "recent-paper-orders-note error";
     error.textContent = recentPaperOrdersError;
     recentPaperOrdersContent.append(error);
+  }
+}
+
+function executionAttemptIdValue(value) {
+  const formatted = formatValue(value);
+  return formatted === "—" ? formatted : `#${formatted}`;
+}
+
+function executionAttemptStatusClass(status) {
+  const normalized = normalizeStrategyType(status);
+  if (
+    normalized.includes("success") ||
+    normalized.includes("filled") ||
+    normalized.includes("created")
+  ) {
+    return "recent-order-status filled";
+  }
+  if (
+    normalized.includes("fail") ||
+    normalized.includes("reject") ||
+    normalized.includes("block") ||
+    normalized.includes("error")
+  ) {
+    return "recent-order-status rejected";
+  }
+  if (normalized.includes("pending") || normalized.includes("unknown")) {
+    return "recent-order-status pending";
+  }
+  return "recent-order-status";
+}
+
+function executionAttemptBooleanLabel(value) {
+  if (value === true) return t("yes");
+  if (value === false) return t("no");
+  return "—";
+}
+
+function renderRecentExecutionAttempts() {
+  recentExecutionAttemptsContent.innerHTML = "";
+
+  if (!selectedBotId) {
+    recentExecutionAttemptsContent.textContent = t("recent_execution_attempts_select_bot");
+    recentExecutionAttemptsContent.className = "recent-execution-attempts-content empty";
+    return;
+  }
+
+  if (isLoadingRecentExecutionAttempts && recentExecutionAttempts.length === 0) {
+    recentExecutionAttemptsContent.textContent = t("recent_execution_attempts_loading");
+    recentExecutionAttemptsContent.className = "recent-execution-attempts-content empty loading";
+    return;
+  }
+
+  if (recentExecutionAttemptsError && recentExecutionAttempts.length === 0) {
+    recentExecutionAttemptsContent.textContent = recentExecutionAttemptsError;
+    recentExecutionAttemptsContent.className = "recent-execution-attempts-content empty error";
+    return;
+  }
+
+  if (recentExecutionAttempts.length === 0) {
+    recentExecutionAttemptsContent.textContent = t("recent_execution_attempts_empty");
+    recentExecutionAttemptsContent.className = "recent-execution-attempts-content empty";
+    return;
+  }
+
+  recentExecutionAttemptsContent.className = "recent-execution-attempts-content";
+  const list = document.createElement("div");
+  list.className = "recent-execution-attempts-list";
+
+  recentExecutionAttempts.forEach((attempt) => {
+    const item = document.createElement("article");
+    item.className = "recent-execution-attempt";
+
+    const header = document.createElement("div");
+    header.className = "recent-execution-attempt-header";
+    const identity = document.createElement("div");
+    const title = document.createElement("strong");
+    title.textContent = `${t("execution_attempt_id_label")} ${executionAttemptIdValue(attempt.id)}`;
+    const meta = document.createElement("p");
+    meta.className = "recent-execution-attempt-meta";
+    meta.textContent = [
+      `${t("execution_attempt_bot_label")} ${executionAttemptIdValue(attempt.botId)}`,
+      formatUtcDateTime(attempt.createdAt),
+    ].join(" · ");
+    identity.append(title, meta);
+
+    const badges = document.createElement("div");
+    badges.className = "recent-execution-attempt-badges";
+    const sideBadge = document.createElement("span");
+    sideBadge.className = orderSideClass(attempt.side);
+    sideBadge.textContent = orderSideLabel(attempt.side);
+    const statusBadge = document.createElement("span");
+    statusBadge.className = executionAttemptStatusClass(attempt.finalStatus);
+    statusBadge.textContent = humanizeMessage(attempt.finalStatus, "—");
+    badges.append(sideBadge, statusBadge);
+    header.append(identity, badges);
+
+    const metrics = document.createElement("dl");
+    metrics.className = "recent-execution-attempt-grid";
+    [
+      { label: t("execution_attempt_mode_label"), value: humanizeMessage(attempt.mode, "—") },
+      { label: t("execution_attempt_broker_label"), value: humanizeMessage(attempt.broker, "—") },
+      { label: t("execution_attempt_quantity_label"), value: formatDecimal(attempt.quantity) },
+      { label: t("execution_attempt_dry_run_label"), value: executionAttemptBooleanLabel(attempt.dryRun) },
+      { label: t("execution_attempt_status_code_label"), value: formatDecimal(attempt.statusCode) },
+      {
+        label: t("execution_attempt_exchange_status_label"),
+        value: humanizeMessage(attempt.exchangeStatus, "—"),
+      },
+      { label: t("execution_attempt_order_label"), value: executionAttemptIdValue(attempt.orderId) },
+      { label: t("execution_attempt_created_label"), value: formatUtcDateTime(attempt.createdAt) },
+      { label: t("execution_attempt_updated_label"), value: formatUtcDateTime(attempt.updatedAt) },
+      {
+        label: t("execution_attempt_reason_label"),
+        value: humanizeMessage(attempt.finalReason, "—"),
+        className: "recent-execution-attempt-wide",
+      },
+    ].forEach((metric) => appendMetric(metrics, metric));
+
+    item.append(header, metrics);
+    list.append(item);
+  });
+
+  recentExecutionAttemptsContent.append(list);
+
+  if (recentExecutionAttemptsError) {
+    const error = document.createElement("p");
+    error.className = "recent-execution-attempts-note error";
+    error.textContent = recentExecutionAttemptsError;
+    recentExecutionAttemptsContent.append(error);
   }
 }
 
@@ -9860,6 +10113,7 @@ function render() {
   renderBotPerformance();
   renderPaperPortfolio();
   renderRecentPaperOrders();
+  renderRecentExecutionAttempts();
   renderExecutionSafety();
   renderReconciliationWorker();
   renderRecentReconciliationJobs();

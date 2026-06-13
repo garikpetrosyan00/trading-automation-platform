@@ -1279,6 +1279,7 @@ dd {
 .bot-performance-panel,
 .paper-portfolio-panel,
 .recent-paper-orders-panel,
+.recent-execution-attempts-panel,
 .execution-safety-panel,
 .reconciliation-worker-panel,
 .recent-reconciliation-jobs-panel,
@@ -1309,6 +1310,7 @@ dd {
 .bot-performance-content,
 .paper-portfolio-content,
 .recent-paper-orders-content,
+.recent-execution-attempts-content,
 .execution-safety-content,
 .reconciliation-worker-content,
 .recent-reconciliation-jobs-content,
@@ -1325,6 +1327,7 @@ dd {
 .bot-performance-content.empty,
 .paper-portfolio-content.empty,
 .recent-paper-orders-content.empty,
+.recent-execution-attempts-content.empty,
 .execution-safety-content.empty,
 .reconciliation-worker-content.empty,
 .recent-reconciliation-jobs-content.empty,
@@ -1340,6 +1343,7 @@ dd {
 .bot-performance-content.error,
 .paper-portfolio-content.error,
 .recent-paper-orders-content.error,
+.recent-execution-attempts-content.error,
 .execution-safety-content.error,
 .reconciliation-worker-content.error,
 .recent-reconciliation-jobs-content.error,
@@ -1353,6 +1357,7 @@ dd {
 .bot-performance-content.loading,
 .paper-portfolio-content.loading,
 .recent-paper-orders-content.loading,
+.recent-execution-attempts-content.loading,
 .execution-safety-content.loading,
 .reconciliation-worker-content.loading,
 .recent-reconciliation-jobs-content.loading,
@@ -1367,6 +1372,7 @@ dd {
 .paper-portfolio-summary,
 .paper-portfolio-position-grid,
 .recent-paper-order-grid,
+.recent-execution-attempt-grid,
 .execution-safety-grid,
 .reconciliation-worker-grid,
 .recent-reconciliation-job-grid,
@@ -1383,6 +1389,7 @@ dd {
 .paper-portfolio-summary div,
 .paper-portfolio-position-grid div,
 .recent-paper-order-grid div,
+.recent-execution-attempt-grid div,
 .execution-safety-grid div,
 .reconciliation-worker-grid div,
 .recent-reconciliation-job-grid div,
@@ -1398,6 +1405,7 @@ dd {
 .paper-portfolio-summary dd,
 .paper-portfolio-position-grid dd,
 .recent-paper-order-grid dd,
+.recent-execution-attempt-grid dd,
 .execution-safety-grid dd,
 .reconciliation-worker-grid dd,
 .recent-reconciliation-job-grid dd,
@@ -1623,6 +1631,82 @@ dd {
 }
 
 .recent-paper-orders-note.error {
+  color: var(--danger);
+}
+
+.recent-execution-attempts-help {
+  margin: 4px 0 0;
+  color: var(--muted);
+  font-size: 0.78rem;
+  font-weight: 750;
+}
+
+.recent-execution-attempts-list {
+  display: grid;
+  gap: 10px;
+}
+
+.recent-execution-attempt {
+  display: grid;
+  gap: 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #ffffff;
+  padding: 12px;
+}
+
+.recent-execution-attempt-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  min-width: 0;
+}
+
+.recent-execution-attempt-header div:first-child {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.recent-execution-attempt-header strong {
+  overflow-wrap: anywhere;
+  font-size: 0.92rem;
+}
+
+.recent-execution-attempt-meta {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.76rem;
+  font-weight: 750;
+  overflow-wrap: anywhere;
+}
+
+.recent-execution-attempt-badges {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 6px;
+}
+
+.recent-execution-attempt-grid {
+  grid-template-columns: repeat(auto-fit, minmax(118px, 1fr));
+  gap: 8px;
+}
+
+.recent-execution-attempt-grid .recent-execution-attempt-wide {
+  grid-column: 1 / -1;
+}
+
+.recent-execution-attempts-note {
+  margin: 12px 0 0;
+  color: var(--muted);
+  font-size: 0.82rem;
+  font-weight: 800;
+  overflow-wrap: anywhere;
+}
+
+.recent-execution-attempts-note.error {
   color: var(--danger);
 }
 
