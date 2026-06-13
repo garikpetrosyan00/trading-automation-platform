@@ -249,6 +249,58 @@ def test_found_order_cycle_records_safe_completed_result(
     assert status.last_processed_reconciliation_job_id == job.id
 
 
+def test_worker_status_endpoint_reports_completed_periodic_cycle_history(
+    db_session,
+    bot_stack_factory,
+    stub_market_data_service,
+    noop_bot_runner,
+    configure_app_state,
+    monkeypatch,
+) -> None:
+    _, bot, _ = bot_stack_factory(db_session, is_paper=False, execution_mode="testnet")
+    job = add_job(db_session, bot.id, NOW)
+
+    def query_found(self, params):
+        return BinanceOrderHttpResponse(
+            status_code=200,
+            payload={
+                "symbol": "BTCUSDT",
+                "orderId": 555,
+                "clientOrderId": params["origClientOrderId"],
+                "status": "NEW",
+            },
+        )
+
+    monkeypatch.setattr(BinanceTestnetOrderClient, "query_signed_order", query_found)
+    run_one_cycle(db_session)
+    configure_app_state(market_data_service=stub_market_data_service, bot_runner=noop_bot_runner)
+
+    with TestClient(app) as client:
+        response = client.get("/api/v1/execution-reconciliation-worker/status")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert set(body) == WORKER_STATUS_FIELDS
+    assert body["initialized"] is True
+    assert body["state"] == "stopped"
+    assert body["last_started_at"] is not None
+    assert body["last_heartbeat_at"] is not None
+    assert body["last_stopped_at"] is not None
+    assert body["last_cycle_started_at"] is not None
+    assert body["last_cycle_finished_at"] is not None
+    assert body["last_cycle_result_code"] == "found"
+    assert body["last_processed_reconciliation_job_id"] == job.id
+    assert body["pending_reconciliation_job_count"] == 0
+    assert body["claimed_reconciliation_job_count"] == 0
+    assert body["resolved_reconciliation_job_count"] == 1
+    assert body["exhausted_reconciliation_job_count"] == 0
+    assert body["expired_lease_count"] == 0
+    assert body["next_due_reconciliation_job_at"] is None
+    serialized = response.text
+    for unsafe in ("lease_token", "api_key", "api-secret", "signature", "raw payload", "headers"):
+        assert unsafe not in serialized
+
+
 def test_not_found_retry_cycle_records_safe_result_without_changing_retry_semantics(
     db_session,
     bot_stack_factory,
