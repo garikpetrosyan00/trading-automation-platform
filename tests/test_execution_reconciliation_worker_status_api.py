@@ -16,7 +16,17 @@ from app.services.execution_reconciliation_worker_status import (
     BINANCE_TESTNET_RECONCILIATION_WORKER_NAME,
     ExecutionReconciliationWorkerStatusService,
 )
-from tests.test_execution_reconciliation_jobs import NOW, add_job, job_repository, worker_service
+from tests.test_execution_reconciliation_jobs import (
+    NOW,
+    add_claimed_job,
+    add_exhausted_job,
+    add_expired_claimed_job,
+    add_job,
+    add_pending_job,
+    add_resolved_job,
+    job_repository,
+    worker_service,
+)
 from tests.test_execution_reconciliation_periodic_worker_cli import failing_worker_factory
 
 
@@ -110,8 +120,8 @@ def test_worker_status_response_reports_pending_jobs_and_next_due_time(
     configure_app_state,
 ) -> None:
     _, bot, _ = bot_stack_factory(db_session, is_paper=False, execution_mode="testnet")
-    first = add_job(db_session, bot.id, NOW + timedelta(minutes=5))
-    add_job(db_session, bot.id, NOW + timedelta(minutes=10))
+    first = add_pending_job(db_session, bot.id, NOW + timedelta(minutes=5))
+    add_pending_job(db_session, bot.id, NOW + timedelta(minutes=10))
     configure_app_state(market_data_service=stub_market_data_service, bot_runner=noop_bot_runner)
 
     with TestClient(app) as client:
@@ -135,20 +145,13 @@ def test_worker_status_response_reports_claimed_and_expired_jobs(
     configure_app_state,
 ) -> None:
     _, bot, _ = bot_stack_factory(db_session, is_paper=False, execution_mode="testnet")
-    active = add_job(db_session, bot.id, NOW - timedelta(minutes=2))
-    expired = add_job(db_session, bot.id, NOW - timedelta(minutes=1))
-    active_claim, expired_claim = job_repository(db_session).claim_due_jobs(
-        now=NOW,
-        lease_seconds=60,
-        limit=2,
+    _, active_claim = add_claimed_job(
+        db_session,
+        bot.id,
+        NOW - timedelta(minutes=2),
+        lease_expires_at=datetime.now(timezone.utc) + timedelta(hours=1),
     )
-    active_job = job_repository(db_session).get_by_id(active.id)
-    active_job.lease_expires_at = datetime.now(timezone.utc) + timedelta(hours=1)
-    expired_job = job_repository(db_session).get_by_id(expired.id)
-    expired_job.lease_expires_at = NOW - timedelta(seconds=1)
-    db_session.add(active_job)
-    db_session.add(expired_job)
-    db_session.commit()
+    _, expired_claim = add_expired_claimed_job(db_session, bot.id, NOW - timedelta(minutes=1))
     configure_app_state(market_data_service=stub_market_data_service, bot_runner=noop_bot_runner)
 
     with TestClient(app) as client:
@@ -172,24 +175,8 @@ def test_worker_status_response_reports_resolved_and_exhausted_jobs(
     configure_app_state,
 ) -> None:
     _, bot, _ = bot_stack_factory(db_session, is_paper=False, execution_mode="testnet")
-    resolved = add_job(db_session, bot.id, NOW - timedelta(minutes=2))
-    exhausted = add_job(db_session, bot.id, NOW - timedelta(minutes=1))
-    claims = job_repository(db_session).claim_due_jobs(now=NOW, lease_seconds=60, limit=2)
-    claims_by_id = {claim.id: claim for claim in claims}
-    job_repository(db_session).mark_claimed_job_resolved(
-        job_id=resolved.id,
-        lease_token=claims_by_id[resolved.id].lease_token,
-        checked_at=NOW,
-        resolution="found",
-    )
-    job_repository(db_session).mark_claimed_job_exhausted(
-        job_id=exhausted.id,
-        lease_token=claims_by_id[exhausted.id].lease_token,
-        checked_at=NOW,
-        resolution="not_found",
-        failure_category=None,
-    )
-    db_session.commit()
+    add_resolved_job(db_session, bot.id, NOW - timedelta(minutes=2))
+    add_exhausted_job(db_session, bot.id, NOW - timedelta(minutes=1))
     configure_app_state(market_data_service=stub_market_data_service, bot_runner=noop_bot_runner)
 
     with TestClient(app) as client:

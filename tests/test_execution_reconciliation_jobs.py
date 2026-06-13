@@ -1087,12 +1087,92 @@ def job_service(db_session, *, now=NOW) -> ExecutionReconciliationJobService:
     )
 
 
-def add_job(db_session, bot_id: int, next_attempt_at: datetime) -> ExecutionReconciliationJob:
+def add_pending_job(db_session, bot_id: int, next_attempt_at: datetime) -> ExecutionReconciliationJob:
     attempt = add_attempt(db_session, bot_id=bot_id)
     job = job_service(db_session).ensure_pending_job_for_attempt(
         execution_attempt_id=attempt.id,
         next_attempt_at=next_attempt_at,
     ).job
+    db_session.commit()
+    return job
+
+
+def add_job(db_session, bot_id: int, next_attempt_at: datetime) -> ExecutionReconciliationJob:
+    return add_pending_job(db_session, bot_id, next_attempt_at)
+
+
+def add_claimed_job(
+    db_session,
+    bot_id: int,
+    next_attempt_at: datetime,
+    *,
+    now: datetime = NOW,
+    lease_seconds: int = 60,
+    lease_expires_at: datetime | None = None,
+):
+    job = add_job(db_session, bot_id, next_attempt_at)
+    claimed = job_repository(db_session).claim_due_jobs(now=now, lease_seconds=lease_seconds, limit=1)[0]
+    assert claimed.id == job.id
+    if lease_expires_at is not None:
+        stored = job_repository(db_session).get_by_id(job.id)
+        stored.lease_expires_at = lease_expires_at
+        db_session.add(stored)
+        db_session.commit()
+    return job, claimed
+
+
+def add_expired_claimed_job(
+    db_session,
+    bot_id: int,
+    next_attempt_at: datetime,
+    *,
+    now: datetime = NOW,
+):
+    return add_claimed_job(
+        db_session,
+        bot_id,
+        next_attempt_at,
+        now=now,
+        lease_seconds=60,
+        lease_expires_at=now - timedelta(seconds=1),
+    )
+
+
+def add_resolved_job(
+    db_session,
+    bot_id: int,
+    next_attempt_at: datetime,
+    *,
+    now: datetime = NOW,
+) -> ExecutionReconciliationJob:
+    job, claimed = add_claimed_job(db_session, bot_id, next_attempt_at, now=now)
+    job_repository(db_session).mark_claimed_job_resolved(
+        job_id=job.id,
+        lease_token=claimed.lease_token,
+        checked_at=now,
+        resolution="found",
+    )
+    db_session.commit()
+    return job
+
+
+def add_exhausted_job(
+    db_session,
+    bot_id: int,
+    next_attempt_at: datetime,
+    *,
+    now: datetime = NOW,
+    resolution: str = "not_found",
+    failure_category: str | None = None,
+) -> ExecutionReconciliationJob:
+    job, claimed = add_claimed_job(db_session, bot_id, next_attempt_at, now=now)
+    job_repository(db_session).mark_claimed_job_exhausted(
+        job_id=job.id,
+        lease_token=claimed.lease_token,
+        checked_at=now,
+        resolution=resolution,
+        failure_category=failure_category,
+    )
     db_session.commit()
     return job
 
