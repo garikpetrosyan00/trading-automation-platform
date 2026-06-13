@@ -164,6 +164,15 @@ Execution modes are intentionally separate:
 - the reconciliation CLI is an internal one-shot command that processes one batch and exits
 - no scheduler is installed yet
 
+Current checkpoint:
+
+- The Binance Spot testnet path has been historically proven by execution attempt `5`, created at `2026-06-09T20:33:52Z`: `bot_id=4`, `mode=testnet`, `broker=binance_testnet`, `side=buy`, `quantity=0.001`, `dry_run=false`, `final_status=order_created`, `status_code=200`, and `exchange_status=FILLED`.
+- Use the manual one-shot API path, `POST /api/v1/bots/{bot_id}/run`, for any future controlled smoke. It runs one synchronous evaluation for the chosen bot and does not start the periodic runner loop.
+- Runner-based testnet smoke is not recommended unless a periodic-loop scenario is specifically being tested.
+- Keep live execution disabled, keep `BINANCE_TESTNET_DRY_RUN_ENABLED=true` by default, keep the testnet bot paused by default, and keep `BOT_RUNNER_ENABLED=false` unless intentionally testing the runner.
+- Known successful testnet execution does not mutate the paper portfolio and should leave no unresolved delayed-reconciliation work.
+- Public read APIs intentionally avoid exposing internal correlation fields such as `client_order_id` and exchange order id. Add an operator-only correlation surface later only if there is a concrete operational need.
+
 1. Copy `.env.example` to `.env`, then configure testnet-only values:
 
 ```bash
@@ -286,6 +295,13 @@ Run the internal one-shot CLI only when a delayed reconciliation job is due and 
 ```
 
 10. Restore `BINANCE_TESTNET_DRY_RUN_ENABLED=true` after the smoke test and restart the app.
+
+Recommended next development options:
+
+- Improve operator-facing visibility for execution attempts in the frontend while preserving the existing safe metadata allowlist.
+- Add an optional internal/operator-only correlation field later if Binance UI correlation becomes necessary.
+- Harden production-readiness around configuration checks, runbooks, and startup/preflight clarity before expanding broker scope.
+- Continue paper/draft balance and operator workflow improvements before any live-mode work.
 
 ## Docker run instructions
 
