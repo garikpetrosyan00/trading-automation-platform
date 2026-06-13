@@ -260,6 +260,12 @@ const translations = {
     reconciliation_worker_last_cycle_finished_label: "Last cycle finished",
     reconciliation_worker_last_result_label: "Last result",
     reconciliation_worker_last_job_label: "Last job",
+    reconciliation_worker_pending_jobs_label: "Pending jobs",
+    reconciliation_worker_claimed_jobs_label: "Claimed jobs",
+    reconciliation_worker_resolved_jobs_label: "Resolved jobs",
+    reconciliation_worker_exhausted_jobs_label: "Exhausted jobs",
+    reconciliation_worker_expired_leases_label: "Expired leases",
+    reconciliation_worker_next_due_job_label: "Next due job",
     reconciliation_worker_updated_label: "Updated",
     reconciliation_worker_recent_heartbeat: "Recent",
     reconciliation_worker_stale_heartbeat: "Stale",
@@ -1011,6 +1017,12 @@ const translations = {
     reconciliation_worker_last_cycle_finished_label: "Վերջին ցիկլի ավարտ",
     reconciliation_worker_last_result_label: "Վերջին արդյունք",
     reconciliation_worker_last_job_label: "Վերջին job",
+    reconciliation_worker_pending_jobs_label: "Սպասող job-եր",
+    reconciliation_worker_claimed_jobs_label: "Claimed job-եր",
+    reconciliation_worker_resolved_jobs_label: "Լուծված job-եր",
+    reconciliation_worker_exhausted_jobs_label: "Սպառված job-եր",
+    reconciliation_worker_expired_leases_label: "Ժամկետանց lease-եր",
+    reconciliation_worker_next_due_job_label: "Հաջորդ due job",
     reconciliation_worker_updated_label: "Թարմացվել է",
     reconciliation_worker_recent_heartbeat: "Վերջին",
     reconciliation_worker_stale_heartbeat: "Հնացած",
@@ -2521,6 +2533,17 @@ function normalizeReconciliationWorkerStatus(rawStatus) {
     heartbeatStaleAfterSeconds:
       rawStatus.heartbeat_stale_after_seconds ?? rawStatus.heartbeatStaleAfterSeconds ?? null,
     isStale: rawStatus.is_stale ?? rawStatus.isStale ?? null,
+    pendingReconciliationJobCount:
+      rawStatus.pending_reconciliation_job_count ?? rawStatus.pendingReconciliationJobCount ?? null,
+    claimedReconciliationJobCount:
+      rawStatus.claimed_reconciliation_job_count ?? rawStatus.claimedReconciliationJobCount ?? null,
+    resolvedReconciliationJobCount:
+      rawStatus.resolved_reconciliation_job_count ?? rawStatus.resolvedReconciliationJobCount ?? null,
+    exhaustedReconciliationJobCount:
+      rawStatus.exhausted_reconciliation_job_count ?? rawStatus.exhaustedReconciliationJobCount ?? null,
+    expiredLeaseCount: rawStatus.expired_lease_count ?? rawStatus.expiredLeaseCount ?? null,
+    nextDueReconciliationJobAt:
+      rawStatus.next_due_reconciliation_job_at ?? rawStatus.nextDueReconciliationJobAt ?? null,
     updatedAt: rawStatus.updated_at ?? rawStatus.updatedAt ?? null,
   };
 }
@@ -9240,6 +9263,31 @@ function renderReconciliationWorker() {
     {
       label: t("reconciliation_worker_stale_threshold_label"),
       value: reconciliationWorkerThresholdLabel(status.heartbeatStaleAfterSeconds),
+    },
+    {
+      label: t("reconciliation_worker_pending_jobs_label"),
+      value: formatDecimal(status.pendingReconciliationJobCount),
+    },
+    {
+      label: t("reconciliation_worker_claimed_jobs_label"),
+      value: formatDecimal(status.claimedReconciliationJobCount),
+    },
+    {
+      label: t("reconciliation_worker_resolved_jobs_label"),
+      value: formatDecimal(status.resolvedReconciliationJobCount),
+    },
+    {
+      label: t("reconciliation_worker_exhausted_jobs_label"),
+      value: formatDecimal(status.exhaustedReconciliationJobCount),
+    },
+    {
+      label: t("reconciliation_worker_expired_leases_label"),
+      value: formatDecimal(status.expiredLeaseCount),
+      valueClass: Number(status.expiredLeaseCount) > 0 ? "negative" : "",
+    },
+    {
+      label: t("reconciliation_worker_next_due_job_label"),
+      value: formatUtcDateTime(status.nextDueReconciliationJobAt),
     },
     { label: t("reconciliation_worker_last_started_label"), value: formatUtcDateTime(status.lastStartedAt) },
     { label: t("reconciliation_worker_last_heartbeat_label"), value: formatUtcDateTime(status.lastHeartbeatAt) },
