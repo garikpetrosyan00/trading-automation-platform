@@ -19,6 +19,22 @@ from tests.test_execution_reconciliation_api import add_attempt
 
 
 NOW = datetime(2026, 6, 8, 12, 0, tzinfo=timezone.utc)
+RECONCILIATION_JOB_AUDIT_FIELDS = {
+    "id",
+    "execution_attempt_id",
+    "bot_id",
+    "status",
+    "automatic_attempt_count",
+    "max_automatic_attempts",
+    "next_attempt_at",
+    "claimed_at",
+    "resolved_at",
+    "exhausted_at",
+    "last_result",
+    "last_failure",
+    "created_at",
+    "updated_at",
+}
 
 
 def test_reconciliation_job_model_schema(db_session) -> None:
@@ -805,7 +821,8 @@ def test_reconciliation_job_audit_list_returns_newest_jobs_and_status_filter(
     body = response.json()
     assert [item["id"] for item in body] == [newest_claimed.id, middle_pending.id, old_pending.id]
     assert body[0]["status"] == "claimed"
-    assert body[0]["lease_expires_at"].startswith("2026-06-08T12:01:00")
+    assert body[0]["claimed_at"].startswith("2026-06-08T11:59:00")
+    assert body[0]["max_automatic_attempts"] == 5
     assert "lease_token" not in response.text
     assert "safe-test-claim-token" not in response.text
 
@@ -844,18 +861,19 @@ def test_reconciliation_job_audit_detail_returns_safe_existing_job(
     assert body["bot_id"] == bot.id
     assert body["status"] == "resolved"
     assert body["automatic_attempt_count"] == 1
+    assert body["max_automatic_attempts"] == 5
     assert body["next_attempt_at"] == job.next_attempt_at.isoformat()
-    assert body["lease_expires_at"] is None
-    assert body["last_checked_at"].startswith("2026-06-08T12:01:00")
-    assert body["last_result_code"] == "found"
-    assert body["last_failure_code"] is None
+    assert body["claimed_at"] is None
+    assert body["resolved_at"].startswith("2026-06-08T12:01:00")
+    assert body["exhausted_at"] is None
+    assert body["last_result"] == "found"
+    assert body["last_failure"] is None
     assert body["created_at"] is not None
     assert body["updated_at"] is not None
-    assert body["resolved_at"].startswith("2026-06-08T12:01:00")
     assert "lease_token" not in response.text
 
 
-def test_reconciliation_job_audit_detail_missing_and_limit_validation(
+def test_reconciliation_job_audit_detail_returns_404_for_missing_job(
     stub_market_data_service,
     noop_bot_runner,
     configure_app_state,
@@ -864,12 +882,23 @@ def test_reconciliation_job_audit_detail_missing_and_limit_validation(
 
     with TestClient(app) as client:
         missing_response = client.get("/api/v1/execution-reconciliation-jobs/999999")
+
+    assert missing_response.status_code == 404
+    assert missing_response.json()["error_code"] == "execution_reconciliation_job_not_found"
+
+
+def test_reconciliation_job_audit_list_limit_validation(
+    stub_market_data_service,
+    noop_bot_runner,
+    configure_app_state,
+) -> None:
+    configure_app_state(market_data_service=stub_market_data_service, bot_runner=noop_bot_runner)
+
+    with TestClient(app) as client:
         zero_limit_response = client.get("/api/v1/execution-reconciliation-jobs", params={"limit": 0})
         too_large_limit_response = client.get("/api/v1/execution-reconciliation-jobs", params={"limit": 101})
         invalid_status_response = client.get("/api/v1/execution-reconciliation-jobs", params={"status": "running"})
 
-    assert missing_response.status_code == 404
-    assert missing_response.json()["error_code"] == "execution_reconciliation_job_not_found"
     assert zero_limit_response.status_code == 422
     assert too_large_limit_response.status_code == 422
     assert invalid_status_response.status_code == 422
@@ -924,10 +953,10 @@ def test_reconciliation_job_audit_response_excludes_sensitive_fields(
         body = response.json()
         first = body[0] if isinstance(body, list) else body
         serialized = response.text
-        assert "last_result_code" in serialized
-        assert "last_failure_code" in serialized
-        assert first["last_result_code"] == "other"
-        assert first["last_failure_code"] == "other"
+        assert "last_result" in serialized
+        assert "last_failure" in serialized
+        assert first["last_result"] == "other"
+        assert first["last_failure"] == "other"
         assert "lease_token" not in serialized
         assert "unsafe-lease-token" not in serialized
         assert "unsafe-api-key" not in serialized
@@ -940,6 +969,28 @@ def test_reconciliation_job_audit_response_excludes_sensitive_fields(
         assert "raw_payload" not in serialized
         assert "NO_SUCH_ORDER raw payload" not in serialized
         assert "tap_sensitive_client" not in serialized
+
+
+def test_reconciliation_job_audit_response_includes_only_safe_fields(
+    db_session,
+    bot_stack_factory,
+    stub_market_data_service,
+    noop_bot_runner,
+    configure_app_state,
+) -> None:
+    _, bot, _ = bot_stack_factory(db_session, is_paper=False, execution_mode="testnet")
+    job = add_job(db_session, bot.id, NOW)
+    db_session.commit()
+    configure_app_state(market_data_service=stub_market_data_service, bot_runner=noop_bot_runner)
+
+    with TestClient(app) as client:
+        list_response = client.get("/api/v1/execution-reconciliation-jobs")
+        detail_response = client.get(f"/api/v1/execution-reconciliation-jobs/{job.id}")
+
+    assert list_response.status_code == 200
+    assert detail_response.status_code == 200
+    assert set(list_response.json()[0]) == RECONCILIATION_JOB_AUDIT_FIELDS
+    assert set(detail_response.json()) == RECONCILIATION_JOB_AUDIT_FIELDS
 
 
 def test_reconciliation_job_audit_endpoints_are_read_only(

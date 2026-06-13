@@ -311,20 +311,22 @@ def _build_attempt_read(attempt: ExecutionAttempt) -> ExecutionAttemptRead:
 
 
 def _build_reconciliation_job_read(job: ExecutionReconciliationJob) -> ExecutionReconciliationJobRead:
+    settings = get_settings()
     return ExecutionReconciliationJobRead(
         id=job.id,
         execution_attempt_id=job.execution_attempt_id,
         bot_id=job.bot_id,
         status=job.state,
         automatic_attempt_count=job.automatic_attempt_count,
+        max_automatic_attempts=settings.binance_testnet_reconciliation_max_automatic_attempts,
         next_attempt_at=job.next_attempt_at,
-        lease_expires_at=job.lease_expires_at,
-        last_checked_at=job.last_checked_at,
-        last_result_code=_safe_reconciliation_code(job.last_resolution, SAFE_RECONCILIATION_RESULT_CODES),
-        last_failure_code=_safe_reconciliation_code(job.last_failure_category, SAFE_RECONCILIATION_FAILURE_CODES),
+        claimed_at=job.updated_at if job.state == "claimed" else None,
+        resolved_at=job.resolved_at,
+        exhausted_at=job.updated_at if job.state == "exhausted" else None,
+        last_result=_safe_reconciliation_code(job.last_resolution, SAFE_RECONCILIATION_RESULT_CODES),
+        last_failure=_safe_reconciliation_code(job.last_failure_category, SAFE_RECONCILIATION_FAILURE_CODES),
         created_at=job.created_at,
         updated_at=job.updated_at,
-        resolved_at=job.resolved_at,
     )
 
 

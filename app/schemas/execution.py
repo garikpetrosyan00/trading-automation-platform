@@ -163,14 +163,15 @@ class ExecutionReconciliationJobRead(BaseModel):
     bot_id: int
     status: ExecutionReconciliationJobStatus
     automatic_attempt_count: int
+    max_automatic_attempts: int
     next_attempt_at: datetime
-    lease_expires_at: datetime | None = None
-    last_checked_at: datetime | None = None
-    last_result_code: str | None = None
-    last_failure_code: str | None = None
+    claimed_at: datetime | None = None
+    resolved_at: datetime | None = None
+    exhausted_at: datetime | None = None
+    last_result: str | None = None
+    last_failure: str | None = None
     created_at: datetime
     updated_at: datetime
-    resolved_at: datetime | None = None
 
 
 class ExecutionReconciliationWorkerStatusRead(BaseModel):
