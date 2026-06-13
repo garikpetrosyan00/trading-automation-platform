@@ -282,11 +282,15 @@ const translations = {
     reconciliation_job_execution_attempt_label: "Execution attempt",
     reconciliation_job_bot_label: "Bot",
     reconciliation_job_attempt_count_label: "Attempts",
+    reconciliation_job_claimed_label: "Claimed",
+    reconciliation_job_created_label: "Created",
+    reconciliation_job_exhausted_label: "Exhausted",
+    reconciliation_job_max_attempts_label: "Max attempts",
     reconciliation_job_next_attempt_label: "Next attempt",
-    reconciliation_job_last_checked_label: "Last checked",
     reconciliation_job_result_label: "Result",
     reconciliation_job_failure_label: "Failure",
     reconciliation_job_resolved_label: "Resolved",
+    reconciliation_job_updated_label: "Updated",
     global_execution_enabled_label: "Global execution",
     paper_execution_enabled_label: "Paper execution",
     live_execution_enabled_label: "Live execution",
@@ -1029,11 +1033,15 @@ const translations = {
     reconciliation_job_execution_attempt_label: "Execution attempt",
     reconciliation_job_bot_label: "Bot",
     reconciliation_job_attempt_count_label: "Փորձեր",
+    reconciliation_job_claimed_label: "Claimed",
+    reconciliation_job_created_label: "Ստեղծվել է",
+    reconciliation_job_exhausted_label: "Սպառվել է",
+    reconciliation_job_max_attempts_label: "Առավելագույն փորձեր",
     reconciliation_job_next_attempt_label: "Հաջորդ փորձ",
-    reconciliation_job_last_checked_label: "Վերջին ստուգում",
     reconciliation_job_result_label: "Արդյունք",
     reconciliation_job_failure_label: "Խափանում",
     reconciliation_job_resolved_label: "Լուծվել է",
+    reconciliation_job_updated_label: "Թարմացվել է",
     global_execution_enabled_label: "Ընդհանուր կատարում",
     paper_execution_enabled_label: "Paper կատարում",
     live_execution_enabled_label: "Live կատարում",
@@ -2526,11 +2534,16 @@ function normalizeReconciliationJob(rawJob) {
     status: rawJob.status ?? null,
     automaticAttemptCount:
       rawJob.automatic_attempt_count ?? rawJob.automaticAttemptCount ?? null,
+    maxAutomaticAttempts:
+      rawJob.max_automatic_attempts ?? rawJob.maxAutomaticAttempts ?? null,
     nextAttemptAt: rawJob.next_attempt_at ?? rawJob.nextAttemptAt ?? null,
-    lastCheckedAt: rawJob.last_checked_at ?? rawJob.lastCheckedAt ?? null,
-    lastResultCode: rawJob.last_result_code ?? rawJob.lastResultCode ?? null,
-    lastFailureCode: rawJob.last_failure_code ?? rawJob.lastFailureCode ?? null,
+    claimedAt: rawJob.claimed_at ?? rawJob.claimedAt ?? null,
     resolvedAt: rawJob.resolved_at ?? rawJob.resolvedAt ?? null,
+    exhaustedAt: rawJob.exhausted_at ?? rawJob.exhaustedAt ?? null,
+    lastResult: rawJob.last_result ?? rawJob.lastResult ?? null,
+    lastFailure: rawJob.last_failure ?? rawJob.lastFailure ?? null,
+    createdAt: rawJob.created_at ?? rawJob.createdAt ?? null,
+    updatedAt: rawJob.updated_at ?? rawJob.updatedAt ?? null,
   };
 }
 
@@ -9046,7 +9059,13 @@ function renderRecentReconciliationJobs() {
     const identity = document.createElement("div");
     const title = document.createElement("strong");
     title.textContent = `${t("reconciliation_job_id_label")} ${reconciliationJobIdValue(job.id)}`;
-    identity.append(title);
+    const meta = document.createElement("p");
+    meta.className = "recent-reconciliation-job-meta";
+    meta.textContent = [
+      `${t("reconciliation_job_execution_attempt_label")} ${reconciliationJobIdValue(job.executionAttemptId)}`,
+      `${t("reconciliation_job_bot_label")} ${reconciliationJobIdValue(job.botId)}`,
+    ].join(" · ");
+    identity.append(title, meta);
 
     const statusBadge = document.createElement("span");
     statusBadge.className = reconciliationJobStatusClass(job.status);
@@ -9057,33 +9076,46 @@ function renderRecentReconciliationJobs() {
     metrics.className = "recent-reconciliation-job-grid";
     [
       {
-        label: t("reconciliation_job_execution_attempt_label"),
-        value: reconciliationJobIdValue(job.executionAttemptId),
-      },
-      { label: t("reconciliation_job_bot_label"), value: reconciliationJobIdValue(job.botId) },
-      {
         label: t("reconciliation_job_attempt_count_label"),
-        value: formatDecimal(job.automaticAttemptCount, "0"),
+        value: formatDecimal(job.automaticAttemptCount),
+      },
+      {
+        label: t("reconciliation_job_max_attempts_label"),
+        value: formatDecimal(job.maxAutomaticAttempts),
       },
       {
         label: t("reconciliation_job_next_attempt_label"),
         value: formatUtcDateTime(job.nextAttemptAt),
       },
       {
-        label: t("reconciliation_job_last_checked_label"),
-        value: formatUtcDateTime(job.lastCheckedAt),
-      },
-      {
-        label: t("reconciliation_job_result_label"),
-        value: formatValue(job.lastResultCode),
-      },
-      {
-        label: t("reconciliation_job_failure_label"),
-        value: formatValue(job.lastFailureCode),
+        label: t("reconciliation_job_claimed_label"),
+        value: formatUtcDateTime(job.claimedAt),
       },
       {
         label: t("reconciliation_job_resolved_label"),
         value: formatUtcDateTime(job.resolvedAt),
+      },
+      {
+        label: t("reconciliation_job_exhausted_label"),
+        value: formatUtcDateTime(job.exhaustedAt),
+      },
+      {
+        label: t("reconciliation_job_result_label"),
+        value: formatValue(job.lastResult),
+        className: "recent-reconciliation-job-wide",
+      },
+      {
+        label: t("reconciliation_job_failure_label"),
+        value: formatValue(job.lastFailure),
+        className: "recent-reconciliation-job-wide",
+      },
+      {
+        label: t("reconciliation_job_created_label"),
+        value: formatUtcDateTime(job.createdAt),
+      },
+      {
+        label: t("reconciliation_job_updated_label"),
+        value: formatUtcDateTime(job.updatedAt),
       },
     ].forEach((metric) => appendMetric(metrics, metric));
 

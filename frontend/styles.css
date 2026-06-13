@@ -1808,6 +1808,14 @@ dd {
   font-size: 0.9rem;
 }
 
+.recent-reconciliation-job-meta {
+  margin: 4px 0 0;
+  color: var(--muted);
+  font-size: 0.76rem;
+  font-weight: 750;
+  overflow-wrap: anywhere;
+}
+
 .reconciliation-job-status {
   flex: 0 0 auto;
   border: 1px solid var(--line);
@@ -1842,6 +1850,10 @@ dd {
 .recent-reconciliation-job-grid {
   grid-template-columns: repeat(auto-fit, minmax(132px, 1fr));
   gap: 8px;
+}
+
+.recent-reconciliation-job-grid .recent-reconciliation-job-wide {
+  grid-column: 1 / -1;
 }
 
 .recent-reconciliation-jobs-note {
