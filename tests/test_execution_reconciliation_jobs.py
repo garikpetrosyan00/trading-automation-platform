@@ -384,6 +384,48 @@ def test_claim_due_jobs_respects_due_future_active_expired_batch_and_token_refre
     assert job_repository(db_session).get_by_id(future.id).state == "pending"
 
 
+def test_claim_due_jobs_does_not_reclaim_resolved_or_exhausted_jobs(db_session, bot_stack_factory) -> None:
+    _, bot, _ = bot_stack_factory(db_session, is_paper=False, execution_mode="testnet")
+    resolved = add_job(db_session, bot.id, NOW - timedelta(minutes=3))
+    exhausted = add_job(db_session, bot.id, NOW - timedelta(minutes=2))
+    still_due = add_job(db_session, bot.id, NOW - timedelta(minutes=1))
+
+    first_claims = job_repository(db_session).claim_due_jobs(now=NOW, lease_seconds=60, limit=3)
+    first_claim_by_id = {claim.id: claim for claim in first_claims}
+    assert set(first_claim_by_id) == {resolved.id, exhausted.id, still_due.id}
+
+    job_repository(db_session).mark_claimed_job_resolved(
+        job_id=resolved.id,
+        lease_token=first_claim_by_id[resolved.id].lease_token,
+        checked_at=NOW,
+        resolution="found",
+    )
+    job_repository(db_session).mark_claimed_job_exhausted(
+        job_id=exhausted.id,
+        lease_token=first_claim_by_id[exhausted.id].lease_token,
+        checked_at=NOW,
+        resolution="not_found",
+        failure_category=None,
+    )
+    due_job = job_repository(db_session).get_by_id(still_due.id)
+    due_job.state = "pending"
+    due_job.lease_token = None
+    due_job.lease_expires_at = None
+    db_session.add(due_job)
+    db_session.commit()
+
+    later_claims = job_repository(db_session).claim_due_jobs(
+        now=NOW + timedelta(hours=1),
+        lease_seconds=60,
+        limit=10,
+    )
+
+    assert [claim.id for claim in later_claims] == [still_due.id]
+    db_session.expire_all()
+    assert job_repository(db_session).get_by_id(resolved.id).state == "resolved"
+    assert job_repository(db_session).get_by_id(exhausted.id).state == "exhausted"
+
+
 def test_automatic_worker_found_order_resolves_job_recovers_attempt_and_does_not_mutate_paper(
     db_session,
     bot_stack_factory,
