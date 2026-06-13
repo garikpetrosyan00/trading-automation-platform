@@ -2,7 +2,7 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta
 from secrets import token_urlsafe
 
-from sqlalchemy import and_, or_, select
+from sqlalchemy import and_, func, or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -17,6 +17,16 @@ class ClaimedReconciliationJob:
     lease_token: str
     lease_expires_at: datetime
     automatic_attempt_count: int
+
+
+@dataclass(frozen=True)
+class ReconciliationJobWorkerStatusCounts:
+    pending: int
+    claimed: int
+    resolved: int
+    exhausted: int
+    expired_lease: int
+    next_due_at: datetime | None
 
 
 class ExecutionReconciliationJobRepository:
@@ -55,6 +65,33 @@ class ExecutionReconciliationJobRepository:
             ExecutionReconciliationJob.id.desc(),
         ).limit(limit)
         return list(self.db.scalars(statement).all())
+
+    def worker_status_counts(self, *, now: datetime) -> ReconciliationJobWorkerStatusCounts:
+        pending = self._count_by_state("pending")
+        claimed = self._count_by_state("claimed")
+        resolved = self._count_by_state("resolved")
+        exhausted = self._count_by_state("exhausted")
+        expired_lease = self.db.scalar(
+            select(func.count())
+            .select_from(ExecutionReconciliationJob)
+            .where(
+                ExecutionReconciliationJob.state == "claimed",
+                ExecutionReconciliationJob.lease_expires_at <= now,
+            )
+        )
+        next_due_at = self.db.scalar(
+            select(func.min(ExecutionReconciliationJob.next_attempt_at)).where(
+                ExecutionReconciliationJob.state == "pending"
+            )
+        )
+        return ReconciliationJobWorkerStatusCounts(
+            pending=pending,
+            claimed=claimed,
+            resolved=resolved,
+            exhausted=exhausted,
+            expired_lease=expired_lease or 0,
+            next_due_at=next_due_at,
+        )
 
     def create_pending(
         self,
@@ -216,6 +253,16 @@ class ExecutionReconciliationJobRepository:
 
     def get_owned_claimed_job(self, *, job_id: int, lease_token: str) -> ExecutionReconciliationJob | None:
         return self._owned_claimed_job(job_id=job_id, lease_token=lease_token)
+
+    def _count_by_state(self, state: str) -> int:
+        return (
+            self.db.scalar(
+                select(func.count())
+                .select_from(ExecutionReconciliationJob)
+                .where(ExecutionReconciliationJob.state == state)
+            )
+            or 0
+        )
 
     def _owned_claimed_job(self, *, job_id: int, lease_token: str) -> ExecutionReconciliationJob | None:
         return self.db.scalar(

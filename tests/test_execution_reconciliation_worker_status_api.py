@@ -20,6 +20,30 @@ from tests.test_execution_reconciliation_jobs import NOW, add_job, job_repositor
 from tests.test_execution_reconciliation_periodic_worker_cli import failing_worker_factory
 
 
+WORKER_STATUS_FIELDS = {
+    "worker_name",
+    "initialized",
+    "configured_enabled",
+    "state",
+    "last_started_at",
+    "last_heartbeat_at",
+    "last_stopped_at",
+    "last_cycle_started_at",
+    "last_cycle_finished_at",
+    "last_cycle_result_code",
+    "last_processed_reconciliation_job_id",
+    "heartbeat_stale_after_seconds",
+    "is_stale",
+    "pending_reconciliation_job_count",
+    "claimed_reconciliation_job_count",
+    "resolved_reconciliation_job_count",
+    "exhausted_reconciliation_job_count",
+    "expired_lease_count",
+    "next_due_reconciliation_job_at",
+    "updated_at",
+}
+
+
 def test_reconciliation_worker_status_model_schema(db_session) -> None:
     inspector = inspect(db_session.bind)
 
@@ -68,8 +92,117 @@ def test_worker_status_no_heartbeat_row_returns_initialized_false(
         "last_processed_reconciliation_job_id": None,
         "heartbeat_stale_after_seconds": 120,
         "is_stale": False,
+        "pending_reconciliation_job_count": 0,
+        "claimed_reconciliation_job_count": 0,
+        "resolved_reconciliation_job_count": 0,
+        "exhausted_reconciliation_job_count": 0,
+        "expired_lease_count": 0,
+        "next_due_reconciliation_job_at": None,
         "updated_at": None,
     }
+
+
+def test_worker_status_response_reports_pending_jobs_and_next_due_time(
+    db_session,
+    bot_stack_factory,
+    stub_market_data_service,
+    noop_bot_runner,
+    configure_app_state,
+) -> None:
+    _, bot, _ = bot_stack_factory(db_session, is_paper=False, execution_mode="testnet")
+    first = add_job(db_session, bot.id, NOW + timedelta(minutes=5))
+    add_job(db_session, bot.id, NOW + timedelta(minutes=10))
+    configure_app_state(market_data_service=stub_market_data_service, bot_runner=noop_bot_runner)
+
+    with TestClient(app) as client:
+        response = client.get("/api/v1/execution-reconciliation-worker/status")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["pending_reconciliation_job_count"] == 2
+    assert body["claimed_reconciliation_job_count"] == 0
+    assert body["resolved_reconciliation_job_count"] == 0
+    assert body["exhausted_reconciliation_job_count"] == 0
+    assert body["expired_lease_count"] == 0
+    assert body["next_due_reconciliation_job_at"] == first.next_attempt_at.isoformat()
+
+
+def test_worker_status_response_reports_claimed_and_expired_jobs(
+    db_session,
+    bot_stack_factory,
+    stub_market_data_service,
+    noop_bot_runner,
+    configure_app_state,
+) -> None:
+    _, bot, _ = bot_stack_factory(db_session, is_paper=False, execution_mode="testnet")
+    active = add_job(db_session, bot.id, NOW - timedelta(minutes=2))
+    expired = add_job(db_session, bot.id, NOW - timedelta(minutes=1))
+    active_claim, expired_claim = job_repository(db_session).claim_due_jobs(
+        now=NOW,
+        lease_seconds=60,
+        limit=2,
+    )
+    active_job = job_repository(db_session).get_by_id(active.id)
+    active_job.lease_expires_at = datetime.now(timezone.utc) + timedelta(hours=1)
+    expired_job = job_repository(db_session).get_by_id(expired.id)
+    expired_job.lease_expires_at = NOW - timedelta(seconds=1)
+    db_session.add(active_job)
+    db_session.add(expired_job)
+    db_session.commit()
+    configure_app_state(market_data_service=stub_market_data_service, bot_runner=noop_bot_runner)
+
+    with TestClient(app) as client:
+        response = client.get("/api/v1/execution-reconciliation-worker/status")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["pending_reconciliation_job_count"] == 0
+    assert body["claimed_reconciliation_job_count"] == 2
+    assert body["expired_lease_count"] == 1
+    assert body["next_due_reconciliation_job_at"] is None
+    assert active_claim.lease_token not in response.text
+    assert expired_claim.lease_token not in response.text
+
+
+def test_worker_status_response_reports_resolved_and_exhausted_jobs(
+    db_session,
+    bot_stack_factory,
+    stub_market_data_service,
+    noop_bot_runner,
+    configure_app_state,
+) -> None:
+    _, bot, _ = bot_stack_factory(db_session, is_paper=False, execution_mode="testnet")
+    resolved = add_job(db_session, bot.id, NOW - timedelta(minutes=2))
+    exhausted = add_job(db_session, bot.id, NOW - timedelta(minutes=1))
+    claims = job_repository(db_session).claim_due_jobs(now=NOW, lease_seconds=60, limit=2)
+    claims_by_id = {claim.id: claim for claim in claims}
+    job_repository(db_session).mark_claimed_job_resolved(
+        job_id=resolved.id,
+        lease_token=claims_by_id[resolved.id].lease_token,
+        checked_at=NOW,
+        resolution="found",
+    )
+    job_repository(db_session).mark_claimed_job_exhausted(
+        job_id=exhausted.id,
+        lease_token=claims_by_id[exhausted.id].lease_token,
+        checked_at=NOW,
+        resolution="not_found",
+        failure_category=None,
+    )
+    db_session.commit()
+    configure_app_state(market_data_service=stub_market_data_service, bot_runner=noop_bot_runner)
+
+    with TestClient(app) as client:
+        response = client.get("/api/v1/execution-reconciliation-worker/status")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["pending_reconciliation_job_count"] == 0
+    assert body["claimed_reconciliation_job_count"] == 0
+    assert body["resolved_reconciliation_job_count"] == 1
+    assert body["exhausted_reconciliation_job_count"] == 1
+    assert body["expired_lease_count"] == 0
+    assert body["next_due_reconciliation_job_at"] is None
 
 
 def test_disabled_periodic_worker_does_not_create_heartbeat_state(db_session) -> None:
@@ -245,22 +378,7 @@ def test_worker_status_endpoint_exposes_only_allowlisted_safe_fields(
 
     assert response.status_code == 200
     body = response.json()
-    assert set(body) == {
-        "worker_name",
-        "initialized",
-        "configured_enabled",
-        "state",
-        "last_started_at",
-        "last_heartbeat_at",
-        "last_stopped_at",
-        "last_cycle_started_at",
-        "last_cycle_finished_at",
-        "last_cycle_result_code",
-        "last_processed_reconciliation_job_id",
-        "heartbeat_stale_after_seconds",
-        "is_stale",
-        "updated_at",
-    }
+    assert set(body) == WORKER_STATUS_FIELDS
     assert body["last_cycle_result_code"] == "other"
     serialized = response.text
     for unsafe in ("unsafe-api-secret", "signature", "raw payload", "headers", "lease_token", "metadata"):

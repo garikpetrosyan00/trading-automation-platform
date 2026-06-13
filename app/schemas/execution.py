@@ -188,6 +188,12 @@ class ExecutionReconciliationWorkerStatusRead(BaseModel):
     last_processed_reconciliation_job_id: int | None = None
     heartbeat_stale_after_seconds: int
     is_stale: bool
+    pending_reconciliation_job_count: int = 0
+    claimed_reconciliation_job_count: int = 0
+    resolved_reconciliation_job_count: int = 0
+    exhausted_reconciliation_job_count: int = 0
+    expired_lease_count: int = 0
+    next_due_reconciliation_job_at: datetime | None = None
     updated_at: datetime | None = None
 
 

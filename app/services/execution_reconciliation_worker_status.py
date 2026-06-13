@@ -3,6 +3,7 @@ from datetime import datetime, timedelta, timezone
 
 from app.core.config import Settings
 from app.models.execution_reconciliation_worker_status import ExecutionReconciliationWorkerStatus
+from app.repositories.execution_reconciliation_job import ExecutionReconciliationJobRepository
 from app.repositories.execution_reconciliation_worker_status import ExecutionReconciliationWorkerStatusRepository
 
 BINANCE_TESTNET_RECONCILIATION_WORKER_NAME = "binance_testnet_reconciliation_worker"
@@ -36,6 +37,12 @@ class ExecutionReconciliationWorkerStatusSnapshot:
     last_processed_reconciliation_job_id: int | None
     heartbeat_stale_after_seconds: int
     is_stale: bool
+    pending_reconciliation_job_count: int
+    claimed_reconciliation_job_count: int
+    resolved_reconciliation_job_count: int
+    exhausted_reconciliation_job_count: int
+    expired_lease_count: int
+    next_due_reconciliation_job_at: datetime | None
     updated_at: datetime | None
 
 
@@ -45,11 +52,13 @@ class ExecutionReconciliationWorkerStatusService:
         repository: ExecutionReconciliationWorkerStatusRepository,
         *,
         settings: Settings,
+        job_repository: ExecutionReconciliationJobRepository | None = None,
         now_provider=None,
         worker_name: str = BINANCE_TESTNET_RECONCILIATION_WORKER_NAME,
     ):
         self.repository = repository
         self.settings = settings
+        self.job_repository = job_repository or ExecutionReconciliationJobRepository(repository.db)
         self.now_provider = now_provider or self._utc_now
         self.worker_name = worker_name
 
@@ -111,6 +120,8 @@ class ExecutionReconciliationWorkerStatusService:
     def get_status(self) -> ExecutionReconciliationWorkerStatusSnapshot:
         status = self.repository.get_by_worker_name(self.worker_name)
         stale_after_seconds = self.settings.binance_testnet_reconciliation_worker_heartbeat_stale_after_seconds
+        now = self._as_utc(self.now_provider())
+        counts = self.job_repository.worker_status_counts(now=now)
         if status is None:
             return ExecutionReconciliationWorkerStatusSnapshot(
                 worker_name=self.worker_name,
@@ -126,6 +137,12 @@ class ExecutionReconciliationWorkerStatusService:
                 last_processed_reconciliation_job_id=None,
                 heartbeat_stale_after_seconds=stale_after_seconds,
                 is_stale=False,
+                pending_reconciliation_job_count=counts.pending,
+                claimed_reconciliation_job_count=counts.claimed,
+                resolved_reconciliation_job_count=counts.resolved,
+                exhausted_reconciliation_job_count=counts.exhausted,
+                expired_lease_count=counts.expired_lease,
+                next_due_reconciliation_job_at=counts.next_due_at,
                 updated_at=None,
             )
 
@@ -143,6 +160,12 @@ class ExecutionReconciliationWorkerStatusService:
             last_processed_reconciliation_job_id=status.last_processed_reconciliation_job_id,
             heartbeat_stale_after_seconds=stale_after_seconds,
             is_stale=self._is_stale(status.last_heartbeat_at, stale_after_seconds=stale_after_seconds),
+            pending_reconciliation_job_count=counts.pending,
+            claimed_reconciliation_job_count=counts.claimed,
+            resolved_reconciliation_job_count=counts.resolved,
+            exhausted_reconciliation_job_count=counts.exhausted,
+            expired_lease_count=counts.expired_lease,
+            next_due_reconciliation_job_at=counts.next_due_at,
             updated_at=status.updated_at,
         )
 
