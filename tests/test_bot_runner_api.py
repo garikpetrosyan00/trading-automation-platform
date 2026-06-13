@@ -12,8 +12,20 @@ from app.api.v1.endpoints.bot_runtime import get_bot_activity
 from app.core.errors import NotFoundError
 from app.data.providers.base import BaseMarketDataProvider
 from app.data.schemas import MarketEvent, MarketEventType
+from app.engine.bot_runner import BotRunner, RunnerConfig
 from app.main import app
+from app.repositories.execution_attempt import ExecutionAttemptRepository
+from app.repositories.execution_reconciliation_job import ExecutionReconciliationJobRepository
+from app.repositories.portfolio import PortfolioRepository
 from app.services.market_data_service import MarketDataService
+from tests.test_binance_testnet_runtime import (
+    API_KEY,
+    API_SECRET,
+    RecordingBinanceAccountClient,
+    RecordingBinanceOrderClient,
+    StaticExchangeInfoProvider,
+    assert_no_secret_leak,
+)
 
 
 class PassiveBotRunner:
@@ -191,6 +203,85 @@ def test_manual_run_api_for_active_bot_returns_visible_recent_activity(
     assert activity_response.json()["items"][0]["message"] == "buy_filled"
     assert activity_response.json()["items"][0]["type"] == "order_filled"
     assert activity_response.json()["items"][0]["side"] == "buy"
+
+
+def test_manual_run_api_submits_one_mocked_testnet_order_without_periodic_runner_or_paper_mutation(
+    db_session,
+    db_session_factory,
+    stub_market_data_service,
+    bot_stack_factory,
+    funded_account,
+    configure_app_state,
+) -> None:
+    funded_account(db_session)
+    account_before = PortfolioRepository(db_session).get_account().cash_balance
+    _, bot, profile = bot_stack_factory(db_session, status="active", is_paper=False, execution_mode="testnet")
+    profile.order_quantity = Decimal("0.001")
+    db_session.add(profile)
+    db_session.commit()
+    client = RecordingBinanceOrderClient()
+    account_client = RecordingBinanceAccountClient()
+    exchange_info_provider = StaticExchangeInfoProvider()
+    runner = BotRunner(
+        session_factory=db_session_factory,
+        market_data_service=stub_market_data_service,
+        config=RunnerConfig(
+            enabled=False,
+            poll_interval_seconds=3600,
+            simulation_enabled=True,
+            simulation_fee_bps=Decimal("0"),
+            simulation_slippage_bps=Decimal("0"),
+            execution_global_enabled=True,
+            binance_testnet_broker_enabled=True,
+            binance_testnet_order_submission_enabled=True,
+            binance_testnet_base_url="https://testnet.binance.vision",
+            binance_testnet_api_key=API_KEY,
+            binance_testnet_api_secret=API_SECRET,
+            binance_testnet_dry_run_enabled=False,
+        ),
+        binance_order_client_factory=lambda _: client,
+        binance_account_client_factory=lambda _: account_client,
+        binance_exchange_info_provider_factory=lambda _: exchange_info_provider,
+    )
+    configure_app_state(market_data_service=stub_market_data_service, bot_runner=runner)
+    stub_market_data_service.set_price("BTCUSDT", "95")
+
+    with TestClient(app) as test_client:
+        response = test_client.post(f"/api/v1/bots/{bot.id}/run")
+
+    attempts = ExecutionAttemptRepository(db_session).list_filtered(bot_id=bot.id)
+    repository = PortfolioRepository(db_session)
+    job = ExecutionReconciliationJobRepository(db_session).get_by_execution_attempt_id(attempts[0].id)
+    serialized_attempt = str(attempts[0].metadata_)
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["status"] == "active"
+    assert body["is_paused"] is False
+    assert body["message"] == "order_submitted"
+    assert runner._task is None
+    assert len(client.calls) == 1
+    assert client.calls[0]["symbol"] == "BTCUSDT"
+    assert client.calls[0]["side"] == "BUY"
+    assert client.calls[0]["quantity"] == "0.001"
+    assert len(account_client.calls) == 1
+    assert exchange_info_provider.calls == 1
+    assert len(attempts) == 1
+    assert attempts[0].mode == "testnet"
+    assert attempts[0].broker == "binance_testnet"
+    assert attempts[0].final_status == "order_created"
+    assert attempts[0].metadata_["exchange_status"] == "FILLED"
+    assert attempts[0].metadata_["client_order_id"] == client.calls[0]["newClientOrderId"]
+    assert job is not None
+    assert job.state == "resolved"
+    assert job.last_resolution == "found"
+    assert repository.list_orders() == []
+    assert repository.list_fills() == []
+    assert repository.get_account().cash_balance == account_before
+    assert_no_secret_leak(response.text)
+    assert_no_secret_leak(serialized_attempt)
+    assert "raw" not in serialized_attempt.lower()
+    assert "headers" not in serialized_attempt.lower()
 
 
 def test_manual_market_price_update_syncs_bot_summary_and_run(
