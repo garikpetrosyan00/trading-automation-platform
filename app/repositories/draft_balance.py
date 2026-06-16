@@ -22,6 +22,23 @@ class DraftBalanceRepository:
         statement = select(DraftBalance).where(DraftBalance.bot_id == bot_id, DraftBalance.asset == asset)
         return self.db.scalar(statement)
 
+    def get_for_bot_asset_for_update(self, *, bot_id: int, asset: str) -> DraftBalance | None:
+        statement = (
+            select(DraftBalance)
+            .where(DraftBalance.bot_id == bot_id, DraftBalance.asset == asset)
+            .with_for_update()
+        )
+        return self.db.scalar(statement)
+
+    def get_or_create_for_bot_asset_for_update(self, *, bot_id: int, asset: str) -> DraftBalance:
+        row = self.get_for_bot_asset_for_update(bot_id=bot_id, asset=asset)
+        if row is not None:
+            return row
+        row = DraftBalance(bot_id=bot_id, asset=asset, available=Decimal("0"), locked=Decimal("0"))
+        self.db.add(row)
+        self.db.flush()
+        return row
+
     def upsert_for_bot_asset(
         self,
         *,
