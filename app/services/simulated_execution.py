@@ -3,22 +3,27 @@ from __future__ import annotations
 from dataclasses import dataclass
 from decimal import Decimal
 
+from app.core.errors import AppError
 from app.data.schemas import MarketEvent
 from app.models.execution_attempt import ExecutionAttempt
 from app.models.position import Position
 from app.models.simulated_fill import SimulatedFill
 from app.models.simulated_order import SimulatedOrder
+from app.repositories.bot import BotRepository
+from app.repositories.draft_balance import DraftBalanceRepository
 from app.repositories.execution_attempt import ExecutionAttemptRepository
 from app.repositories.portfolio import PortfolioRepository
 from app.schemas.execution import ExecutionPositionSnapshot, MarketOrderRequest
 from app.services.brokers.base import BrokerOrderIntent, BrokerOrderResult
 from app.services.brokers.safety import ExecutionSafetyDecision, ExecutionSafetyGuard
+from app.services.draft_balance import DraftBalanceService
 from app.services.execution_attempt import ExecutionAttemptService
 from app.services.execution_limits import ExecutionDailyLimitService
 from app.services.paper_portfolio import PaperPortfolioService
 
 ZERO = Decimal("0")
 BPS_DIVISOR = Decimal("10000")
+QUOTE_ASSET_SUFFIXES = ("USDT", "USDC", "BUSD", "USD", "BTC", "ETH")
 
 
 @dataclass
@@ -203,9 +208,43 @@ class PaperExecutionService:
                     attempt=attempt,
                 )
 
+            draft_reserved = False
+            if self._uses_draft_balance(intent):
+                try:
+                    base_asset, quote_asset = self._symbol_assets(symbol)
+                    if intent.side == "buy":
+                        self._draft_balance_service().reserve_bot_draft_balance_asset(
+                            bot_id=intent.bot_id,
+                            asset=quote_asset,
+                            amount=notional + fee,
+                        )
+                    else:
+                        self._draft_balance_service().reserve_bot_draft_balance_asset(
+                            bot_id=intent.bot_id,
+                            asset=base_asset,
+                            amount=intent.quantity,
+                        )
+                    draft_reserved = True
+                except AppError as exc:
+                    return self._reject_without_order(
+                        intent=intent,
+                        symbol=symbol,
+                        reason=exc.error_code,
+                        cash_balance=account.cash_balance,
+                        position=position,
+                        attempt=attempt,
+                        final_status="rejected_by_broker",
+                    )
+
             if intent.side == "buy":
                 required_cash = notional + fee
                 if required_cash > account.cash_balance:
+                    if draft_reserved:
+                        self._draft_balance_service().release_bot_draft_balance_asset(
+                            bot_id=intent.bot_id,
+                            asset=quote_asset,
+                            amount=required_cash,
+                        )
                     return self._reject_order(
                         intent=intent,
                         symbol=symbol,
@@ -218,6 +257,12 @@ class PaperExecutionService:
 
                 quota_decision = self._reserve_daily_quota(intent)
                 if not quota_decision.allowed:
+                    if draft_reserved:
+                        self._draft_balance_service().release_bot_draft_balance_asset(
+                            bot_id=intent.bot_id,
+                            asset=quote_asset,
+                            amount=required_cash,
+                        )
                     self._finalize_attempt(
                         attempt,
                         final_status="blocked_by_safety",
@@ -260,6 +305,15 @@ class PaperExecutionService:
                         attempt=None,
                     )
 
+                if draft_reserved:
+                    self._draft_balance_service().apply_draft_balance_buy_fill(
+                        bot_id=intent.bot_id,
+                        base_asset=base_asset,
+                        quote_asset=quote_asset,
+                        received_base_amount=fill.fill_quantity,
+                        spent_quote_amount=(fill.fill_quantity * fill.fill_price) + fill.fee,
+                    )
+
                 self._finalize_attempt(
                     attempt,
                     final_status="filled",
@@ -294,6 +348,12 @@ class PaperExecutionService:
 
             quota_decision = self._reserve_daily_quota(intent)
             if not quota_decision.allowed:
+                if draft_reserved:
+                    self._draft_balance_service().release_bot_draft_balance_asset(
+                        bot_id=intent.bot_id,
+                        asset=base_asset,
+                        amount=intent.quantity,
+                    )
                 self._finalize_attempt(
                     attempt,
                     final_status="blocked_by_safety",
@@ -334,6 +394,15 @@ class PaperExecutionService:
                     cash_balance=account.cash_balance,
                     position=position,
                     attempt=None,
+                )
+
+            if draft_reserved:
+                self._draft_balance_service().apply_draft_balance_sell_fill(
+                    bot_id=intent.bot_id,
+                    base_asset=base_asset,
+                    quote_asset=quote_asset,
+                    sold_base_amount=fill.fill_quantity,
+                    received_quote_amount=(fill.fill_quantity * fill.fill_price) - fill.fee,
                 )
 
             self._finalize_attempt(
@@ -448,11 +517,12 @@ class PaperExecutionService:
         cash_balance: Decimal,
         position: Position | None,
         attempt: ExecutionAttempt | None,
+        final_status: str = "blocked_by_safety",
     ) -> ExecutionResult:
         try:
             self._finalize_attempt(
                 attempt,
-                final_status="blocked_by_safety",
+                final_status=final_status,
                 final_reason=reason,
                 safety_status=reason,
                 metadata={
@@ -700,6 +770,26 @@ class PaperExecutionService:
 
     def _calculate_fee(self, notional: Decimal) -> Decimal:
         return notional * (self.fee_bps / BPS_DIVISOR)
+
+    def _uses_draft_balance(self, intent: PaperOrderIntent) -> bool:
+        if intent.bot_id is None:
+            return False
+        return BotRepository(self.repository.db).get_by_id(intent.bot_id) is not None
+
+    def _draft_balance_service(self) -> DraftBalanceService:
+        return DraftBalanceService(
+            DraftBalanceRepository(self.repository.db),
+            BotRepository(self.repository.db),
+            autocommit=False,
+        )
+
+    @staticmethod
+    def _symbol_assets(symbol: str) -> tuple[str, str]:
+        normalized = symbol.strip().upper()
+        for quote_asset in QUOTE_ASSET_SUFFIXES:
+            if normalized.endswith(quote_asset) and len(normalized) > len(quote_asset):
+                return normalized[: -len(quote_asset)], quote_asset
+        return normalized, "USDT"
 
     @staticmethod
     def _build_broker_result(result: ExecutionResult) -> BrokerOrderResult:

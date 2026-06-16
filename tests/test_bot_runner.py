@@ -15,11 +15,14 @@ from app.core.errors import NotFoundError
 from app.engine.bot_runner import BotRunner, RunnerConfig
 from app.models.market_candle import MarketCandle
 from app.models.position import Position
+from app.repositories.bot import BotRepository
 from app.repositories.bot_run import BotRunRepository
+from app.repositories.draft_balance import DraftBalanceRepository
 from app.repositories.execution_attempt import ExecutionAttemptRepository
 from app.repositories.portfolio import PortfolioRepository
 from app.repositories.run_event import RunEventRepository
 from app.schemas.market import MarketPriceUpdateRequest
+from app.services.draft_balance import DraftBalanceService
 
 
 class FakeClock:
@@ -45,6 +48,28 @@ def build_runner(db_session_factory, stub_market_data_service, clock: FakeClock 
             simulation_slippage_bps=Decimal("0"),
         ),
         now_provider=clock.now if clock is not None else None,
+    )
+
+
+def reset_draft_balance(
+    session,
+    bot_id: int,
+    defaults: dict[str, tuple[Decimal, Decimal]] | None = None,
+) -> None:
+    DraftBalanceService(DraftBalanceRepository(session), BotRepository(session)).reset_bot_draft_balance(
+        bot_id,
+        defaults=defaults,
+    )
+
+
+def reset_draft_balance_with_base(session, bot_id: int, asset: str, quantity: Decimal) -> None:
+    reset_draft_balance(
+        session,
+        bot_id,
+        defaults={
+            "USDT": (Decimal("10000"), Decimal("0")),
+            asset: (quantity, Decimal("0")),
+        },
     )
 
 
@@ -137,6 +162,7 @@ def configure_bollinger_bands_strategy(
 def test_bot_start_and_stop(db_session, db_session_factory, stub_market_data_service, bot_stack_factory, funded_account) -> None:
     funded_account(db_session)
     _, bot, _ = bot_stack_factory(db_session)
+    reset_draft_balance(db_session, bot.id)
     runner = build_runner(db_session_factory, stub_market_data_service)
 
     start_status = runner.start_bot(bot.id)
@@ -160,6 +186,7 @@ def test_background_missing_price_does_not_record_skipped_activity_noise(
 ) -> None:
     funded_account(db_session)
     _, bot, _ = bot_stack_factory(db_session)
+    reset_draft_balance(db_session, bot.id)
     runner = build_runner(db_session_factory, stub_market_data_service)
     runner.start_bot(bot.id)
 
@@ -183,6 +210,7 @@ def test_buy_signal_triggers_one_buy_and_no_duplicate_buy(
 ) -> None:
     funded_account(db_session)
     _, bot, _ = bot_stack_factory(db_session)
+    reset_draft_balance(db_session, bot.id)
     runner = build_runner(db_session_factory, stub_market_data_service)
     runner.start_bot(bot.id)
     stub_market_data_service.set_price("BTCUSDT", "95")
@@ -216,6 +244,7 @@ def test_runtime_risk_blocks_buy_when_max_trade_quantity_is_exceeded(
     funded_account(db_session)
     _, bot, profile = bot_stack_factory(db_session)
     assert profile is not None
+    reset_draft_balance(db_session, bot.id)
     profile.max_trade_quantity = Decimal("0.05")
     db_session.add(profile)
     db_session.commit()
@@ -246,6 +275,7 @@ def test_runtime_risk_blocks_buy_when_max_position_quantity_is_exceeded(
     funded_account(db_session)
     _, bot, profile = bot_stack_factory(db_session)
     assert profile is not None
+    reset_draft_balance(db_session, bot.id)
     profile.max_position_quantity = Decimal("0.05")
     db_session.add(profile)
     db_session.commit()
@@ -276,6 +306,7 @@ def test_runtime_null_risk_fields_preserve_existing_buy_behavior(
     funded_account(db_session)
     _, bot, profile = bot_stack_factory(db_session)
     assert profile is not None
+    reset_draft_balance(db_session, bot.id)
     assert profile.max_trade_quantity is None
     assert profile.max_position_quantity is None
     assert profile.stop_loss_percent is None
@@ -303,6 +334,7 @@ def test_sell_signal_triggers_full_sell(
 ) -> None:
     funded_account(db_session)
     _, bot, _ = bot_stack_factory(db_session)
+    reset_draft_balance(db_session, bot.id)
     runner = build_runner(db_session_factory, stub_market_data_service)
     runner.start_bot(bot.id)
     stub_market_data_service.set_price("BTCUSDT", "95")
@@ -340,6 +372,7 @@ def test_bot_runner_allows_sell_exit_after_daily_count_exhausted(
 ) -> None:
     funded_account(db_session)
     _, bot, _ = bot_stack_factory(db_session)
+    reset_draft_balance(db_session, bot.id)
     runner = BotRunner(
         session_factory=db_session_factory,
         market_data_service=stub_market_data_service,
@@ -405,6 +438,7 @@ def test_buy_decision_and_quantity_use_strategy_parameters(
     funded_account(db_session)
     strategy, bot, profile = bot_stack_factory(db_session)
     assert profile is not None
+    reset_draft_balance(db_session, bot.id)
     strategy.parameters = {
         "buy_below": "100",
         "sell_above": "110",
@@ -444,6 +478,7 @@ def test_sell_decision_uses_strategy_parameters_sell_above(
     funded_account(db_session)
     strategy, bot, profile = bot_stack_factory(db_session)
     assert profile is not None
+    reset_draft_balance(db_session, bot.id)
     strategy.parameters = {
         "buy_below": "100",
         "sell_above": "110",
@@ -480,6 +515,7 @@ def test_missing_strategy_parameters_fall_back_to_execution_profile_fields(
 ) -> None:
     funded_account(db_session)
     strategy, bot, _ = bot_stack_factory(db_session)
+    reset_draft_balance(db_session, bot.id)
     strategy.parameters = {}
     db_session.add(strategy)
     db_session.commit()
@@ -506,6 +542,7 @@ def test_invalid_strategy_parameter_is_safe_skipped_evaluation(
 ) -> None:
     funded_account(db_session)
     strategy, bot, _ = bot_stack_factory(db_session)
+    reset_draft_balance(db_session, bot.id)
     strategy.parameters = {
         "buy_below": "not-a-number",
         "sell_above": "110",
@@ -545,6 +582,7 @@ def test_unsupported_strategy_type_is_skipped_without_orders_or_position(
 ) -> None:
     funded_account(db_session)
     strategy, bot, _ = bot_stack_factory(db_session)
+    reset_draft_balance(db_session, bot.id)
     db_session.execute(text("PRAGMA ignore_check_constraints = ON"))
     db_session.execute(
         text("UPDATE strategies SET strategy_type = :strategy_type WHERE id = :strategy_id"),
@@ -582,6 +620,7 @@ def test_moving_average_cross_buy_crossover_creates_buy_paper_order(
 ) -> None:
     funded_account(db_session)
     strategy, bot, _ = bot_stack_factory(db_session)
+    reset_draft_balance(db_session, bot.id)
     configure_moving_average_strategy(strategy)
     db_session.add(strategy)
     db_session.commit()
@@ -626,6 +665,7 @@ def test_moving_average_cross_uses_configured_candle_source(
 ) -> None:
     funded_account(db_session)
     strategy, bot, _ = bot_stack_factory(db_session)
+    reset_draft_balance(db_session, bot.id)
     configure_moving_average_strategy(strategy)
     strategy.parameters["candle_source"] = "binance"
     db_session.add(strategy)
@@ -656,6 +696,8 @@ def test_moving_average_cross_missing_quantity_uses_execution_profile_quantity(
     funded_account(db_session)
     strategy, bot, profile = bot_stack_factory(db_session)
     assert profile is not None
+    reset_draft_balance(db_session, bot.id)
+    reset_draft_balance(db_session, bot.id)
     configure_moving_average_strategy(strategy)
     strategy.parameters.pop("quantity")
     db_session.add(strategy)
@@ -686,6 +728,7 @@ def test_moving_average_cross_manual_run_buys_from_persisted_strategy_candles(
     timeframe = "5m"
     candle_source = "binance"
     strategy, bot, _ = bot_stack_factory(db_session, symbol=symbol)
+    reset_draft_balance(db_session, bot.id)
     configure_moving_average_strategy(strategy)
     strategy.timeframe = timeframe
     strategy.parameters["candle_source"] = candle_source
@@ -732,6 +775,7 @@ def test_moving_average_cross_manual_run_sells_from_persisted_strategy_candles(
     timeframe = "5m"
     candle_source = "binance"
     strategy, bot, _ = bot_stack_factory(db_session, symbol=symbol)
+    reset_draft_balance_with_base(db_session, bot.id, "ETH", Decimal("0.1"))
     configure_moving_average_strategy(strategy)
     strategy.timeframe = timeframe
     strategy.parameters["candle_source"] = candle_source
@@ -786,6 +830,7 @@ def test_moving_average_cross_manual_run_no_crossover_records_skipped_event(
     timeframe = "5m"
     candle_source = "binance"
     strategy, bot, _ = bot_stack_factory(db_session, symbol=symbol)
+    reset_draft_balance(db_session, bot.id)
     configure_moving_average_strategy(strategy)
     strategy.timeframe = timeframe
     strategy.parameters["candle_source"] = candle_source
@@ -826,6 +871,7 @@ def test_moving_average_cross_manual_run_insufficient_persisted_candles_records_
     timeframe = "5m"
     candle_source = "binance"
     strategy, bot, _ = bot_stack_factory(db_session, symbol=symbol)
+    reset_draft_balance(db_session, bot.id)
     configure_moving_average_strategy(strategy)
     strategy.timeframe = timeframe
     strategy.parameters["candle_source"] = candle_source
@@ -863,6 +909,7 @@ def test_moving_average_cross_sell_crossover_sells_existing_position(
 ) -> None:
     funded_account(db_session)
     strategy, bot, _ = bot_stack_factory(db_session)
+    reset_draft_balance_with_base(db_session, bot.id, "BTC", Decimal("0.1"))
     configure_moving_average_strategy(strategy)
     db_session.add(strategy)
     db_session.add(
@@ -906,6 +953,7 @@ def test_moving_average_cross_no_crossover_skips_safely(
 ) -> None:
     funded_account(db_session)
     strategy, bot, _ = bot_stack_factory(db_session)
+    reset_draft_balance(db_session, bot.id)
     configure_moving_average_strategy(strategy)
     db_session.add(strategy)
     db_session.commit()
@@ -936,6 +984,7 @@ def test_moving_average_cross_insufficient_candles_skips_safely(
 ) -> None:
     funded_account(db_session)
     strategy, bot, _ = bot_stack_factory(db_session)
+    reset_draft_balance(db_session, bot.id)
     configure_moving_average_strategy(strategy)
     db_session.add(strategy)
     db_session.commit()
@@ -965,6 +1014,7 @@ def test_moving_average_cross_invalid_parameters_skip_safely(
 ) -> None:
     funded_account(db_session)
     strategy, bot, _ = bot_stack_factory(db_session)
+    reset_draft_balance(db_session, bot.id)
     configure_moving_average_strategy(strategy, short_window="2.5")
     db_session.add(strategy)
     db_session.commit()
@@ -996,6 +1046,7 @@ def test_macd_crossover_buy_crossover_creates_buy_paper_order(
 ) -> None:
     funded_account(db_session)
     strategy, bot, _ = bot_stack_factory(db_session)
+    reset_draft_balance(db_session, bot.id)
     configure_macd_crossover_strategy(strategy)
     db_session.add(strategy)
     db_session.commit()
@@ -1040,6 +1091,7 @@ def test_macd_crossover_uses_configured_candle_source(
 ) -> None:
     funded_account(db_session)
     strategy, bot, _ = bot_stack_factory(db_session)
+    reset_draft_balance(db_session, bot.id)
     configure_macd_crossover_strategy(strategy)
     strategy.parameters["candle_source"] = "binance"
     db_session.add(strategy)
@@ -1071,6 +1123,7 @@ def test_macd_crossover_sell_crossover_sells_existing_position(
 ) -> None:
     funded_account(db_session)
     strategy, bot, _ = bot_stack_factory(db_session)
+    reset_draft_balance_with_base(db_session, bot.id, "BTC", Decimal("0.1"))
     configure_macd_crossover_strategy(strategy)
     db_session.add(strategy)
     db_session.add(
@@ -1120,6 +1173,7 @@ def test_macd_crossover_insufficient_candles_skips_safely(
 ) -> None:
     funded_account(db_session)
     strategy, bot, _ = bot_stack_factory(db_session)
+    reset_draft_balance(db_session, bot.id)
     configure_macd_crossover_strategy(strategy)
     db_session.add(strategy)
     db_session.commit()
@@ -1153,6 +1207,7 @@ def test_macd_crossover_invalid_parameters_skip_safely(
 ) -> None:
     funded_account(db_session)
     strategy, bot, _ = bot_stack_factory(db_session)
+    reset_draft_balance(db_session, bot.id)
     configure_macd_crossover_strategy(strategy, fast_period="2.5")
     db_session.add(strategy)
     db_session.commit()
@@ -1186,6 +1241,7 @@ def test_macd_crossover_missing_quantity_uses_execution_profile_quantity(
     funded_account(db_session)
     strategy, bot, profile = bot_stack_factory(db_session)
     assert profile is not None
+    reset_draft_balance(db_session, bot.id)
     configure_macd_crossover_strategy(strategy)
     strategy.parameters.pop("quantity")
     db_session.add(strategy)
@@ -1213,6 +1269,7 @@ def test_rsi_threshold_buy_signal_creates_buy_paper_order(
 ) -> None:
     funded_account(db_session)
     strategy, bot, _ = bot_stack_factory(db_session)
+    reset_draft_balance(db_session, bot.id)
     configure_rsi_threshold_strategy(strategy)
     db_session.add(strategy)
     db_session.commit()
@@ -1255,6 +1312,7 @@ def test_rsi_threshold_sell_signal_sells_existing_position(
 ) -> None:
     funded_account(db_session)
     strategy, bot, _ = bot_stack_factory(db_session)
+    reset_draft_balance_with_base(db_session, bot.id, "BTC", Decimal("0.1"))
     configure_rsi_threshold_strategy(strategy)
     db_session.add(strategy)
     db_session.add(
@@ -1302,6 +1360,7 @@ def test_rsi_threshold_insufficient_candles_skips_safely(
 ) -> None:
     funded_account(db_session)
     strategy, bot, _ = bot_stack_factory(db_session)
+    reset_draft_balance(db_session, bot.id)
     configure_rsi_threshold_strategy(strategy)
     db_session.add(strategy)
     db_session.commit()
@@ -1335,6 +1394,7 @@ def test_rsi_threshold_invalid_parameters_skip_safely(
 ) -> None:
     funded_account(db_session)
     strategy, bot, _ = bot_stack_factory(db_session)
+    reset_draft_balance(db_session, bot.id)
     configure_rsi_threshold_strategy(strategy, oversold="70", overbought="70")
     db_session.add(strategy)
     db_session.commit()
@@ -1368,6 +1428,7 @@ def test_rsi_threshold_missing_quantity_uses_execution_profile_quantity(
     funded_account(db_session)
     strategy, bot, profile = bot_stack_factory(db_session)
     assert profile is not None
+    reset_draft_balance(db_session, bot.id)
     configure_rsi_threshold_strategy(strategy)
     strategy.parameters.pop("quantity")
     db_session.add(strategy)
@@ -1395,6 +1456,7 @@ def test_bollinger_bands_buy_signal_creates_buy_paper_order(
 ) -> None:
     funded_account(db_session)
     strategy, bot, _ = bot_stack_factory(db_session)
+    reset_draft_balance(db_session, bot.id)
     configure_bollinger_bands_strategy(strategy)
     db_session.add(strategy)
     db_session.commit()
@@ -1437,6 +1499,7 @@ def test_bollinger_bands_sell_signal_sells_existing_position(
 ) -> None:
     funded_account(db_session)
     strategy, bot, _ = bot_stack_factory(db_session)
+    reset_draft_balance_with_base(db_session, bot.id, "BTC", Decimal("0.1"))
     configure_bollinger_bands_strategy(strategy)
     db_session.add(strategy)
     db_session.add(
@@ -1485,6 +1548,7 @@ def test_bollinger_bands_insufficient_candles_skips_safely(
 ) -> None:
     funded_account(db_session)
     strategy, bot, _ = bot_stack_factory(db_session)
+    reset_draft_balance(db_session, bot.id)
     configure_bollinger_bands_strategy(strategy)
     db_session.add(strategy)
     db_session.commit()
@@ -1518,6 +1582,7 @@ def test_bollinger_bands_invalid_parameters_skip_safely(
 ) -> None:
     funded_account(db_session)
     strategy, bot, _ = bot_stack_factory(db_session)
+    reset_draft_balance(db_session, bot.id)
     configure_bollinger_bands_strategy(strategy, period="1")
     db_session.add(strategy)
     db_session.commit()
@@ -1551,6 +1616,7 @@ def test_bollinger_bands_missing_quantity_uses_execution_profile_quantity(
     funded_account(db_session)
     strategy, bot, profile = bot_stack_factory(db_session)
     assert profile is not None
+    reset_draft_balance(db_session, bot.id)
     configure_bollinger_bands_strategy(strategy)
     strategy.parameters.pop("quantity")
     db_session.add(strategy)
@@ -1610,6 +1676,7 @@ def test_inactive_strategy_is_skipped_without_placing_orders(
 ) -> None:
     funded_account(db_session)
     _, bot, _ = bot_stack_factory(db_session, strategy_is_active=False)
+    reset_draft_balance(db_session, bot.id)
     runner = build_runner(db_session_factory, stub_market_data_service)
     runner.start_bot(bot.id)
     stub_market_data_service.set_price("BTCUSDT", "95")
@@ -1634,6 +1701,7 @@ def test_background_bot_does_not_rebuy_or_record_cooldown_noise(
     clock = FakeClock()
     funded_account(db_session)
     _, bot, _ = bot_stack_factory(db_session, cooldown_seconds=60)
+    reset_draft_balance(db_session, bot.id)
     runner = build_runner(db_session_factory, stub_market_data_service, clock=clock)
     runner.start_bot(bot.id)
 
@@ -1669,6 +1737,7 @@ def test_bot_can_buy_again_after_cooldown_expires(
     clock = FakeClock()
     funded_account(db_session)
     _, bot, _ = bot_stack_factory(db_session, cooldown_seconds=60)
+    reset_draft_balance(db_session, bot.id)
     runner = build_runner(db_session_factory, stub_market_data_service, clock=clock)
     runner.start_bot(bot.id)
 
@@ -1701,6 +1770,7 @@ def test_status_reflects_current_state(
 ) -> None:
     funded_account(db_session)
     _, bot, _ = bot_stack_factory(db_session)
+    reset_draft_balance(db_session, bot.id)
     runner = build_runner(db_session_factory, stub_market_data_service)
     runner.start_bot(bot.id)
     stub_market_data_service.set_price("BTCUSDT", "95")
@@ -1729,6 +1799,7 @@ def test_pause_endpoint_marks_bot_as_paused(
 ) -> None:
     funded_account(db_session)
     _, bot, _ = bot_stack_factory(db_session)
+    reset_draft_balance(db_session, bot.id)
     runner = build_runner(db_session_factory, stub_market_data_service)
     runner.start_bot(bot.id)
 
@@ -1753,6 +1824,7 @@ def test_resume_endpoint_marks_bot_as_active_again(
 ) -> None:
     funded_account(db_session)
     _, bot, _ = bot_stack_factory(db_session)
+    reset_draft_balance(db_session, bot.id)
     runner = build_runner(db_session_factory, stub_market_data_service)
     runner.start_bot(bot.id)
     asyncio.run(pause_bot_endpoint(bot.id, runner))
@@ -1778,6 +1850,7 @@ def test_paused_bot_is_skipped_by_runner_and_does_not_place_buy_orders(
 ) -> None:
     funded_account(db_session)
     _, bot, _ = bot_stack_factory(db_session)
+    reset_draft_balance(db_session, bot.id)
     runner = build_runner(db_session_factory, stub_market_data_service)
     runner.start_bot(bot.id)
     asyncio.run(pause_bot_endpoint(bot.id, runner))
@@ -1804,6 +1877,7 @@ def test_background_no_signal_evaluations_do_not_create_repeated_activity(
 ) -> None:
     funded_account(db_session)
     _, bot, _ = bot_stack_factory(db_session)
+    reset_draft_balance(db_session, bot.id)
     runner = build_runner(db_session_factory, stub_market_data_service)
     runner.start_bot(bot.id)
     stub_market_data_service.set_price("BTCUSDT", "105")
@@ -1827,6 +1901,7 @@ def test_background_meaningful_events_are_still_recorded(
 ) -> None:
     funded_account(db_session)
     _, bot, _ = bot_stack_factory(db_session)
+    reset_draft_balance(db_session, bot.id)
     runner = build_runner(db_session_factory, stub_market_data_service)
     runner.start_bot(bot.id)
     stub_market_data_service.set_price("BTCUSDT", "95")
@@ -1850,6 +1925,7 @@ def test_resumed_bot_can_trade_again(
 ) -> None:
     funded_account(db_session)
     _, bot, _ = bot_stack_factory(db_session)
+    reset_draft_balance(db_session, bot.id)
     runner = build_runner(db_session_factory, stub_market_data_service)
     runner.start_bot(bot.id)
     asyncio.run(pause_bot_endpoint(bot.id, runner))
@@ -1899,6 +1975,8 @@ def test_bots_dashboard_returns_created_bots_in_deterministic_order(
 ) -> None:
     _, first_bot, _ = bot_stack_factory(db_session, name="BTC threshold bot", symbol="BTCUSDT")
     _, second_bot, _ = bot_stack_factory(db_session, name="ETH threshold bot", symbol="ETHUSDT")
+    reset_draft_balance(db_session, first_bot.id)
+    reset_draft_balance(db_session, second_bot.id)
     runner = build_runner(db_session_factory, stub_market_data_service)
 
     response = asyncio.run(list_bots_endpoint(runner))
@@ -1933,6 +2011,7 @@ def test_bots_dashboard_includes_cooldown_state_when_active(
 ) -> None:
     funded_account(db_session)
     _, bot, _ = bot_stack_factory(db_session, name="Cooldown bot", symbol="BTCUSDT", cooldown_seconds=60)
+    reset_draft_balance(db_session, bot.id)
     runner = build_runner(db_session_factory, stub_market_data_service)
     runner.start_bot(bot.id)
     stub_market_data_service.set_price("BTCUSDT", "95")
@@ -1957,6 +2036,7 @@ def test_bots_dashboard_includes_current_position_quantity(
 ) -> None:
     funded_account(db_session)
     _, bot, _ = bot_stack_factory(db_session, name="Position bot", symbol="BTCUSDT")
+    reset_draft_balance(db_session, bot.id)
     runner = build_runner(db_session_factory, stub_market_data_service)
     runner.start_bot(bot.id)
     stub_market_data_service.set_price("BTCUSDT", "95")
@@ -2015,6 +2095,7 @@ def test_bot_summary_returns_existing_bot_summary(
     bot_stack_factory,
 ) -> None:
     strategy, bot, _ = bot_stack_factory(db_session, name="BTC threshold bot", symbol="BTCUSDT")
+    reset_draft_balance(db_session, bot.id)
     strategy.parameters = {
         "buy_below": "100",
         "sell_above": "110",
@@ -2069,6 +2150,7 @@ def test_bot_summary_includes_cooldown_state_when_active(
 ) -> None:
     funded_account(db_session)
     _, bot, _ = bot_stack_factory(db_session, name="Cooldown summary bot", symbol="BTCUSDT", cooldown_seconds=60)
+    reset_draft_balance(db_session, bot.id)
     runner = build_runner(db_session_factory, stub_market_data_service)
     runner.start_bot(bot.id)
     stub_market_data_service.set_price("BTCUSDT", "95")
@@ -2093,6 +2175,7 @@ def test_bot_summary_includes_current_position_quantity(
 ) -> None:
     funded_account(db_session)
     _, bot, _ = bot_stack_factory(db_session, name="Position summary bot", symbol="BTCUSDT")
+    reset_draft_balance(db_session, bot.id)
     runner = build_runner(db_session_factory, stub_market_data_service)
     runner.start_bot(bot.id)
     stub_market_data_service.set_price("BTCUSDT", "95")
@@ -2113,6 +2196,7 @@ def test_bot_summary_includes_recent_activity_newest_first(
 ) -> None:
     funded_account(db_session)
     _, bot, _ = bot_stack_factory(db_session, name="Activity summary bot", symbol="BTCUSDT")
+    reset_draft_balance(db_session, bot.id)
     runner = build_runner(db_session_factory, stub_market_data_service)
     runner.start_bot(bot.id)
     stub_market_data_service.set_price("BTCUSDT", "95")
@@ -2137,6 +2221,7 @@ def test_bot_summary_recent_activity_preview_is_capped(
 ) -> None:
     funded_account(db_session)
     _, bot, _ = bot_stack_factory(db_session, name="Capped summary bot", symbol="BTCUSDT", cooldown_seconds=0)
+    reset_draft_balance(db_session, bot.id)
     runner = build_runner(db_session_factory, stub_market_data_service)
     runner.start_bot(bot.id)
     for _ in range(6):
@@ -2198,6 +2283,7 @@ def test_manual_bot_run_paused_bot_returns_skipped_result(
 ) -> None:
     funded_account(db_session)
     _, bot, _ = bot_stack_factory(db_session)
+    reset_draft_balance(db_session, bot.id)
     runner = build_runner(db_session_factory, stub_market_data_service)
     runner.start_bot(bot.id)
     asyncio.run(pause_bot_endpoint(bot.id, runner))
@@ -2282,6 +2368,7 @@ def test_manual_bot_run_cooldown_active_returns_skipped_result(
 ) -> None:
     funded_account(db_session)
     _, bot, _ = bot_stack_factory(db_session, cooldown_seconds=60)
+    reset_draft_balance(db_session, bot.id)
     runner = build_runner(db_session_factory, stub_market_data_service)
     runner.start_bot(bot.id)
     stub_market_data_service.set_price("BTCUSDT", "95")
@@ -2309,6 +2396,7 @@ def test_manual_bot_run_buy_eligible_returns_bought_result(
 ) -> None:
     funded_account(db_session)
     _, bot, _ = bot_stack_factory(db_session)
+    reset_draft_balance(db_session, bot.id)
     runner = build_runner(db_session_factory, stub_market_data_service)
     runner.start_bot(bot.id)
     stub_market_data_service.set_price("BTCUSDT", "95")
@@ -2340,6 +2428,7 @@ def test_manual_bot_run_sell_eligible_returns_sold_result(
 ) -> None:
     funded_account(db_session)
     _, bot, _ = bot_stack_factory(db_session)
+    reset_draft_balance(db_session, bot.id)
     runner = build_runner(db_session_factory, stub_market_data_service)
     runner.start_bot(bot.id)
     stub_market_data_service.set_price("BTCUSDT", "95")
@@ -2371,6 +2460,7 @@ def test_manual_bot_run_no_signal_returns_no_action(
 ) -> None:
     funded_account(db_session)
     _, bot, _ = bot_stack_factory(db_session)
+    reset_draft_balance(db_session, bot.id)
     runner = build_runner(db_session_factory, stub_market_data_service)
     runner.start_bot(bot.id)
     stub_market_data_service.set_price("BTCUSDT", "105")
@@ -2400,6 +2490,7 @@ def test_manual_bot_run_response_includes_consistent_bot_state_fields(
 ) -> None:
     funded_account(db_session)
     _, bot, _ = bot_stack_factory(db_session)
+    reset_draft_balance(db_session, bot.id)
     runner = build_runner(db_session_factory, stub_market_data_service)
     runner.start_bot(bot.id)
     stub_market_data_service.set_price("BTCUSDT", "95")
@@ -2483,6 +2574,7 @@ def test_market_price_update_is_used_by_manual_bot_run(
 ) -> None:
     funded_account(db_session)
     _, bot, _ = bot_stack_factory(db_session)
+    reset_draft_balance(db_session, bot.id)
     runner = build_runner(db_session_factory, stub_market_data_service)
     runner.start_bot(bot.id)
 

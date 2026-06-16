@@ -380,9 +380,11 @@ def test_bot_performance_reflects_paper_fill_accounting(
     noop_bot_runner,
     bot_stack_factory,
     configure_app_state,
+    reset_draft_balance_for_bot,
 ) -> None:
     with db_session_factory() as session:
         strategy, bot, _ = bot_stack_factory(session, status="active")
+        reset_draft_balance_for_bot(session, bot.id)
         repository = PortfolioRepository(session)
         PortfolioAccountService(repository).ensure_account(base_currency="USD", starting_cash=Decimal("1000.00"))
         execution_service = SimulatedExecutionService(

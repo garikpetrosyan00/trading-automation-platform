@@ -18,7 +18,10 @@ from app.main import app as fastapi_app
 from app.models.bot import Bot
 from app.models.execution_profile import ExecutionProfile
 from app.models.strategy import Strategy
+from app.repositories.bot import BotRepository
+from app.repositories.draft_balance import DraftBalanceRepository
 from app.repositories.portfolio import PortfolioRepository
+from app.services.draft_balance import DraftBalanceService
 from app.services.portfolio_account import PortfolioAccountService
 from datetime import datetime, timezone
 from decimal import Decimal
@@ -184,6 +187,17 @@ def funded_account():
         PortfolioAccountService(PortfolioRepository(session)).ensure_account(currency, amount)
 
     return fund
+
+
+@pytest.fixture
+def reset_draft_balance_for_bot():
+    def reset(session, bot_id: int, defaults: dict[str, tuple[Decimal, Decimal]] | None = None) -> None:
+        DraftBalanceService(DraftBalanceRepository(session), BotRepository(session)).reset_bot_draft_balance(
+            bot_id,
+            defaults=defaults,
+        )
+
+    return reset
 
 
 @pytest.fixture

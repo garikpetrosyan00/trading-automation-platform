@@ -35,9 +35,12 @@ class DraftBalanceService:
         self,
         repository: DraftBalanceRepository,
         bot_repository: BotRepository,
+        *,
+        autocommit: bool = True,
     ):
         self.repository = repository
         self.bot_repository = bot_repository
+        self.autocommit = autocommit
 
     def get_bot_draft_balance(self, bot_id: int) -> DraftBalanceSnapshot:
         self._ensure_bot_exists(bot_id)
@@ -67,7 +70,7 @@ class DraftBalanceService:
                 available=available,
                 locked=locked,
             )
-        self.repository.commit()
+        self._commit_if_enabled()
         return DraftBalanceSnapshot(bot_id=bot_id, assets=self._build_assets(self.repository.list_for_bot(bot_id)))
 
     def reserve_bot_draft_balance_asset(
@@ -90,7 +93,7 @@ class DraftBalanceService:
         row.available -= amount
         row.locked += amount
         self._validate_row_non_negative(row)
-        self.repository.commit()
+        self._commit_if_enabled()
         return DraftBalanceSnapshot(bot_id=bot_id, assets=self._build_assets(self.repository.list_for_bot(bot_id)))
 
     def release_bot_draft_balance_asset(
@@ -113,7 +116,7 @@ class DraftBalanceService:
         row.locked -= amount
         row.available += amount
         self._validate_row_non_negative(row)
-        self.repository.commit()
+        self._commit_if_enabled()
         return DraftBalanceSnapshot(bot_id=bot_id, assets=self._build_assets(self.repository.list_for_bot(bot_id)))
 
     def apply_draft_balance_buy_fill(
@@ -146,7 +149,7 @@ class DraftBalanceService:
         base_row.available += received_base_amount
         self._validate_row_non_negative(quote_row)
         self._validate_row_non_negative(base_row)
-        self.repository.commit()
+        self._commit_if_enabled()
         return DraftBalanceSnapshot(bot_id=bot_id, assets=self._build_assets(self.repository.list_for_bot(bot_id)))
 
     def apply_draft_balance_sell_fill(
@@ -179,12 +182,16 @@ class DraftBalanceService:
         quote_row.available += received_quote_amount
         self._validate_row_non_negative(base_row)
         self._validate_row_non_negative(quote_row)
-        self.repository.commit()
+        self._commit_if_enabled()
         return DraftBalanceSnapshot(bot_id=bot_id, assets=self._build_assets(self.repository.list_for_bot(bot_id)))
 
     def _ensure_bot_exists(self, bot_id: int) -> None:
         if self.bot_repository.get_by_id(bot_id) is None:
             raise NotFoundError(f"Bot with id {bot_id} was not found", error_code="bot_not_found")
+
+    def _commit_if_enabled(self) -> None:
+        if self.autocommit:
+            self.repository.commit()
 
     def _get_required_asset_for_update(self, *, bot_id: int, asset: str) -> DraftBalance:
         row = self.repository.get_for_bot_asset_for_update(bot_id=bot_id, asset=asset)

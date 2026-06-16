@@ -120,9 +120,11 @@ def test_paper_bot_still_uses_simulated_execution_and_never_calls_binance(
     stub_market_data_service,
     bot_stack_factory,
     funded_account,
+    reset_draft_balance_for_bot,
 ) -> None:
     funded_account(db_session)
     _, bot, _ = bot_stack_factory(db_session)
+    reset_draft_balance_for_bot(db_session, bot.id)
     client = RecordingBinanceOrderClient()
     runner = build_testnet_runner(db_session_factory, stub_market_data_service, client)
     runner.start_bot(bot.id)

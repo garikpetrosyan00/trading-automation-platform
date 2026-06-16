@@ -18,9 +18,11 @@ def test_order_audit_lists_orders_after_paper_buy_and_sell_decisions(
     bot_stack_factory,
     funded_account,
     configure_app_state,
+    reset_draft_balance_for_bot,
 ) -> None:
     funded_account(db_session)
     strategy, bot, _ = bot_stack_factory(db_session)
+    reset_draft_balance_for_bot(db_session, bot.id)
     runner = bot_runner_factory()
     runner.start_bot(bot.id)
     stub_market_data_service.set_price("BTCUSDT", "95")
@@ -86,9 +88,11 @@ def test_order_audit_retrieves_single_order_and_order_fills(
     bot_stack_factory,
     funded_account,
     configure_app_state,
+    reset_draft_balance_for_bot,
 ) -> None:
     funded_account(db_session)
     _, bot, _ = bot_stack_factory(db_session)
+    reset_draft_balance_for_bot(db_session, bot.id)
     runner = bot_runner_factory()
     runner.start_bot(bot.id)
     stub_market_data_service.set_price("BTCUSDT", "95")

@@ -77,10 +77,12 @@ def activity_bot_id(
     configure_app_state,
     funded_account,
     set_latest_market_price,
+    reset_draft_balance_for_bot,
 ):
     with db_session_factory() as session:
         funded_account(session)
         _, bot, _ = bot_stack_factory(session, name="API Bot", description="API test strategy")
+        reset_draft_balance_for_bot(session, bot.id)
         bot_id = bot.id
 
     configure_app_state(
@@ -109,9 +111,11 @@ def test_bot_runtime_api_flow(
     bot_runner_factory,
     configure_app_state,
     set_latest_market_price,
+    reset_draft_balance_for_bot,
 ) -> None:
     with db_session_factory() as session:
         _, bot, _ = bot_stack_factory(session, name="API Bot", description="API test strategy")
+        reset_draft_balance_for_bot(session, bot.id)
         bot_id = bot.id
 
     configure_app_state(
@@ -173,10 +177,12 @@ def test_manual_run_api_for_active_bot_returns_visible_recent_activity(
     configure_app_state,
     funded_account,
     set_latest_market_price,
+    reset_draft_balance_for_bot,
 ) -> None:
     with db_session_factory() as session:
         funded_account(session)
         _, bot, _ = bot_stack_factory(session, name="Manual API Bot", description="Manual run API test strategy")
+        reset_draft_balance_for_bot(session, bot.id)
         bot_id = bot.id
 
     configure_app_state(
@@ -291,10 +297,12 @@ def test_manual_market_price_update_syncs_bot_summary_and_run(
     bot_runner_factory,
     configure_app_state,
     funded_account,
+    reset_draft_balance_for_bot,
 ) -> None:
     with db_session_factory() as session:
         funded_account(session)
         _, bot, _ = bot_stack_factory(session, name="Manual Price API Bot")
+        reset_draft_balance_for_bot(session, bot.id)
         bot_id = bot.id
 
     runner_market_data_service = type(stub_market_data_service)()
@@ -349,10 +357,12 @@ def test_manual_market_price_survives_active_market_data_stream(
     bot_runner_factory,
     configure_app_state,
     funded_account,
+    reset_draft_balance_for_bot,
 ) -> None:
     with db_session_factory() as session:
         funded_account(session)
         _, bot, _ = bot_stack_factory(session, name="Manual Stream API Bot")
+        reset_draft_balance_for_bot(session, bot.id)
         bot_id = bot.id
 
     provider = BlockingMarketDataProvider()
