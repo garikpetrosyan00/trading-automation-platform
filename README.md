@@ -136,6 +136,19 @@ Important local note: app startup depends on the configured database being avail
 
 For a concise portfolio/demo walkthrough covering local startup, tests, `/health`, `/dashboard`, Binance price and candle smoke tests, and a sample backtest, see [docs/manual-demo-guide.md](docs/manual-demo-guide.md).
 
+## Draft Balance checkpoint
+
+Draft Balance is a bot-scoped test balance used by paper execution. The public API currently exposes only:
+
+- `GET /api/v1/bots/{bot_id}/draft-balance`
+- `POST /api/v1/bots/{bot_id}/draft-balance/reset`
+
+The dashboard shows a selected-bot Draft Balance card under Paper Portfolio. Reset reinitializes only the selected bot's draft balance to the configured defaults and removes assets outside that reset/default set.
+
+For paper execution with a real bot, BUY reserves the quote asset before paper portfolio mutation and applies the buy fill after the paper fill succeeds. SELL reserves the base asset before paper portfolio mutation and applies the sell fill after the paper fill succeeds. Missing or insufficient Draft Balance safely rejects paper execution before paper orders or fills are created; a manual bot run can return the existing safe skipped style: HTTP `200`, `action: skipped`, `message: order_rejected`.
+
+Binance/testnet/live execution, broker submission, bot runner implementation, reconciliation jobs, and workers are not wired to Draft Balance.
+
 ## Binance testnet reconciliation command
 
 This internal command processes one bounded batch of delayed Binance Spot testnet reconciliation jobs and exits:
