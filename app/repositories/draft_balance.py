@@ -57,6 +57,15 @@ class DraftBalanceRepository:
         self.db.flush()
         return row
 
+    def delete_for_bot_assets_not_in(self, *, bot_id: int, assets: set[str]) -> None:
+        statement = select(DraftBalance).where(DraftBalance.bot_id == bot_id)
+        if assets:
+            statement = statement.where(DraftBalance.asset.not_in(assets))
+        rows = list(self.db.scalars(statement).all())
+        for row in rows:
+            self.db.delete(row)
+        self.db.flush()
+
     def commit(self) -> None:
         self.db.commit()
 

@@ -49,8 +49,16 @@ class DraftBalanceService:
         defaults: dict[str, tuple[Decimal, Decimal]] | None = None,
     ) -> DraftBalanceSnapshot:
         self._ensure_bot_exists(bot_id)
+        normalized_defaults: dict[str, tuple[Decimal, Decimal]] = {}
         for asset, amounts in (defaults or DEFAULT_DRAFT_BALANCE).items():
             normalized_asset = self._normalize_asset(asset)
+            normalized_defaults[normalized_asset] = amounts
+
+        self.repository.delete_for_bot_assets_not_in(
+            bot_id=bot_id,
+            assets=set(normalized_defaults),
+        )
+        for normalized_asset, amounts in normalized_defaults.items():
             available, locked = amounts
             self._validate_amounts(available=available, locked=locked)
             self.repository.upsert_for_bot_asset(

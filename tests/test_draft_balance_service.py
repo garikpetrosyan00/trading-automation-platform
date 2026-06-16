@@ -108,6 +108,29 @@ def test_apply_buy_fill_consumes_quote_locked_and_increases_base_available(db_se
     assert assets["BTC"].locked == Decimal("0E-8")
 
 
+def test_apply_buy_fill_rejects_insufficient_quote_locked_without_mutation(db_session, bot_stack_factory) -> None:
+    _, bot, _ = bot_stack_factory(db_session)
+    service = create_service(db_session)
+    service.reset_bot_draft_balance(bot.id)
+    service.reserve_bot_draft_balance_asset(bot.id, "USDT", Decimal("10"))
+
+    with pytest.raises(AppError) as exc_info:
+        service.apply_draft_balance_buy_fill(
+            bot.id,
+            base_asset="BTC",
+            quote_asset="USDT",
+            received_base_amount=Decimal("0.001"),
+            spent_quote_amount=Decimal("10.01"),
+        )
+
+    assert exc_info.value.error_code == "insufficient_draft_balance_locked"
+    assets = assets_by_symbol(service.get_bot_draft_balance(bot.id))
+    assert assets["USDT"].available == Decimal("9990.00000000")
+    assert assets["USDT"].locked == Decimal("10.00000000")
+    assert assets["USDT"].total == Decimal("10000.00000000")
+    assert assets["BTC"].available == Decimal("0E-8")
+
+
 def test_apply_sell_fill_consumes_base_locked_and_increases_quote_available(db_session, bot_stack_factory) -> None:
     _, bot, _ = bot_stack_factory(db_session)
     service = create_service(db_session)
@@ -132,6 +155,34 @@ def test_apply_sell_fill_consumes_base_locked_and_increases_quote_available(db_s
     assert assets["BTC"].locked == Decimal("0E-8")
     assert assets["USDT"].available == Decimal("10065.00000000")
     assert assets["USDT"].locked == Decimal("0E-8")
+
+
+def test_apply_sell_fill_rejects_insufficient_base_locked_without_mutation(db_session, bot_stack_factory) -> None:
+    _, bot, _ = bot_stack_factory(db_session)
+    service = create_service(db_session)
+    service.reset_bot_draft_balance(
+        bot.id,
+        defaults={
+            "BTC": (Decimal("0.004"), Decimal("0.001")),
+            "USDT": (Decimal("10000"), Decimal("0")),
+        },
+    )
+
+    with pytest.raises(AppError) as exc_info:
+        service.apply_draft_balance_sell_fill(
+            bot.id,
+            base_asset="BTC",
+            quote_asset="USDT",
+            sold_base_amount=Decimal("0.00100001"),
+            received_quote_amount=Decimal("65"),
+        )
+
+    assert exc_info.value.error_code == "insufficient_draft_balance_locked"
+    assets = assets_by_symbol(service.get_bot_draft_balance(bot.id))
+    assert assets["BTC"].available == Decimal("0.00400000")
+    assert assets["BTC"].locked == Decimal("0.00100000")
+    assert assets["BTC"].total == Decimal("0.00500000")
+    assert assets["USDT"].available == Decimal("10000.00000000")
 
 
 def test_buy_fill_creates_missing_base_asset_row(db_session, bot_stack_factory) -> None:

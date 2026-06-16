@@ -26,7 +26,9 @@ def test_get_draft_balance_before_reset_returns_empty_assets(
         response = client.get(f"/api/v1/bots/{bot_id}/draft-balance")
 
     assert response.status_code == 200
-    assert response.json() == {"bot_id": bot_id, "assets": []}
+    body = response.json()
+    assert set(body) == {"bot_id", "assets"}
+    assert body == {"bot_id": bot_id, "assets": []}
 
 
 def test_reset_draft_balance_creates_default_assets(
@@ -105,6 +107,72 @@ def test_decimal_values_are_returned_as_strings(
     assert response.json()["assets"] == [
         {"asset": "ETH", "available": "1.25", "locked": "0.75", "total": "2"}
     ]
+    assert all(isinstance(value, str) for value in response.json()["assets"][0].values())
+
+
+def test_reset_reinitializes_only_selected_bot_draft_balance(
+    db_session_factory,
+    stub_market_data_service,
+    noop_bot_runner,
+    bot_stack_factory,
+    configure_app_state,
+) -> None:
+    with db_session_factory() as session:
+        _, bot, _ = bot_stack_factory(session)
+        _, other_bot, _ = bot_stack_factory(session, name="Other Bot")
+        service = DraftBalanceService(DraftBalanceRepository(session), BotRepository(session))
+        service.reset_bot_draft_balance(
+            bot.id,
+            defaults={
+                "USDT": (Decimal("42"), Decimal("3")),
+                "ETH": (Decimal("1.5"), Decimal("0.25")),
+            },
+        )
+        service.reset_bot_draft_balance(
+            other_bot.id,
+            defaults={
+                "USDT": (Decimal("200"), Decimal("10")),
+                "ETH": (Decimal("2"), Decimal("0")),
+            },
+        )
+        bot_id = bot.id
+        other_bot_id = other_bot.id
+
+    configure_app_state(market_data_service=stub_market_data_service, bot_runner=noop_bot_runner)
+
+    with TestClient(app) as client:
+        response = client.post(f"/api/v1/bots/{bot_id}/draft-balance/reset")
+        other_response = client.get(f"/api/v1/bots/{other_bot_id}/draft-balance")
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "bot_id": bot_id,
+        "assets": [
+            {"asset": "BTC", "available": "0", "locked": "0", "total": "0"},
+            {"asset": "USDT", "available": "10000", "locked": "0", "total": "10000"},
+        ],
+    }
+    assert other_response.status_code == 200
+    assert other_response.json() == {
+        "bot_id": other_bot_id,
+        "assets": [
+            {"asset": "ETH", "available": "2", "locked": "0", "total": "2"},
+            {"asset": "USDT", "available": "200", "locked": "10", "total": "210"},
+        ],
+    }
+
+
+def test_public_draft_balance_api_remains_read_and_reset_only() -> None:
+    draft_routes = {
+        route.path: route.methods
+        for route in app.routes
+        if getattr(route, "path", "").startswith("/api/v1/bots/{bot_id}/draft-balance")
+    }
+
+    assert draft_routes == {
+        "/api/v1/bots/{bot_id}/draft-balance": {"GET"},
+        "/api/v1/bots/{bot_id}/draft-balance/reset": {"POST"},
+    }
 
 
 def test_missing_bot_returns_404(
