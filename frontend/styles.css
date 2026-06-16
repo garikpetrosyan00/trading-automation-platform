@@ -1278,6 +1278,7 @@ dd {
 .bot-settings-panel,
 .bot-performance-panel,
 .paper-portfolio-panel,
+.draft-balance-panel,
 .recent-paper-orders-panel,
 .recent-execution-attempts-panel,
 .execution-safety-panel,
@@ -1309,6 +1310,7 @@ dd {
 .bot-settings-content,
 .bot-performance-content,
 .paper-portfolio-content,
+.draft-balance-content,
 .recent-paper-orders-content,
 .recent-execution-attempts-content,
 .execution-safety-content,
@@ -1326,6 +1328,7 @@ dd {
 .bot-settings-content.empty,
 .bot-performance-content.empty,
 .paper-portfolio-content.empty,
+.draft-balance-content.empty,
 .recent-paper-orders-content.empty,
 .recent-execution-attempts-content.empty,
 .execution-safety-content.empty,
@@ -1342,6 +1345,7 @@ dd {
 .bot-settings-content.error,
 .bot-performance-content.error,
 .paper-portfolio-content.error,
+.draft-balance-content.error,
 .recent-paper-orders-content.error,
 .recent-execution-attempts-content.error,
 .execution-safety-content.error,
@@ -1356,6 +1360,7 @@ dd {
 .bot-settings-content.loading,
 .bot-performance-content.loading,
 .paper-portfolio-content.loading,
+.draft-balance-content.loading,
 .recent-paper-orders-content.loading,
 .recent-execution-attempts-content.loading,
 .execution-safety-content.loading,
@@ -1516,6 +1521,63 @@ dd {
 .paper-portfolio-position-grid {
   grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
   gap: 8px;
+}
+
+.draft-balance-heading {
+  align-items: flex-start;
+}
+
+.draft-balance-help {
+  margin: 4px 0 0;
+  color: var(--muted);
+  font-size: 0.78rem;
+  font-weight: 750;
+}
+
+.draft-balance-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.draft-balance-table th,
+.draft-balance-table td {
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--line);
+  text-align: left;
+  font-size: 0.84rem;
+  line-height: 1.35;
+}
+
+.draft-balance-table thead th {
+  color: var(--muted);
+  font-size: 0.74rem;
+  font-weight: 850;
+  text-transform: uppercase;
+}
+
+.draft-balance-table tbody th,
+.draft-balance-table tbody td {
+  font-weight: 750;
+}
+
+.draft-balance-table tbody tr:last-child th,
+.draft-balance-table tbody tr:last-child td {
+  border-bottom: 0;
+}
+
+.draft-balance-note {
+  margin: 12px 0 0;
+  color: var(--muted);
+  font-size: 0.84rem;
+  font-weight: 800;
+}
+
+.draft-balance-note.error {
+  color: var(--danger);
+}
+
+.draft-balance-content .form-message {
+  margin-top: 12px;
 }
 
 .recent-paper-orders-help {

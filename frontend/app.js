@@ -24,6 +24,7 @@ let selectedBotId = null;
 let selectedSummary = null;
 let selectedPerformance = null;
 let paperPortfolio = null;
+let draftBalance = null;
 let recentPaperOrders = [];
 let recentExecutionAttempts = [];
 let executionSafetyStatus = null;
@@ -34,6 +35,8 @@ let isLoadingBots = true;
 let isLoadingSummary = false;
 let isLoadingPerformance = false;
 let isLoadingPaperPortfolio = true;
+let isLoadingDraftBalance = false;
+let isResettingDraftBalance = false;
 let isLoadingRecentPaperOrders = false;
 let isLoadingRecentExecutionAttempts = false;
 let isLoadingExecutionSafety = false;
@@ -71,6 +74,7 @@ let botListError = "";
 let summaryError = "";
 let performanceError = "";
 let paperPortfolioError = "";
+let draftBalanceError = "";
 let recentPaperOrdersError = "";
 let recentExecutionAttemptsError = "";
 let executionSafetyError = "";
@@ -90,6 +94,8 @@ let strategyParametersMessage = "";
 let strategyParametersMessageType = "";
 let riskSettingsMessage = "";
 let riskSettingsMessageType = "";
+let draftBalanceMessage = "";
+let draftBalanceMessageType = "";
 let backtestMessage = "";
 let backtestMessageType = "";
 let backtestImportMessage = "";
@@ -185,13 +191,28 @@ const translations = {
     bot_performance_loading: "Loading performance…",
     bot_performance_select_bot: "Select a bot to view performance.",
     bot_performance_no_activity: "No activity recorded yet.",
-    draft_balance: "Draft Balance",
-    draft_balance_aria: "Draft Balance",
-    draft_balance_help: "Paper balance only. Not real exchange funds.",
+    paper_portfolio: "Paper Portfolio",
+    paper_portfolio_aria: "Paper Portfolio",
+    paper_portfolio_help: "Paper balance only. Not real exchange funds.",
     paper_portfolio_loading: "Loading paper portfolio…",
     paper_portfolio_unavailable: "Paper portfolio unavailable",
     paper_portfolio_empty: "No paper account activity yet.",
     paper_portfolio_no_open_positions: "No open positions.",
+    draft_balance: "Draft Balance",
+    draft_balance_aria: "Draft Balance",
+    draft_balance_help: "Bot-scoped simulated funds for future draft execution.",
+    draft_balance_loading: "Loading draft balance…",
+    draft_balance_unavailable: "Draft balance unavailable",
+    draft_balance_select_bot: "Select a bot to view draft balance.",
+    draft_balance_empty: "No draft balance initialized yet.",
+    draft_balance_reset: "Reset Draft Balance",
+    draft_balance_resetting: "Resetting…",
+    draft_balance_reset_success: "Draft balance reset.",
+    draft_balance_reset_failed: "Could not reset draft balance.",
+    draft_balance_asset_label: "Asset",
+    draft_balance_available_label: "Available",
+    draft_balance_locked_label: "Locked",
+    draft_balance_total_label: "Total",
     starting_balance_label: "Starting balance",
     positions_value_label: "Positions value",
     total_equity_label: "Total equity",
@@ -963,13 +984,28 @@ const translations = {
     bot_performance_loading: "Արդյունավետությունը բեռնվում է…",
     bot_performance_select_bot: "Ընտրիր Bot՝ արդյունավետությունը դիտելու համար։",
     bot_performance_no_activity: "Activity դեռ չի գրանցվել։",
-    draft_balance: "Փորձնական հաշվեկշիռ",
-    draft_balance_aria: "Փորձնական հաշվեկշիռ",
-    draft_balance_help: "Միայն paper հաշվեկշիռ է։ Իրական բորսայի միջոցներ չեն։",
+    paper_portfolio: "Paper պորտֆել",
+    paper_portfolio_aria: "Paper պորտֆել",
+    paper_portfolio_help: "Միայն paper հաշվեկշիռ է։ Իրական բորսայի միջոցներ չեն։",
     paper_portfolio_loading: "Paper պորտֆելը բեռնվում է…",
     paper_portfolio_unavailable: "Paper պորտֆելը հասանելի չէ",
     paper_portfolio_empty: "Paper հաշվում activity դեռ չկա։",
     paper_portfolio_no_open_positions: "Բաց position-ներ չկան։",
+    draft_balance: "Փորձնական հաշվեկշիռ",
+    draft_balance_aria: "Փորձնական հաշվեկշիռ",
+    draft_balance_help: "Bot-ի simulated միջոցներն են ապագա draft execution-ի համար։",
+    draft_balance_loading: "Փորձնական հաշվեկշիռը բեռնվում է…",
+    draft_balance_unavailable: "Փորձնական հաշվեկշիռը հասանելի չէ",
+    draft_balance_select_bot: "Ընտրիր Bot՝ փորձնական հաշվեկշիռը դիտելու համար։",
+    draft_balance_empty: "Փորձնական հաշվեկշիռը դեռ չի սկզբնավորվել։",
+    draft_balance_reset: "Վերակայել փորձնական հաշվեկշիռը",
+    draft_balance_resetting: "Վերակայվում է…",
+    draft_balance_reset_success: "Փորձնական հաշվեկշիռը վերակայվեց։",
+    draft_balance_reset_failed: "Չհաջողվեց վերակայել փորձնական հաշվեկշիռը։",
+    draft_balance_asset_label: "Asset",
+    draft_balance_available_label: "Հասանելի",
+    draft_balance_locked_label: "Locked",
+    draft_balance_total_label: "Ընդամենը",
     starting_balance_label: "Սկզբնական հաշվեկշիռ",
     positions_value_label: "Position-ների արժեք",
     total_equity_label: "Ընդհանուր equity",
@@ -1797,6 +1833,11 @@ const paperPortfolioPanel = document.querySelector(".paper-portfolio-panel");
 const paperPortfolioHeading = document.querySelector("#paper-portfolio-heading");
 const paperPortfolioHelp = document.querySelector("#paper-portfolio-help");
 const paperPortfolioContent = document.querySelector("#paper-portfolio-content");
+const draftBalancePanel = document.querySelector(".draft-balance-panel");
+const draftBalanceHeading = document.querySelector("#draft-balance-heading");
+const draftBalanceHelp = document.querySelector("#draft-balance-help");
+const draftBalanceReset = document.querySelector("#draft-balance-reset");
+const draftBalanceContent = document.querySelector("#draft-balance-content");
 const recentPaperOrdersPanel = document.querySelector(".recent-paper-orders-panel");
 const recentPaperOrdersHeading = document.querySelector("#recent-paper-orders-heading");
 const recentPaperOrdersHelp = document.querySelector("#recent-paper-orders-help");
@@ -2152,9 +2193,15 @@ function applyStaticTranslations() {
   selectedLastRunLabel.textContent = t("selected_last_run_label");
   botPerformancePanel?.setAttribute("aria-label", t("bot_performance_aria"));
   botPerformanceHeading.textContent = t("bot_performance");
-  paperPortfolioPanel?.setAttribute("aria-label", t("draft_balance_aria"));
-  paperPortfolioHeading.textContent = t("draft_balance");
-  paperPortfolioHelp.textContent = t("draft_balance_help");
+  paperPortfolioPanel?.setAttribute("aria-label", t("paper_portfolio_aria"));
+  paperPortfolioHeading.textContent = t("paper_portfolio");
+  paperPortfolioHelp.textContent = t("paper_portfolio_help");
+  draftBalancePanel?.setAttribute("aria-label", t("draft_balance_aria"));
+  draftBalanceHeading.textContent = t("draft_balance");
+  draftBalanceHelp.textContent = t("draft_balance_help");
+  draftBalanceReset.textContent = isResettingDraftBalance
+    ? t("draft_balance_resetting")
+    : t("draft_balance_reset");
   recentPaperOrdersPanel?.setAttribute("aria-label", t("recent_paper_orders_aria"));
   recentPaperOrdersHeading.textContent = t("recent_paper_orders");
   recentPaperOrdersHelp.textContent = t("recent_paper_orders_help");
@@ -2479,6 +2526,20 @@ function normalizePaperPortfolio(rawPortfolio) {
     openPositionCount: rawPortfolio.open_position_count ?? rawPortfolio.openPositionCount ?? rawPositions.length,
     updatedAt: rawPortfolio.updated_at ?? rawPortfolio.updatedAt ?? null,
     positions: rawPositions.map(normalizePaperPortfolioPosition),
+  };
+}
+
+function normalizeDraftBalance(rawBalance) {
+  if (!rawBalance || typeof rawBalance !== "object") return null;
+  const rawAssets = Array.isArray(rawBalance.assets) ? rawBalance.assets : [];
+  return {
+    botId: rawBalance.bot_id ?? rawBalance.botId ?? null,
+    assets: rawAssets.map((asset) => ({
+      asset: formatValue(asset?.asset),
+      available: firstAvailable(asset?.available, null),
+      locked: firstAvailable(asset?.locked, null),
+      total: firstAvailable(asset?.total, null),
+    })),
   };
 }
 
@@ -5922,6 +5983,55 @@ async function loadPaperPortfolio({ silent = false } = {}) {
   }
 }
 
+async function loadDraftBalance(botId, { silent = false } = {}) {
+  if (!botId) {
+    clearDraftBalance();
+    return;
+  }
+  isLoadingDraftBalance = true;
+  if (!silent) {
+    draftBalanceError = "";
+    draftBalanceMessage = "";
+    draftBalanceMessageType = "";
+  }
+  renderDraftBalance();
+
+  try {
+    draftBalance = normalizeDraftBalance(await fetchJson(`/api/v1/bots/${botId}/draft-balance`));
+    draftBalanceError = "";
+  } catch (error) {
+    draftBalance = null;
+    draftBalanceError = requestErrorMessage(error, t("draft_balance_unavailable"));
+  } finally {
+    isLoadingDraftBalance = false;
+    renderDraftBalance();
+  }
+}
+
+async function resetDraftBalance() {
+  if (!selectedBotId || isResettingDraftBalance) return;
+
+  isResettingDraftBalance = true;
+  draftBalanceMessage = "";
+  draftBalanceMessageType = "";
+  renderDraftBalance();
+
+  try {
+    await fetchJson(`/api/v1/bots/${selectedBotId}/draft-balance/reset`, {
+      method: "POST",
+    });
+    await loadDraftBalance(selectedBotId, { silent: true });
+    draftBalanceMessage = t("draft_balance_reset_success");
+    draftBalanceMessageType = "success";
+  } catch (error) {
+    draftBalanceMessage = requestErrorMessage(error, t("draft_balance_reset_failed"));
+    draftBalanceMessageType = "error";
+  } finally {
+    isResettingDraftBalance = false;
+    renderDraftBalance();
+  }
+}
+
 function applyPaperPortfolioResult(result) {
   if (result.status === "fulfilled") {
     paperPortfolio = normalizePaperPortfolio(result.value);
@@ -5931,6 +6041,17 @@ function applyPaperPortfolioResult(result) {
     paperPortfolioError = requestErrorMessage(result.reason, t("paper_portfolio_unavailable"));
   }
   isLoadingPaperPortfolio = false;
+}
+
+function applyDraftBalanceResult(result) {
+  if (result.status === "fulfilled") {
+    draftBalance = normalizeDraftBalance(result.value);
+    draftBalanceError = "";
+  } else {
+    draftBalance = null;
+    draftBalanceError = requestErrorMessage(result.reason, t("draft_balance_unavailable"));
+  }
+  isLoadingDraftBalance = false;
 }
 
 function applyRecentPaperOrdersResult(result) {
@@ -5995,6 +6116,15 @@ function clearRecentPaperOrders() {
   recentPaperOrders = [];
   recentPaperOrdersError = "";
   isLoadingRecentPaperOrders = false;
+}
+
+function clearDraftBalance() {
+  draftBalance = null;
+  draftBalanceError = "";
+  draftBalanceMessage = "";
+  draftBalanceMessageType = "";
+  isLoadingDraftBalance = false;
+  isResettingDraftBalance = false;
 }
 
 function clearRecentExecutionAttempts() {
@@ -6193,6 +6323,7 @@ function clearSelectedBotMessages() {
   selectedPerformance = null;
   performanceError = "";
   isLoadingPerformance = false;
+  clearDraftBalance();
   clearRecentPaperOrders();
   backtestStrategyTouched = false;
   isEditingStrategyParameters = false;
@@ -6252,6 +6383,7 @@ async function loadBots() {
       selectedPerformance = null;
       performanceError = "";
       isLoadingPerformance = false;
+      clearDraftBalance();
       clearRecentPaperOrders();
       clearExecutionSafety();
       await loadReconciliationWorkerStatus({ silent: true });
@@ -6266,6 +6398,7 @@ async function loadBots() {
     selectedExecutionProfile = null;
     performanceError = "";
     isLoadingPerformance = false;
+    clearDraftBalance();
     clearRecentPaperOrders();
     clearExecutionSafety();
     isLoadingBots = false;
@@ -6293,6 +6426,7 @@ async function refreshSelectedData() {
   if (selectedBotId) {
     isLoadingPerformance = true;
     isLoadingPaperPortfolio = true;
+    isLoadingDraftBalance = true;
     isLoadingRecentPaperOrders = true;
     isLoadingRecentExecutionAttempts = true;
     isLoadingExecutionSafety = true;
@@ -6303,6 +6437,7 @@ async function refreshSelectedData() {
       configResult,
       performanceResult,
       portfolioResult,
+      draftBalanceResult,
       ordersResult,
       executionAttemptsResult,
       executionSafetyResult,
@@ -6313,6 +6448,7 @@ async function refreshSelectedData() {
       fetchJson(`/api/v1/bots/${selectedBotId}`),
       fetchJson(`/api/v1/bots/${selectedBotId}/performance`),
       fetchJson("/api/v1/paper-portfolio"),
+      fetchJson(`/api/v1/bots/${selectedBotId}/draft-balance`),
       fetchJson(`/api/v1/bots/${selectedBotId}/orders?limit=10`),
       fetchJson(`/api/v1/bots/${selectedBotId}/execution-attempts?limit=10`),
       fetchJson(`/api/v1/bots/${selectedBotId}/execution-safety/status`),
@@ -6321,6 +6457,7 @@ async function refreshSelectedData() {
     ]);
 
     applyPaperPortfolioResult(portfolioResult);
+    applyDraftBalanceResult(draftBalanceResult);
     applyRecentPaperOrdersResult(ordersResult);
     applyRecentExecutionAttemptsResult(executionAttemptsResult);
     applyExecutionSafetyResult(executionSafetyResult);
@@ -6354,6 +6491,7 @@ async function refreshSelectedData() {
     selectedExecutionProfile = null;
     selectedPerformance = null;
     await loadPaperPortfolio({ silent: true });
+    clearDraftBalance();
     performanceError = "";
     isLoadingPerformance = false;
     clearRecentPaperOrders();
@@ -6394,6 +6532,7 @@ async function refreshDashboardData({ silent = false } = {}) {
     if (selectedBotId) {
       isLoadingPerformance = true;
       isLoadingPaperPortfolio = true;
+      isLoadingDraftBalance = true;
       isLoadingRecentPaperOrders = true;
       isLoadingRecentExecutionAttempts = true;
       isLoadingExecutionSafety = true;
@@ -6404,6 +6543,7 @@ async function refreshDashboardData({ silent = false } = {}) {
         configResult,
         performanceResult,
         portfolioResult,
+        draftBalanceResult,
         ordersResult,
         executionAttemptsResult,
         executionSafetyResult,
@@ -6414,6 +6554,7 @@ async function refreshDashboardData({ silent = false } = {}) {
         fetchJson(`/api/v1/bots/${selectedBotId}`),
         fetchJson(`/api/v1/bots/${selectedBotId}/performance`),
         fetchJson("/api/v1/paper-portfolio"),
+        fetchJson(`/api/v1/bots/${selectedBotId}/draft-balance`),
         fetchJson(`/api/v1/bots/${selectedBotId}/orders?limit=10`),
         fetchJson(`/api/v1/bots/${selectedBotId}/execution-attempts?limit=10`),
         fetchJson(`/api/v1/bots/${selectedBotId}/execution-safety/status`),
@@ -6422,6 +6563,7 @@ async function refreshDashboardData({ silent = false } = {}) {
       ]);
 
       applyPaperPortfolioResult(portfolioResult);
+      applyDraftBalanceResult(draftBalanceResult);
       applyRecentPaperOrdersResult(ordersResult);
       applyRecentExecutionAttemptsResult(executionAttemptsResult);
       applyExecutionSafetyResult(executionSafetyResult);
@@ -6455,6 +6597,7 @@ async function refreshDashboardData({ silent = false } = {}) {
       selectedExecutionProfile = null;
       selectedPerformance = null;
       await loadPaperPortfolio({ silent: true });
+      clearDraftBalance();
       performanceError = "";
       isLoadingPerformance = false;
       clearRecentPaperOrders();
@@ -6477,6 +6620,7 @@ async function refreshDashboardData({ silent = false } = {}) {
     isRefreshing = false;
     isLoadingPerformance = false;
     isLoadingPaperPortfolio = false;
+    isLoadingDraftBalance = false;
     isLoadingRecentPaperOrders = false;
     isLoadingRecentExecutionAttempts = false;
     isLoadingExecutionSafety = false;
@@ -8219,6 +8363,7 @@ async function loadSelectedSummary(botId) {
   isLoadingSummary = true;
   isLoadingPerformance = true;
   isLoadingPaperPortfolio = true;
+  isLoadingDraftBalance = true;
   isLoadingRecentPaperOrders = true;
   isLoadingRecentExecutionAttempts = true;
   isLoadingExecutionSafety = true;
@@ -8237,6 +8382,7 @@ async function loadSelectedSummary(botId) {
       profileResult,
       performanceResult,
       portfolioResult,
+      draftBalanceResult,
       ordersResult,
       executionAttemptsResult,
       executionSafetyResult,
@@ -8248,6 +8394,7 @@ async function loadSelectedSummary(botId) {
       fetchJson(`/api/v1/bots/${botId}/execution-profile`),
       fetchJson(`/api/v1/bots/${botId}/performance`),
       fetchJson("/api/v1/paper-portfolio"),
+      fetchJson(`/api/v1/bots/${botId}/draft-balance`),
       fetchJson(`/api/v1/bots/${botId}/orders?limit=10`),
       fetchJson(`/api/v1/bots/${botId}/execution-attempts?limit=10`),
       fetchJson(`/api/v1/bots/${botId}/execution-safety/status`),
@@ -8256,6 +8403,7 @@ async function loadSelectedSummary(botId) {
     ]);
 
     applyPaperPortfolioResult(portfolioResult);
+    applyDraftBalanceResult(draftBalanceResult);
     applyRecentPaperOrdersResult(ordersResult);
     applyRecentExecutionAttemptsResult(executionAttemptsResult);
     applyExecutionSafetyResult(executionSafetyResult);
@@ -8283,6 +8431,7 @@ async function loadSelectedSummary(botId) {
     selectedPerformance = null;
     selectedBotConfig = null;
     selectedExecutionProfile = null;
+    clearDraftBalance();
     clearRecentPaperOrders();
     clearRecentExecutionAttempts();
     clearExecutionSafety();
@@ -8291,6 +8440,7 @@ async function loadSelectedSummary(botId) {
     isLoadingSummary = false;
     isLoadingPerformance = false;
     isLoadingPaperPortfolio = false;
+    isLoadingDraftBalance = false;
     isLoadingRecentPaperOrders = false;
     isLoadingRecentExecutionAttempts = false;
     isLoadingExecutionSafety = false;
@@ -8880,6 +9030,95 @@ function renderPaperPortfolio() {
     error.className = "paper-portfolio-note error";
     error.textContent = paperPortfolioError;
     paperPortfolioContent.append(error);
+  }
+}
+
+function renderDraftBalance() {
+  draftBalanceContent.innerHTML = "";
+  draftBalanceReset.textContent = isResettingDraftBalance
+    ? t("draft_balance_resetting")
+    : t("draft_balance_reset");
+  draftBalanceReset.disabled = !selectedBotId || isLoadingSummary || isResettingDraftBalance;
+
+  if (!selectedBotId) {
+    draftBalanceContent.textContent = t("draft_balance_select_bot");
+    draftBalanceContent.className = "draft-balance-content empty";
+    return;
+  }
+
+  if (isLoadingDraftBalance && !draftBalance) {
+    draftBalanceContent.textContent = t("draft_balance_loading");
+    draftBalanceContent.className = "draft-balance-content empty loading";
+    return;
+  }
+
+  if (draftBalanceError && !draftBalance) {
+    draftBalanceContent.textContent = draftBalanceError;
+    draftBalanceContent.className = "draft-balance-content empty error";
+    return;
+  }
+
+  if (!draftBalance || !Array.isArray(draftBalance.assets) || draftBalance.assets.length === 0) {
+    draftBalanceContent.textContent = t("draft_balance_empty");
+    draftBalanceContent.className = "draft-balance-content empty";
+    if (draftBalanceMessage) {
+      const message = document.createElement("p");
+      message.className = draftBalanceMessageType ? `form-message ${draftBalanceMessageType}` : "form-message";
+      message.textContent = draftBalanceMessage;
+      draftBalanceContent.append(message);
+    }
+    return;
+  }
+
+  draftBalanceContent.className = "draft-balance-content";
+
+  const table = document.createElement("table");
+  table.className = "draft-balance-table";
+
+  const head = document.createElement("thead");
+  const headRow = document.createElement("tr");
+  [
+    t("draft_balance_asset_label"),
+    t("draft_balance_available_label"),
+    t("draft_balance_locked_label"),
+    t("draft_balance_total_label"),
+  ].forEach((labelText) => {
+    const cell = document.createElement("th");
+    cell.scope = "col";
+    cell.textContent = labelText;
+    headRow.append(cell);
+  });
+  head.append(headRow);
+
+  const body = document.createElement("tbody");
+  draftBalance.assets.forEach((asset) => {
+    const row = document.createElement("tr");
+    [asset.asset, asset.available, asset.locked, asset.total].forEach((value) => {
+      const cell = document.createElement(row.children.length === 0 ? "th" : "td");
+      if (row.children.length === 0) {
+        cell.scope = "row";
+      }
+      cell.textContent = formatValue(value);
+      row.append(cell);
+    });
+    body.append(row);
+  });
+
+  table.append(head, body);
+  draftBalanceContent.append(table);
+
+  if (draftBalanceError) {
+    const error = document.createElement("p");
+    error.className = "draft-balance-note error";
+    error.textContent = draftBalanceError;
+    draftBalanceContent.append(error);
+  }
+
+  if (draftBalanceMessage) {
+    const message = document.createElement("p");
+    message.className = draftBalanceMessageType ? `form-message ${draftBalanceMessageType}` : "form-message";
+    message.textContent = draftBalanceMessage;
+    draftBalanceContent.append(message);
   }
 }
 
@@ -10112,6 +10351,7 @@ function render() {
   renderSummary();
   renderBotPerformance();
   renderPaperPortfolio();
+  renderDraftBalance();
   renderRecentPaperOrders();
   renderRecentExecutionAttempts();
   renderExecutionSafety();
@@ -10182,6 +10422,7 @@ pauseResume.addEventListener("click", togglePauseResume);
 runNow.addEventListener("click", runSelectedBotNow);
 editBot.addEventListener("click", openEditBotForm);
 deleteBot.addEventListener("click", deleteSelectedBot);
+draftBalanceReset.addEventListener("click", resetDraftBalance);
 editBotCancel.addEventListener("click", closeEditBotForm);
 editStrategyParameters.addEventListener("click", openStrategyParametersForm);
 strategyParametersCancel.addEventListener("click", closeStrategyParametersForm);
