@@ -6,6 +6,7 @@ from app.api.v1.endpoints.backtests import router as backtests_router
 from app.api.v1.endpoints.bots import router as bots_router
 from app.api.v1.endpoints.bot_runtime import router as bot_runtime_router
 from app.api.v1.endpoints.bot_runs import router as bot_runs_router
+from app.api.v1.endpoints.draft_balance import router as draft_balance_router
 from app.api.v1.endpoints.execution import router as execution_router
 from app.api.v1.endpoints.execution_safety import router as execution_safety_router
 from app.api.v1.endpoints.market import router as market_router
@@ -26,6 +27,7 @@ router.include_router(portfolio_router, tags=["portfolio"])
 router.include_router(paper_portfolio_router, tags=["paper-portfolio"])
 router.include_router(execution_router, tags=["execution"])
 router.include_router(execution_safety_router, tags=["execution-safety"])
+router.include_router(draft_balance_router, tags=["draft-balance"])
 router.include_router(orders_router, tags=["orders"])
 router.include_router(market_router, tags=["market"])
 router.include_router(backtests_router, prefix="/backtests", tags=["backtests"])

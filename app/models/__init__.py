@@ -3,6 +3,7 @@ from app.models.alert_rule import AlertRule
 from app.models.backtest_run import BacktestRun
 from app.models.bot import Bot
 from app.models.bot_run import BotRun
+from app.models.draft_balance import DraftBalance
 from app.models.execution_profile import ExecutionProfile
 from app.models.execution_attempt import ExecutionAttempt
 from app.models.execution_daily_quota_usage import ExecutionDailyQuotaUsage
@@ -22,6 +23,7 @@ __all__ = [
     "Strategy",
     "BacktestRun",
     "Bot",
+    "DraftBalance",
     "ExecutionProfile",
     "ExecutionAttempt",
     "ExecutionDailyQuotaUsage",

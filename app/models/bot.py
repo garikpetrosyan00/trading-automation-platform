@@ -63,3 +63,7 @@ class Bot(Base):
         back_populates="bot",
         cascade="all, delete-orphan",
     )
+    draft_balances: Mapped[list["DraftBalance"]] = relationship(
+        back_populates="bot",
+        cascade="all, delete-orphan",
+    )
