@@ -207,6 +207,47 @@ Example paused output:
 
 Use this CLI for controlled one-shot runner checks. Do not use the long-running runner for manual smoke verification unless explicitly testing runner lifecycle. For paper runtime smoke, set local market price through the existing local price API first if a strategy trigger is needed.
 
+## Safe paper demo checklist
+
+Use this checklist before presenting the dashboard or paper runtime flow:
+
+- confirm the repository is clean with `git status --short`
+- start the local Docker Compose stack
+- verify `http://127.0.0.1:8000/health` returns OK
+- verify the API container database is at the current Alembic head
+- confirm the bot runner and reconciliation worker are disabled unless that lifecycle is the explicit demo subject
+
+Paper dashboard demo:
+
+- use paper bots only
+- keep testnet and live bots paused
+- confirm the dashboard does not auto-fetch Binance prices on startup
+- use the Draft Balance and Recent Paper Orders cards as safe paper-mode views
+- use explicit Binance price buttons only when intentionally demonstrating market-data fetches
+
+One-shot runner demo:
+
+```bash
+docker-compose exec -T api python -m app.cli.run_bot_runner_once --bot-id <paper_bot_id>
+```
+
+For paused bots, the expected result is safe skipped JSON with no orders, fills, or execution attempts created. Do not use the long-running runner for simple demo checks.
+
+Draft Balance reset guidance:
+
+- reset affects only the selected bot's Draft Balance
+- reset does not delete paper orders or execution attempts
+- reset does not touch Binance, testnet, live, reconciliation, or worker paths
+
+Safety checklist before any demo:
+
+- no Binance, testnet, or live order submission
+- no reconciliation worker started
+- no unexpected `/api/v1/market/binance/price` calls
+- no credentials, secrets, tokens, headers, signed query data, raw payloads, or raw responses in public dashboard/API output
+
+Current known smoke bot: bot `6` is a paused paper smoke bot from the controlled BUY/SELL verification. Keep it paused unless intentionally using it for paper-only smoke.
+
 ## Binance testnet reconciliation command
 
 This internal command processes one bounded batch of delayed Binance Spot testnet reconciliation jobs and exits:
