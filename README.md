@@ -149,6 +149,18 @@ For paper execution with a real bot, BUY reserves the quote asset before paper p
 
 Binance/testnet/live execution, broker submission, bot runner implementation, reconciliation jobs, and workers are not wired to Draft Balance.
 
+### Manual runtime smoke closeout
+
+Draft Balance manual runtime smoke has been completed and closed out on the local Docker/API runtime. The controlled paper bot used for the final smoke was bot `6`, `BTCUSDT`, paper mode. It was paused after the smoke so it cannot accidentally continue running.
+
+The BUY smoke used a local-only `BTCUSDT` market price of `50`. The paper BUY filled, Draft Balance BTC increased to `0.01`, and USDT decreased according to the paper fill, fee, and slippage rules. The SELL smoke used a local-only `BTCUSDT` market price of `250`. The paper SELL filled, Draft Balance BTC returned to `0`, and USDT increased to `10001.995501`.
+
+The audit trail remained readable after cleanup: paper orders `6` and `7`, and paper execution attempts `6` and `7`, were preserved. Reconciliation stayed untouched: reconciliation jobs remained empty and the reconciliation worker stayed disabled/uninitialized.
+
+Dashboard safety was also verified. The dashboard no longer auto-fetches Binance prices on startup, paper dashboard smoke no longer makes an automatic `/api/v1/market/binance/price` request, and explicit Binance price controls remain available for operator-triggered market-data fetches.
+
+Safety closeout: no Binance/testnet/live order path was touched, no secrets or internal tokens were exposed in public API/dashboard output, the smoke bot was paused, and the repository was clean after verification.
+
 ## Binance testnet reconciliation command
 
 This internal command processes one bounded batch of delayed Binance Spot testnet reconciliation jobs and exits:
