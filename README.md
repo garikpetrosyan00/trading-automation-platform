@@ -161,6 +161,52 @@ Dashboard safety was also verified. The dashboard no longer auto-fetches Binance
 
 Safety closeout: no Binance/testnet/live order path was touched, no secrets or internal tokens were exposed in public API/dashboard output, the smoke bot was paused, and the repository was clean after verification.
 
+## One-shot paper runner CLI
+
+Use this operator CLI for controlled one-shot paper runner checks:
+
+```bash
+.venv/bin/python -m app.cli.run_bot_runner_once --bot-id <id>
+```
+
+In this project setup, the host `.env` may resolve the database host as `postgres`, which can fail from a host shell. Runtime/operator verification should usually run inside the API container:
+
+```bash
+docker-compose exec -T api python -m app.cli.run_bot_runner_once --bot-id <id>
+```
+
+Safety behavior:
+
+- runs exactly one selected bot evaluation and exits
+- paper mode only by default
+- refuses testnet, live, and other non-paper bots
+- respects the paused bot guard
+- for paused bots, returns safe skipped JSON and creates no orders, fills, or execution attempts
+- does not start the long-running runner loop
+- does not start the reconciliation worker
+- does not contact Binance by itself
+- does not print credentials, raw payloads, headers, signed query data, broker internals, or tokens
+
+Example paused output:
+
+```json
+{
+  "action": "bot_paused",
+  "bot_id": 6,
+  "executed": false,
+  "execution_attempts_created": 0,
+  "execution_mode": "paper",
+  "paper_fills_created": 0,
+  "paper_orders_created": 0,
+  "record_noop_events": false,
+  "result": "skipped",
+  "skipped": true,
+  "status": "paused"
+}
+```
+
+Use this CLI for controlled one-shot runner checks. Do not use the long-running runner for manual smoke verification unless explicitly testing runner lifecycle. For paper runtime smoke, set local market price through the existing local price API first if a strategy trigger is needed.
+
 ## Binance testnet reconciliation command
 
 This internal command processes one bounded batch of delayed Binance Spot testnet reconciliation jobs and exits:
