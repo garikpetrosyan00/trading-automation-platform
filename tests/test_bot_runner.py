@@ -1861,9 +1861,12 @@ def test_paused_bot_is_skipped_by_runner_and_does_not_place_buy_orders(
     asyncio.run(runner.run_cycle())
 
     repository = PortfolioRepository(db_session)
+    attempts = ExecutionAttemptRepository(db_session).list_filtered(bot_id=bot.id, limit=10)
     events = RunEventRepository(db_session).list_for_bot(bot.id)
 
     assert repository.list_orders() == []
+    assert repository.list_fills() == []
+    assert attempts == []
     assert any(event.message == "bot_paused" for event in events)
     assert [event.message for event in events].count("bot_skipped_paused") == 0
 
