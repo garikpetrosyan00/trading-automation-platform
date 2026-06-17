@@ -10626,6 +10626,5 @@ document.documentElement.lang = currentLanguage === "am" ? "hy" : "en";
 renderLanguageSwitcher();
 applyStaticTranslations();
 updateLiveMarketAutoRefresh();
-refreshLiveMarket();
 loadBots();
 loadStrategies();
