@@ -163,6 +163,16 @@ The selected-bot dashboard shows the Paper Position / PnL card between Paper Por
 
 Safety boundaries: this is paper-mode accounting only, uses cached local market data only, does not contact Binance, does not change live/testnet behavior or runner/scheduler behavior, and does not expose secrets or internal execution metadata.
 
+### Paper Position / PnL runtime smoke closeout
+
+The controlled runtime smoke passed with paused paper bot `6`, `Draft Balance BTC BUY Smoke Bot 20260617-1422`, after upgrading the local database from migration `20260616_0029` to `20260618_0030`.
+
+- BUY at local price `50` created paper order `8` and fill `7`. Draft Balance moved from BTC `0` / USDT `10001.995501` to BTC `0.01` / USDT `10001.49475075`. Paper Position quantity moved from `0` to `0.01` with average entry `50.075025`.
+- At local price `150`, position value was `1.5` and unrealized PnL was `0.99924975`.
+- SELL at local price `250` created paper order `9` and fill `8`. Draft Balance returned to BTC `0` and USDT `10003.991002`. Paper Position closed with quantity `0`, average entry `0`, and realized PnL preserved at `1.995501`.
+
+Final safety state: bot `6` remained paper mode and was paused. A pre-existing Binance WebSocket-enabled API was stopped before trade actions; the smoke API ran with market data, bot runner, testnet, and reconciliation workers disabled and was stopped afterward. No Binance endpoints, live/testnet commands, or runner/scheduler loops were used. Only PostgreSQL remained running, and the repository remained clean.
+
 ### Manual runtime smoke closeout
 
 Draft Balance manual runtime smoke has been completed and closed out on the local Docker/API runtime. The controlled paper bot used for the final smoke was bot `6`, `BTCUSDT`, paper mode. It was paused after the smoke so it cannot accidentally continue running.
