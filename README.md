@@ -149,6 +149,20 @@ For paper execution with a real bot, BUY reserves the quote asset before paper p
 
 Binance/testnet/live execution, broker submission, bot runner implementation, reconciliation jobs, and workers are not wired to Draft Balance.
 
+## Paper Position / PnL checkpoint
+
+Migration `20260618_0030` adds bot-scoped paper positions keyed by bot and symbol. Each position tracks `symbol`, `base_asset`, `quote_asset`, `quantity`, `average_entry_price`, and `realized_pnl`. When a cached local market price is available, the read view also includes optional `market_price`, `unrealized_pnl`, and `position_value`.
+
+Paper BUY fills increase quantity and recalculate the weighted average entry price without changing realized PnL. Paper SELL fills reject overselling without mutation, decrease quantity, and realize PnL from the average cost basis. When quantity reaches zero, average entry resets safely to zero. Position updates are committed atomically with the paper order/fill, portfolio accounting, and Draft Balance mutation.
+
+The public read-only endpoint is:
+
+- `GET /api/v1/bots/{bot_id}/paper-position`
+
+The selected-bot dashboard shows the Paper Position / PnL card between Paper Portfolio and Draft Balance. Missing local prices do not fail the request; market-derived fields remain unavailable until a cached local price exists.
+
+Safety boundaries: this is paper-mode accounting only, uses cached local market data only, does not contact Binance, does not change live/testnet behavior or runner/scheduler behavior, and does not expose secrets or internal execution metadata.
+
 ### Manual runtime smoke closeout
 
 Draft Balance manual runtime smoke has been completed and closed out on the local Docker/API runtime. The controlled paper bot used for the final smoke was bot `6`, `BTCUSDT`, paper mode. It was paused after the smoke so it cannot accidentally continue running.
