@@ -24,6 +24,7 @@ let selectedBotId = null;
 let selectedSummary = null;
 let selectedPerformance = null;
 let paperPortfolio = null;
+let paperPosition = null;
 let draftBalance = null;
 let recentPaperOrders = [];
 let recentExecutionAttempts = [];
@@ -35,6 +36,7 @@ let isLoadingBots = true;
 let isLoadingSummary = false;
 let isLoadingPerformance = false;
 let isLoadingPaperPortfolio = true;
+let isLoadingPaperPosition = false;
 let isLoadingDraftBalance = false;
 let isResettingDraftBalance = false;
 let isLoadingRecentPaperOrders = false;
@@ -74,6 +76,7 @@ let botListError = "";
 let summaryError = "";
 let performanceError = "";
 let paperPortfolioError = "";
+let paperPositionError = "";
 let draftBalanceError = "";
 let recentPaperOrdersError = "";
 let recentExecutionAttemptsError = "";
@@ -198,6 +201,16 @@ const translations = {
     paper_portfolio_unavailable: "Paper portfolio unavailable",
     paper_portfolio_empty: "No paper account activity yet.",
     paper_portfolio_no_open_positions: "No open positions.",
+    paper_position: "Paper Position / PnL",
+    paper_position_aria: "Paper Position / PnL",
+    paper_position_help: "Read-only bot-scoped paper position and profit/loss.",
+    paper_position_loading: "Loading paper position…",
+    paper_position_unavailable: "Paper position unavailable",
+    paper_position_select_bot: "Select a bot to view its paper position.",
+    paper_position_local_price_unavailable: "Local price unavailable",
+    paper_position_assets_label: "Assets",
+    paper_position_position_value_label: "Position value",
+    paper_position_updated_label: "Updated",
     draft_balance: "Draft Balance",
     draft_balance_aria: "Draft Balance",
     draft_balance_help: "Bot-scoped simulated funds for future draft execution.",
@@ -991,6 +1004,16 @@ const translations = {
     paper_portfolio_unavailable: "Paper պորտֆելը հասանելի չէ",
     paper_portfolio_empty: "Paper հաշվում activity դեռ չկա։",
     paper_portfolio_no_open_positions: "Բաց position-ներ չկան։",
+    paper_position: "Paper position / PnL",
+    paper_position_aria: "Paper position / PnL",
+    paper_position_help: "Bot-ի paper position-ը և profit/loss-ը՝ միայն դիտելու համար։",
+    paper_position_loading: "Paper position-ը բեռնվում է…",
+    paper_position_unavailable: "Paper position-ը հասանելի չէ",
+    paper_position_select_bot: "Ընտրիր Bot՝ paper position-ը դիտելու համար։",
+    paper_position_local_price_unavailable: "Տեղային գինը հասանելի չէ",
+    paper_position_assets_label: "Asset-ներ",
+    paper_position_position_value_label: "Position-ի արժեք",
+    paper_position_updated_label: "Թարմացվել է",
     draft_balance: "Փորձնական հաշվեկշիռ",
     draft_balance_aria: "Փորձնական հաշվեկշիռ",
     draft_balance_help: "Bot-ի simulated միջոցներն են ապագա draft execution-ի համար։",
@@ -1833,6 +1856,10 @@ const paperPortfolioPanel = document.querySelector(".paper-portfolio-panel");
 const paperPortfolioHeading = document.querySelector("#paper-portfolio-heading");
 const paperPortfolioHelp = document.querySelector("#paper-portfolio-help");
 const paperPortfolioContent = document.querySelector("#paper-portfolio-content");
+const paperPositionPanel = document.querySelector(".paper-position-panel");
+const paperPositionHeading = document.querySelector("#paper-position-heading");
+const paperPositionHelp = document.querySelector("#paper-position-help");
+const paperPositionContent = document.querySelector("#paper-position-content");
 const draftBalancePanel = document.querySelector(".draft-balance-panel");
 const draftBalanceHeading = document.querySelector("#draft-balance-heading");
 const draftBalanceHelp = document.querySelector("#draft-balance-help");
@@ -2196,6 +2223,9 @@ function applyStaticTranslations() {
   paperPortfolioPanel?.setAttribute("aria-label", t("paper_portfolio_aria"));
   paperPortfolioHeading.textContent = t("paper_portfolio");
   paperPortfolioHelp.textContent = t("paper_portfolio_help");
+  paperPositionPanel?.setAttribute("aria-label", t("paper_position_aria"));
+  paperPositionHeading.textContent = t("paper_position");
+  paperPositionHelp.textContent = t("paper_position_help");
   draftBalancePanel?.setAttribute("aria-label", t("draft_balance_aria"));
   draftBalanceHeading.textContent = t("draft_balance");
   draftBalanceHelp.textContent = t("draft_balance_help");
@@ -2540,6 +2570,23 @@ function normalizeDraftBalance(rawBalance) {
       locked: firstAvailable(asset?.locked, null),
       total: firstAvailable(asset?.total, null),
     })),
+  };
+}
+
+function normalizePaperPosition(rawPosition) {
+  if (!rawPosition || typeof rawPosition !== "object") return null;
+  return {
+    botId: rawPosition.bot_id ?? rawPosition.botId ?? null,
+    symbol: rawPosition.symbol ?? "",
+    baseAsset: rawPosition.base_asset ?? rawPosition.baseAsset ?? "",
+    quoteAsset: rawPosition.quote_asset ?? rawPosition.quoteAsset ?? "",
+    quantity: rawPosition.quantity ?? null,
+    averageEntryPrice: rawPosition.average_entry_price ?? rawPosition.averageEntryPrice ?? null,
+    realizedPnl: rawPosition.realized_pnl ?? rawPosition.realizedPnl ?? null,
+    marketPrice: rawPosition.market_price ?? rawPosition.marketPrice ?? null,
+    unrealizedPnl: rawPosition.unrealized_pnl ?? rawPosition.unrealizedPnl ?? null,
+    positionValue: rawPosition.position_value ?? rawPosition.positionValue ?? null,
+    updatedAt: rawPosition.updated_at ?? rawPosition.updatedAt ?? null,
   };
 }
 
@@ -6043,6 +6090,17 @@ function applyPaperPortfolioResult(result) {
   isLoadingPaperPortfolio = false;
 }
 
+function applyPaperPositionResult(result) {
+  if (result.status === "fulfilled") {
+    paperPosition = normalizePaperPosition(result.value);
+    paperPositionError = "";
+  } else {
+    paperPosition = null;
+    paperPositionError = requestErrorMessage(result.reason, t("paper_position_unavailable"));
+  }
+  isLoadingPaperPosition = false;
+}
+
 function applyDraftBalanceResult(result) {
   if (result.status === "fulfilled") {
     draftBalance = normalizeDraftBalance(result.value);
@@ -6125,6 +6183,12 @@ function clearDraftBalance() {
   draftBalanceMessageType = "";
   isLoadingDraftBalance = false;
   isResettingDraftBalance = false;
+}
+
+function clearPaperPosition() {
+  paperPosition = null;
+  paperPositionError = "";
+  isLoadingPaperPosition = false;
 }
 
 function clearRecentExecutionAttempts() {
@@ -6323,6 +6387,7 @@ function clearSelectedBotMessages() {
   selectedPerformance = null;
   performanceError = "";
   isLoadingPerformance = false;
+  clearPaperPosition();
   clearDraftBalance();
   clearRecentPaperOrders();
   backtestStrategyTouched = false;
@@ -6383,6 +6448,7 @@ async function loadBots() {
       selectedPerformance = null;
       performanceError = "";
       isLoadingPerformance = false;
+      clearPaperPosition();
       clearDraftBalance();
       clearRecentPaperOrders();
       clearExecutionSafety();
@@ -6398,6 +6464,7 @@ async function loadBots() {
     selectedExecutionProfile = null;
     performanceError = "";
     isLoadingPerformance = false;
+    clearPaperPosition();
     clearDraftBalance();
     clearRecentPaperOrders();
     clearExecutionSafety();
@@ -6426,6 +6493,7 @@ async function refreshSelectedData() {
   if (selectedBotId) {
     isLoadingPerformance = true;
     isLoadingPaperPortfolio = true;
+    isLoadingPaperPosition = true;
     isLoadingDraftBalance = true;
     isLoadingRecentPaperOrders = true;
     isLoadingRecentExecutionAttempts = true;
@@ -6437,6 +6505,7 @@ async function refreshSelectedData() {
       configResult,
       performanceResult,
       portfolioResult,
+      paperPositionResult,
       draftBalanceResult,
       ordersResult,
       executionAttemptsResult,
@@ -6448,6 +6517,7 @@ async function refreshSelectedData() {
       fetchJson(`/api/v1/bots/${selectedBotId}`),
       fetchJson(`/api/v1/bots/${selectedBotId}/performance`),
       fetchJson("/api/v1/paper-portfolio"),
+      fetchJson(`/api/v1/bots/${selectedBotId}/paper-position`),
       fetchJson(`/api/v1/bots/${selectedBotId}/draft-balance`),
       fetchJson(`/api/v1/bots/${selectedBotId}/orders?limit=10`),
       fetchJson(`/api/v1/bots/${selectedBotId}/execution-attempts?limit=10`),
@@ -6457,6 +6527,7 @@ async function refreshSelectedData() {
     ]);
 
     applyPaperPortfolioResult(portfolioResult);
+    applyPaperPositionResult(paperPositionResult);
     applyDraftBalanceResult(draftBalanceResult);
     applyRecentPaperOrdersResult(ordersResult);
     applyRecentExecutionAttemptsResult(executionAttemptsResult);
@@ -6491,6 +6562,7 @@ async function refreshSelectedData() {
     selectedExecutionProfile = null;
     selectedPerformance = null;
     await loadPaperPortfolio({ silent: true });
+    clearPaperPosition();
     clearDraftBalance();
     performanceError = "";
     isLoadingPerformance = false;
@@ -6532,6 +6604,7 @@ async function refreshDashboardData({ silent = false } = {}) {
     if (selectedBotId) {
       isLoadingPerformance = true;
       isLoadingPaperPortfolio = true;
+      isLoadingPaperPosition = true;
       isLoadingDraftBalance = true;
       isLoadingRecentPaperOrders = true;
       isLoadingRecentExecutionAttempts = true;
@@ -6543,6 +6616,7 @@ async function refreshDashboardData({ silent = false } = {}) {
         configResult,
         performanceResult,
         portfolioResult,
+        paperPositionResult,
         draftBalanceResult,
         ordersResult,
         executionAttemptsResult,
@@ -6554,6 +6628,7 @@ async function refreshDashboardData({ silent = false } = {}) {
         fetchJson(`/api/v1/bots/${selectedBotId}`),
         fetchJson(`/api/v1/bots/${selectedBotId}/performance`),
         fetchJson("/api/v1/paper-portfolio"),
+        fetchJson(`/api/v1/bots/${selectedBotId}/paper-position`),
         fetchJson(`/api/v1/bots/${selectedBotId}/draft-balance`),
         fetchJson(`/api/v1/bots/${selectedBotId}/orders?limit=10`),
         fetchJson(`/api/v1/bots/${selectedBotId}/execution-attempts?limit=10`),
@@ -6563,6 +6638,7 @@ async function refreshDashboardData({ silent = false } = {}) {
       ]);
 
       applyPaperPortfolioResult(portfolioResult);
+      applyPaperPositionResult(paperPositionResult);
       applyDraftBalanceResult(draftBalanceResult);
       applyRecentPaperOrdersResult(ordersResult);
       applyRecentExecutionAttemptsResult(executionAttemptsResult);
@@ -6597,6 +6673,7 @@ async function refreshDashboardData({ silent = false } = {}) {
       selectedExecutionProfile = null;
       selectedPerformance = null;
       await loadPaperPortfolio({ silent: true });
+      clearPaperPosition();
       clearDraftBalance();
       performanceError = "";
       isLoadingPerformance = false;
@@ -6620,6 +6697,7 @@ async function refreshDashboardData({ silent = false } = {}) {
     isRefreshing = false;
     isLoadingPerformance = false;
     isLoadingPaperPortfolio = false;
+    isLoadingPaperPosition = false;
     isLoadingDraftBalance = false;
     isLoadingRecentPaperOrders = false;
     isLoadingRecentExecutionAttempts = false;
@@ -8363,6 +8441,7 @@ async function loadSelectedSummary(botId) {
   isLoadingSummary = true;
   isLoadingPerformance = true;
   isLoadingPaperPortfolio = true;
+  isLoadingPaperPosition = true;
   isLoadingDraftBalance = true;
   isLoadingRecentPaperOrders = true;
   isLoadingRecentExecutionAttempts = true;
@@ -8382,6 +8461,7 @@ async function loadSelectedSummary(botId) {
       profileResult,
       performanceResult,
       portfolioResult,
+      paperPositionResult,
       draftBalanceResult,
       ordersResult,
       executionAttemptsResult,
@@ -8394,6 +8474,7 @@ async function loadSelectedSummary(botId) {
       fetchJson(`/api/v1/bots/${botId}/execution-profile`),
       fetchJson(`/api/v1/bots/${botId}/performance`),
       fetchJson("/api/v1/paper-portfolio"),
+      fetchJson(`/api/v1/bots/${botId}/paper-position`),
       fetchJson(`/api/v1/bots/${botId}/draft-balance`),
       fetchJson(`/api/v1/bots/${botId}/orders?limit=10`),
       fetchJson(`/api/v1/bots/${botId}/execution-attempts?limit=10`),
@@ -8403,6 +8484,7 @@ async function loadSelectedSummary(botId) {
     ]);
 
     applyPaperPortfolioResult(portfolioResult);
+    applyPaperPositionResult(paperPositionResult);
     applyDraftBalanceResult(draftBalanceResult);
     applyRecentPaperOrdersResult(ordersResult);
     applyRecentExecutionAttemptsResult(executionAttemptsResult);
@@ -8431,6 +8513,7 @@ async function loadSelectedSummary(botId) {
     selectedPerformance = null;
     selectedBotConfig = null;
     selectedExecutionProfile = null;
+    clearPaperPosition();
     clearDraftBalance();
     clearRecentPaperOrders();
     clearRecentExecutionAttempts();
@@ -8440,6 +8523,7 @@ async function loadSelectedSummary(botId) {
     isLoadingSummary = false;
     isLoadingPerformance = false;
     isLoadingPaperPortfolio = false;
+    isLoadingPaperPosition = false;
     isLoadingDraftBalance = false;
     isLoadingRecentPaperOrders = false;
     isLoadingRecentExecutionAttempts = false;
@@ -9030,6 +9114,87 @@ function renderPaperPortfolio() {
     error.className = "paper-portfolio-note error";
     error.textContent = paperPortfolioError;
     paperPortfolioContent.append(error);
+  }
+}
+
+function renderPaperPosition() {
+  paperPositionContent.innerHTML = "";
+
+  if (!selectedBotId) {
+    paperPositionContent.textContent = t("paper_position_select_bot");
+    paperPositionContent.className = "paper-position-content empty";
+    return;
+  }
+
+  if (isLoadingPaperPosition && !paperPosition) {
+    paperPositionContent.textContent = t("paper_position_loading");
+    paperPositionContent.className = "paper-position-content empty loading";
+    return;
+  }
+
+  if (paperPositionError && !paperPosition) {
+    paperPositionContent.textContent = paperPositionError;
+    paperPositionContent.className = "paper-position-content empty error";
+    return;
+  }
+
+  if (!paperPosition) {
+    paperPositionContent.textContent = t("paper_position_unavailable");
+    paperPositionContent.className = "paper-position-content empty";
+    return;
+  }
+
+  const quoteAsset = paperPosition.quoteAsset || "";
+  const marketPriceAvailable = paperPosition.marketPrice !== null && paperPosition.marketPrice !== undefined;
+  const metrics = [
+    { label: t("symbol"), value: formatValue(paperPosition.symbol) },
+    {
+      label: t("paper_position_assets_label"),
+      value: `${formatValue(paperPosition.baseAsset)} / ${formatValue(paperPosition.quoteAsset)}`,
+    },
+    { label: t("quantity"), value: formatDecimal(paperPosition.quantity, "0") },
+    {
+      label: t("average_entry_label"),
+      value: formatMoney(paperPosition.averageEntryPrice, quoteAsset, "0"),
+    },
+    {
+      label: t("realized_pnl_label"),
+      value: formatPnlMoney(paperPosition.realizedPnl, quoteAsset, "0"),
+      valueClass: pnlClass(paperPosition.realizedPnl),
+    },
+    {
+      label: t("latest_price_label"),
+      value: marketPriceAvailable
+        ? formatMoney(paperPosition.marketPrice, quoteAsset)
+        : t("paper_position_local_price_unavailable"),
+    },
+    {
+      label: t("unrealized_pnl_label"),
+      value: marketPriceAvailable ? formatPnlMoney(paperPosition.unrealizedPnl, quoteAsset) : "—",
+      valueClass: marketPriceAvailable ? pnlClass(paperPosition.unrealizedPnl) : "pnl-neutral",
+    },
+    {
+      label: t("paper_position_position_value_label"),
+      value: marketPriceAvailable ? formatMoney(paperPosition.positionValue, quoteAsset) : "—",
+    },
+    {
+      label: t("paper_position_updated_label"),
+      value: formatDateTime(paperPosition.updatedAt),
+    },
+  ];
+
+  const grid = document.createElement("dl");
+  grid.className = "paper-position-grid";
+  metrics.forEach((metric) => appendMetric(grid, metric));
+
+  paperPositionContent.className = "paper-position-content";
+  paperPositionContent.append(grid);
+
+  if (paperPositionError) {
+    const error = document.createElement("p");
+    error.className = "paper-position-note error";
+    error.textContent = paperPositionError;
+    paperPositionContent.append(error);
   }
 }
 
@@ -10351,6 +10516,7 @@ function render() {
   renderSummary();
   renderBotPerformance();
   renderPaperPortfolio();
+  renderPaperPosition();
   renderDraftBalance();
   renderRecentPaperOrders();
   renderRecentExecutionAttempts();

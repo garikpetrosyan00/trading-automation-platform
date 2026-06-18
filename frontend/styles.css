@@ -1278,6 +1278,7 @@ dd {
 .bot-settings-panel,
 .bot-performance-panel,
 .paper-portfolio-panel,
+.paper-position-panel,
 .draft-balance-panel,
 .recent-paper-orders-panel,
 .recent-execution-attempts-panel,
@@ -1310,6 +1311,7 @@ dd {
 .bot-settings-content,
 .bot-performance-content,
 .paper-portfolio-content,
+.paper-position-content,
 .draft-balance-content,
 .recent-paper-orders-content,
 .recent-execution-attempts-content,
@@ -1328,6 +1330,7 @@ dd {
 .bot-settings-content.empty,
 .bot-performance-content.empty,
 .paper-portfolio-content.empty,
+.paper-position-content.empty,
 .draft-balance-content.empty,
 .recent-paper-orders-content.empty,
 .recent-execution-attempts-content.empty,
@@ -1345,6 +1348,7 @@ dd {
 .bot-settings-content.error,
 .bot-performance-content.error,
 .paper-portfolio-content.error,
+.paper-position-content.error,
 .draft-balance-content.error,
 .recent-paper-orders-content.error,
 .recent-execution-attempts-content.error,
@@ -1360,6 +1364,7 @@ dd {
 .bot-settings-content.loading,
 .bot-performance-content.loading,
 .paper-portfolio-content.loading,
+.paper-position-content.loading,
 .draft-balance-content.loading,
 .recent-paper-orders-content.loading,
 .recent-execution-attempts-content.loading,
@@ -1376,6 +1381,7 @@ dd {
 .bot-performance-grid,
 .paper-portfolio-summary,
 .paper-portfolio-position-grid,
+.paper-position-grid,
 .recent-paper-order-grid,
 .recent-execution-attempt-grid,
 .execution-safety-grid,
@@ -1393,6 +1399,7 @@ dd {
 .bot-performance-grid div,
 .paper-portfolio-summary div,
 .paper-portfolio-position-grid div,
+.paper-position-grid div,
 .recent-paper-order-grid div,
 .recent-execution-attempt-grid div,
 .execution-safety-grid div,
@@ -1409,6 +1416,7 @@ dd {
 .bot-performance-grid dd,
 .paper-portfolio-summary dd,
 .paper-portfolio-position-grid dd,
+.paper-position-grid dd,
 .recent-paper-order-grid dd,
 .recent-execution-attempt-grid dd,
 .execution-safety-grid dd,
@@ -1521,6 +1529,29 @@ dd {
 .paper-portfolio-position-grid {
   grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
   gap: 8px;
+}
+
+.paper-position-help {
+  margin: 4px 0 0;
+  color: var(--muted);
+  font-size: 0.78rem;
+  font-weight: 750;
+}
+
+.paper-position-grid {
+  grid-template-columns: repeat(auto-fit, minmax(132px, 1fr));
+  gap: 8px;
+}
+
+.paper-position-note {
+  margin: 12px 0 0;
+  color: var(--muted);
+  font-size: 0.84rem;
+  font-weight: 800;
+}
+
+.paper-position-note.error {
+  color: var(--danger);
 }
 
 .draft-balance-heading {
