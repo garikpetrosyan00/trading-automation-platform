@@ -1,13 +1,41 @@
+from dataclasses import dataclass
+from datetime import datetime
 from decimal import Decimal
 
 from app.core.errors import NotFoundError
 from app.data.schemas import MarketEvent
 from app.models.paper_equity_snapshot import PaperEquitySnapshot
+from app.repositories.bot import BotRepository
 from app.repositories.draft_balance import DraftBalanceRepository
 from app.repositories.paper_equity_snapshot import PaperEquitySnapshotRepository
 from app.repositories.paper_position import PaperPositionRepository
 
 ZERO = Decimal("0")
+
+
+@dataclass(frozen=True)
+class PaperEquitySnapshotList:
+    bot_id: int
+    items: list[PaperEquitySnapshot]
+
+
+@dataclass(frozen=True)
+class PaperEquitySnapshotPublicItem:
+    id: int
+    bot_id: int
+    symbol: str
+    quote_asset: str
+    cash_available: Decimal
+    cash_locked: Decimal
+    base_quantity: Decimal
+    base_locked: Decimal
+    average_entry_price: Decimal
+    realized_pnl: Decimal
+    market_price: Decimal | None
+    position_value: Decimal | None
+    total_equity: Decimal | None
+    event_type: str
+    created_at: datetime
 
 
 class PaperEquitySnapshotService:
@@ -17,11 +45,51 @@ class PaperEquitySnapshotService:
         draft_balance_repository: DraftBalanceRepository,
         paper_position_repository: PaperPositionRepository,
         market_data_service=None,
+        *,
+        bot_repository: BotRepository | None = None,
     ):
         self.repository = repository
         self.draft_balance_repository = draft_balance_repository
         self.paper_position_repository = paper_position_repository
+        self.bot_repository = bot_repository
         self.market_data_service = market_data_service
+
+    def list_bot_snapshots(
+        self,
+        bot_id: int,
+        *,
+        limit: int = 50,
+    ) -> PaperEquitySnapshotList:
+        if self.bot_repository is None:
+            raise ValueError("bot_repository is required to read bot paper equity snapshots")
+        bot = self.bot_repository.get_by_id(bot_id)
+        if bot is None:
+            raise NotFoundError(f"Bot with id {bot_id} was not found", error_code="bot_not_found")
+
+        items = self.repository.list_latest_for_bot(bot_id=bot_id, limit=limit)
+        return PaperEquitySnapshotList(
+            bot_id=bot_id,
+            items=[
+                PaperEquitySnapshotPublicItem(
+                    id=item.id,
+                    bot_id=item.bot_id,
+                    symbol=item.symbol,
+                    quote_asset=item.quote_asset,
+                    cash_available=item.cash_available,
+                    cash_locked=item.cash_locked,
+                    base_quantity=item.base_quantity,
+                    base_locked=item.base_locked,
+                    average_entry_price=item.average_entry_price,
+                    realized_pnl=item.realized_pnl,
+                    market_price=item.market_price,
+                    position_value=item.position_value,
+                    total_equity=item.total_equity,
+                    event_type=item.event_type,
+                    created_at=item.created_at,
+                )
+                for item in items
+            ],
+        )
 
     def create_snapshot(
         self,
