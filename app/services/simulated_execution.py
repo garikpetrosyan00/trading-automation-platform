@@ -12,6 +12,7 @@ from app.models.simulated_order import SimulatedOrder
 from app.repositories.bot import BotRepository
 from app.repositories.draft_balance import DraftBalanceRepository
 from app.repositories.execution_attempt import ExecutionAttemptRepository
+from app.repositories.paper_equity_snapshot import PaperEquitySnapshotRepository
 from app.repositories.paper_position import PaperPositionRepository
 from app.repositories.portfolio import PortfolioRepository
 from app.schemas.execution import ExecutionPositionSnapshot, MarketOrderRequest
@@ -20,6 +21,7 @@ from app.services.brokers.safety import ExecutionSafetyDecision, ExecutionSafety
 from app.services.draft_balance import DraftBalanceService
 from app.services.execution_attempt import ExecutionAttemptService
 from app.services.execution_limits import ExecutionDailyLimitService
+from app.services.paper_equity_snapshot import PaperEquitySnapshotService
 from app.services.paper_position import PaperPositionService
 from app.services.paper_portfolio import PaperPortfolioService
 
@@ -336,6 +338,15 @@ class PaperExecutionService:
                         received_base_amount=fill.fill_quantity,
                         spent_quote_amount=(fill.fill_quantity * fill.fill_price) + fill.fee,
                     )
+                    self._paper_equity_snapshot_service().create_snapshot(
+                        bot_id=intent.bot_id,
+                        symbol=symbol,
+                        base_asset=base_asset,
+                        quote_asset=quote_asset,
+                        event_type="buy_fill",
+                        source_order_id=order.id,
+                        source_fill_id=fill.id,
+                    )
 
                 self._finalize_attempt(
                     attempt,
@@ -447,6 +458,15 @@ class PaperExecutionService:
                     quote_asset=quote_asset,
                     sold_base_amount=fill.fill_quantity,
                     received_quote_amount=(fill.fill_quantity * fill.fill_price) - fill.fee,
+                )
+                self._paper_equity_snapshot_service().create_snapshot(
+                    bot_id=intent.bot_id,
+                    symbol=symbol,
+                    base_asset=base_asset,
+                    quote_asset=quote_asset,
+                    event_type="sell_fill",
+                    source_order_id=order.id,
+                    source_fill_id=fill.id,
                 )
 
             self._finalize_attempt(
@@ -831,6 +851,14 @@ class PaperExecutionService:
         return PaperPositionService(
             PaperPositionRepository(self.repository.db),
             autocommit=False,
+        )
+
+    def _paper_equity_snapshot_service(self) -> PaperEquitySnapshotService:
+        return PaperEquitySnapshotService(
+            PaperEquitySnapshotRepository(self.repository.db),
+            DraftBalanceRepository(self.repository.db),
+            PaperPositionRepository(self.repository.db),
+            self.market_data_service,
         )
 
     @staticmethod

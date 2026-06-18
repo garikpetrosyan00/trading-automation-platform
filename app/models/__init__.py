@@ -12,6 +12,7 @@ from app.models.execution_reconciliation_worker_status import ExecutionReconcili
 from app.models.market_candle import MarketCandle
 from app.models.notification_rule import NotificationRule
 from app.models.paper_accounting_event import PaperAccountingEvent
+from app.models.paper_equity_snapshot import PaperEquitySnapshot
 from app.models.paper_position import PaperPosition
 from app.models.portfolio_account import PortfolioAccount
 from app.models.position import Position
@@ -37,6 +38,7 @@ __all__ = [
     "AlertRule",
     "NotificationRule",
     "PaperAccountingEvent",
+    "PaperEquitySnapshot",
     "PaperPosition",
     "PortfolioAccount",
     "Position",
