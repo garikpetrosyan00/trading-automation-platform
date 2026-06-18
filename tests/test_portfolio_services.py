@@ -8,6 +8,7 @@ from app.models.execution_attempt import ExecutionAttempt
 from app.repositories.bot import BotRepository
 from app.repositories.draft_balance import DraftBalanceRepository
 from app.repositories.paper_accounting import PaperAccountingRepository
+from app.repositories.paper_position import PaperPositionRepository
 from app.repositories.portfolio import PortfolioRepository
 from app.repositories.execution_attempt import ExecutionAttemptRepository
 from app.schemas.execution import MarketOrderRequest
@@ -16,6 +17,7 @@ from app.services.brokers.base import BrokerOrderIntent
 from app.services.draft_balance import DraftBalanceService
 from app.services.execution_attempt import ExecutionAttemptService
 from app.services.paper_portfolio import PaperPortfolioService
+from app.services.paper_position import PaperPositionService
 from app.services.portfolio import PortfolioService
 from app.services.portfolio_account import PortfolioAccountService
 from app.services.simulated_execution import PaperExecutionBroker, PaperExecutionService, PaperOrderIntent, SimulatedExecutionService
@@ -43,6 +45,10 @@ def build_fill(
 
 def build_draft_balance_service(session) -> DraftBalanceService:
     return DraftBalanceService(DraftBalanceRepository(session), BotRepository(session))
+
+
+def build_paper_position_service(session) -> PaperPositionService:
+    return PaperPositionService(PaperPositionRepository(session))
 
 
 def draft_assets_by_symbol(session, bot_id: int):
@@ -350,6 +356,14 @@ def test_paper_sell_updates_selected_bot_draft_balance(
     PortfolioAccountService(repository).ensure_account(base_currency="USD", starting_cash=Decimal("1000.00"))
     PaperPortfolioService(repository).apply_fill(build_fill(side="buy", quantity=Decimal("2"), fill_price=Decimal("100")))
     db_session.commit()
+    build_paper_position_service(db_session).apply_buy_fill(
+        bot_id=bot.id,
+        symbol="BTCUSDT",
+        base_asset="BTC",
+        quote_asset="USDT",
+        quantity=Decimal("2"),
+        fill_price=Decimal("100"),
+    )
     build_draft_balance_service(db_session).reset_bot_draft_balance(
         bot.id,
         defaults={

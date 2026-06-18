@@ -14,6 +14,7 @@ from app.api.v1.endpoints.market import set_market_price as set_market_price_end
 from app.core.errors import NotFoundError
 from app.engine.bot_runner import BotRunner, RunnerConfig
 from app.models.market_candle import MarketCandle
+from app.models.paper_position import PaperPosition
 from app.models.position import Position
 from app.repositories.bot import BotRepository
 from app.repositories.bot_run import BotRunRepository
@@ -70,6 +71,37 @@ def reset_draft_balance_with_base(session, bot_id: int, asset: str, quantity: De
             "USDT": (Decimal("10000"), Decimal("0")),
             asset: (quantity, Decimal("0")),
         },
+    )
+
+
+def seed_open_position(
+    session,
+    *,
+    bot_id: int,
+    symbol: str,
+    base_asset: str,
+    quote_asset: str,
+    quantity: Decimal,
+    average_entry_price: Decimal,
+) -> None:
+    session.add_all(
+        [
+            Position(
+                symbol=symbol,
+                quantity=quantity,
+                average_entry_price=average_entry_price,
+                realized_pnl=Decimal("0"),
+            ),
+            PaperPosition(
+                bot_id=bot_id,
+                symbol=symbol,
+                base_asset=base_asset,
+                quote_asset=quote_asset,
+                quantity=quantity,
+                average_entry_price=average_entry_price,
+                realized_pnl=Decimal("0"),
+            ),
+        ]
     )
 
 
@@ -780,13 +812,14 @@ def test_moving_average_cross_manual_run_sells_from_persisted_strategy_candles(
     strategy.timeframe = timeframe
     strategy.parameters["candle_source"] = candle_source
     db_session.add(strategy)
-    db_session.add(
-        Position(
-            symbol=symbol,
-            quantity=Decimal("0.1"),
-            average_entry_price=Decimal("20"),
-            realized_pnl=Decimal("0"),
-        )
+    seed_open_position(
+        db_session,
+        bot_id=bot.id,
+        symbol=symbol,
+        base_asset="ETH",
+        quote_asset="USDT",
+        quantity=Decimal("0.1"),
+        average_entry_price=Decimal("20"),
     )
     db_session.commit()
     add_candles(db_session, symbol=symbol, timeframe=timeframe, closes=["10", "10", "10", "20"], source="manual")
@@ -912,13 +945,14 @@ def test_moving_average_cross_sell_crossover_sells_existing_position(
     reset_draft_balance_with_base(db_session, bot.id, "BTC", Decimal("0.1"))
     configure_moving_average_strategy(strategy)
     db_session.add(strategy)
-    db_session.add(
-        Position(
-            symbol="BTCUSDT",
-            quantity=Decimal("0.1"),
-            average_entry_price=Decimal("20"),
-            realized_pnl=Decimal("0"),
-        )
+    seed_open_position(
+        db_session,
+        bot_id=bot.id,
+        symbol="BTCUSDT",
+        base_asset="BTC",
+        quote_asset="USDT",
+        quantity=Decimal("0.1"),
+        average_entry_price=Decimal("20"),
     )
     db_session.commit()
     add_candles(db_session, closes=["20", "20", "20", "10"])
@@ -1126,13 +1160,14 @@ def test_macd_crossover_sell_crossover_sells_existing_position(
     reset_draft_balance_with_base(db_session, bot.id, "BTC", Decimal("0.1"))
     configure_macd_crossover_strategy(strategy)
     db_session.add(strategy)
-    db_session.add(
-        Position(
-            symbol="BTCUSDT",
-            quantity=Decimal("0.1"),
-            average_entry_price=Decimal("2"),
-            realized_pnl=Decimal("0"),
-        )
+    seed_open_position(
+        db_session,
+        bot_id=bot.id,
+        symbol="BTCUSDT",
+        base_asset="BTC",
+        quote_asset="USDT",
+        quantity=Decimal("0.1"),
+        average_entry_price=Decimal("2"),
     )
     db_session.commit()
     add_candles(db_session, closes=["1", "1", "1", "2", "1"])
@@ -1315,13 +1350,14 @@ def test_rsi_threshold_sell_signal_sells_existing_position(
     reset_draft_balance_with_base(db_session, bot.id, "BTC", Decimal("0.1"))
     configure_rsi_threshold_strategy(strategy)
     db_session.add(strategy)
-    db_session.add(
-        Position(
-            symbol="BTCUSDT",
-            quantity=Decimal("0.1"),
-            average_entry_price=Decimal("10"),
-            realized_pnl=Decimal("0"),
-        )
+    seed_open_position(
+        db_session,
+        bot_id=bot.id,
+        symbol="BTCUSDT",
+        base_asset="BTC",
+        quote_asset="USDT",
+        quantity=Decimal("0.1"),
+        average_entry_price=Decimal("10"),
     )
     db_session.commit()
     add_candles(db_session, closes=["10", "11", "12"])
@@ -1502,13 +1538,14 @@ def test_bollinger_bands_sell_signal_sells_existing_position(
     reset_draft_balance_with_base(db_session, bot.id, "BTC", Decimal("0.1"))
     configure_bollinger_bands_strategy(strategy)
     db_session.add(strategy)
-    db_session.add(
-        Position(
-            symbol="BTCUSDT",
-            quantity=Decimal("0.1"),
-            average_entry_price=Decimal("1"),
-            realized_pnl=Decimal("0"),
-        )
+    seed_open_position(
+        db_session,
+        bot_id=bot.id,
+        symbol="BTCUSDT",
+        base_asset="BTC",
+        quote_asset="USDT",
+        quantity=Decimal("0.1"),
+        average_entry_price=Decimal("1"),
     )
     db_session.commit()
     add_candles(db_session, closes=["1", "1", "10"])

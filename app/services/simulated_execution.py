@@ -12,6 +12,7 @@ from app.models.simulated_order import SimulatedOrder
 from app.repositories.bot import BotRepository
 from app.repositories.draft_balance import DraftBalanceRepository
 from app.repositories.execution_attempt import ExecutionAttemptRepository
+from app.repositories.paper_position import PaperPositionRepository
 from app.repositories.portfolio import PortfolioRepository
 from app.schemas.execution import ExecutionPositionSnapshot, MarketOrderRequest
 from app.services.brokers.base import BrokerOrderIntent, BrokerOrderResult
@@ -19,6 +20,7 @@ from app.services.brokers.safety import ExecutionSafetyDecision, ExecutionSafety
 from app.services.draft_balance import DraftBalanceService
 from app.services.execution_attempt import ExecutionAttemptService
 from app.services.execution_limits import ExecutionDailyLimitService
+from app.services.paper_position import PaperPositionService
 from app.services.paper_portfolio import PaperPortfolioService
 
 ZERO = Decimal("0")
@@ -306,6 +308,27 @@ class PaperExecutionService:
                     )
 
                 if draft_reserved:
+                    try:
+                        self._paper_position_service().apply_buy_fill(
+                            bot_id=intent.bot_id,
+                            symbol=symbol,
+                            base_asset=base_asset,
+                            quote_asset=quote_asset,
+                            quantity=fill.fill_quantity,
+                            fill_price=fill.fill_price,
+                            fee=fill.fee,
+                        )
+                    except AppError as exc:
+                        self.repository.rollback()
+                        return self._reject_order(
+                            intent=intent,
+                            symbol=symbol,
+                            requested_price_snapshot=latest_price,
+                            reason=exc.error_code,
+                            cash_balance=account.cash_balance,
+                            position=position,
+                            attempt=None,
+                        )
                     self._draft_balance_service().apply_draft_balance_buy_fill(
                         bot_id=intent.bot_id,
                         base_asset=base_asset,
@@ -397,6 +420,27 @@ class PaperExecutionService:
                 )
 
             if draft_reserved:
+                try:
+                    self._paper_position_service().apply_sell_fill(
+                        bot_id=intent.bot_id,
+                        symbol=symbol,
+                        base_asset=base_asset,
+                        quote_asset=quote_asset,
+                        quantity=fill.fill_quantity,
+                        fill_price=fill.fill_price,
+                        fee=fill.fee,
+                    )
+                except AppError as exc:
+                    self.repository.rollback()
+                    return self._reject_order(
+                        intent=intent,
+                        symbol=symbol,
+                        requested_price_snapshot=latest_price,
+                        reason=exc.error_code,
+                        cash_balance=account.cash_balance,
+                        position=position,
+                        attempt=None,
+                    )
                 self._draft_balance_service().apply_draft_balance_sell_fill(
                     bot_id=intent.bot_id,
                     base_asset=base_asset,
@@ -780,6 +824,12 @@ class PaperExecutionService:
         return DraftBalanceService(
             DraftBalanceRepository(self.repository.db),
             BotRepository(self.repository.db),
+            autocommit=False,
+        )
+
+    def _paper_position_service(self) -> PaperPositionService:
+        return PaperPositionService(
+            PaperPositionRepository(self.repository.db),
             autocommit=False,
         )
 

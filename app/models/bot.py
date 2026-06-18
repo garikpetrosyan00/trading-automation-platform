@@ -67,3 +67,7 @@ class Bot(Base):
         back_populates="bot",
         cascade="all, delete-orphan",
     )
+    paper_positions: Mapped[list["PaperPosition"]] = relationship(
+        back_populates="bot",
+        cascade="all, delete-orphan",
+    )
