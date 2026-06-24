@@ -2,7 +2,7 @@ import asyncio
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 
-from sqlalchemy import text
+from sqlalchemy import select, text
 
 from app.api.v1.endpoints.bots import list_bots as list_bots_endpoint
 from app.api.v1.endpoints.bots import get_bot_summary as get_bot_summary_endpoint
@@ -2216,6 +2216,82 @@ def test_paper_decision_ignores_legacy_global_position_when_bot_scoped_position_
     assert selected_dashboard_item.current_position_qty == Decimal("0")
     assert summary.current_position_qty == Decimal("0")
     assert status.current_position_quantity == Decimal("0")
+
+
+def test_paper_sell_decision_rejects_when_legacy_global_position_missing(
+    db_session,
+    db_session_factory,
+    stub_market_data_service,
+    bot_stack_factory,
+    funded_account,
+) -> None:
+    # Characterization: paper decisions are now bot-scoped, but downstream
+    # simulated accounting still requires a legacy/global position to settle a sell.
+    funded_account(db_session)
+    strategy, bot, _ = bot_stack_factory(
+        db_session,
+        name="Scoped sell without legacy position bot",
+        symbol="BTCUSDT",
+        status="active",
+    )
+    reset_draft_balance_with_base(db_session, bot.id, "BTC", Decimal("0.1"))
+    db_session.add(
+        PaperPosition(
+            bot_id=bot.id,
+            symbol=strategy.symbol,
+            base_asset="BTC",
+            quote_asset="USDT",
+            quantity=Decimal("0.1"),
+            average_entry_price=Decimal("95"),
+            realized_pnl=Decimal("0"),
+        )
+    )
+    db_session.commit()
+    stub_market_data_service.set_price(strategy.symbol, "115")
+    runner = build_runner(db_session_factory, stub_market_data_service)
+
+    response = asyncio.run(run_bot_once_endpoint(bot.id, runner))
+    run_events = asyncio.run(
+        list_run_events_endpoint(
+            db_session,
+            bot_id=bot.id,
+            run_id=None,
+            event_type=None,
+            level=None,
+        )
+    )
+    orders = PortfolioRepository(db_session).list_orders()
+    attempts = ExecutionAttemptRepository(db_session).list_filtered(bot_id=bot.id)
+    persisted_paper_position = db_session.scalar(
+        select(PaperPosition).where(
+            PaperPosition.bot_id == bot.id,
+            PaperPosition.symbol == strategy.symbol,
+        )
+    )
+    btc_balance = DraftBalanceRepository(db_session).get_for_bot_asset(bot_id=bot.id, asset="BTC")
+
+    assert response.action == "skipped"
+    assert response.message == "order_rejected"
+    assert response.current_position_qty == Decimal("0.1")
+    assert response.decision_explanation is not None
+    assert response.decision_explanation.position_qty == Decimal("0.1")
+    assert response.decision_explanation.decision == "sell"
+    assert response.decision_explanation.reason == "price is above strategy sell_above and position exists"
+
+    sell_signal = next(event for event in run_events if event.message == "sell_signal")
+    rejection = next(event for event in run_events if event.message == "order_rejected")
+    assert sell_signal.payload["quantity"] == "0.10000000"
+    assert rejection.payload["message"] == "Insufficient position quantity for this sell order"
+    assert orders[0].status == "rejected"
+    assert orders[0].rejection_reason == "Insufficient position quantity for this sell order"
+    assert attempts[0].final_status == "rejected_by_broker"
+    assert attempts[0].final_reason == "Insufficient position quantity for this sell order"
+    assert PortfolioRepository(db_session).get_position_by_symbol(strategy.symbol) is None
+    assert persisted_paper_position is not None
+    assert persisted_paper_position.quantity == Decimal("0.1")
+    assert btc_balance is not None
+    assert btc_balance.available == Decimal("0.1")
+    assert btc_balance.locked == Decimal("0")
 
 
 def test_bots_dashboard_response_shape_stays_minimal_and_clean(
