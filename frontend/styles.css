@@ -1279,6 +1279,7 @@ dd {
 .bot-performance-panel,
 .paper-portfolio-panel,
 .paper-position-panel,
+.paper-equity-panel,
 .draft-balance-panel,
 .recent-paper-orders-panel,
 .recent-execution-attempts-panel,
@@ -1312,6 +1313,7 @@ dd {
 .bot-performance-content,
 .paper-portfolio-content,
 .paper-position-content,
+.paper-equity-content,
 .draft-balance-content,
 .recent-paper-orders-content,
 .recent-execution-attempts-content,
@@ -1331,6 +1333,7 @@ dd {
 .bot-performance-content.empty,
 .paper-portfolio-content.empty,
 .paper-position-content.empty,
+.paper-equity-content.empty,
 .draft-balance-content.empty,
 .recent-paper-orders-content.empty,
 .recent-execution-attempts-content.empty,
@@ -1349,6 +1352,7 @@ dd {
 .bot-performance-content.error,
 .paper-portfolio-content.error,
 .paper-position-content.error,
+.paper-equity-content.error,
 .draft-balance-content.error,
 .recent-paper-orders-content.error,
 .recent-execution-attempts-content.error,
@@ -1365,6 +1369,7 @@ dd {
 .bot-performance-content.loading,
 .paper-portfolio-content.loading,
 .paper-position-content.loading,
+.paper-equity-content.loading,
 .draft-balance-content.loading,
 .recent-paper-orders-content.loading,
 .recent-execution-attempts-content.loading,
@@ -1382,6 +1387,7 @@ dd {
 .paper-portfolio-summary,
 .paper-portfolio-position-grid,
 .paper-position-grid,
+.paper-equity-summary,
 .recent-paper-order-grid,
 .recent-execution-attempt-grid,
 .execution-safety-grid,
@@ -1400,6 +1406,7 @@ dd {
 .paper-portfolio-summary div,
 .paper-portfolio-position-grid div,
 .paper-position-grid div,
+.paper-equity-summary div,
 .recent-paper-order-grid div,
 .recent-execution-attempt-grid div,
 .execution-safety-grid div,
@@ -1417,6 +1424,7 @@ dd {
 .paper-portfolio-summary dd,
 .paper-portfolio-position-grid dd,
 .paper-position-grid dd,
+.paper-equity-summary dd,
 .recent-paper-order-grid dd,
 .recent-execution-attempt-grid dd,
 .execution-safety-grid dd,
@@ -1551,6 +1559,87 @@ dd {
 }
 
 .paper-position-note.error {
+  color: var(--danger);
+}
+
+.paper-equity-help {
+  margin: 4px 0 0;
+  color: var(--muted);
+  font-size: 0.78rem;
+  font-weight: 750;
+}
+
+.paper-equity-content {
+  display: grid;
+  gap: 14px;
+}
+
+.paper-equity-summary-section,
+.paper-equity-recent-section {
+  display: grid;
+  gap: 10px;
+  min-width: 0;
+}
+
+.paper-equity-summary-section h3,
+.paper-equity-recent-section h3 {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.82rem;
+  font-weight: 850;
+  text-transform: uppercase;
+}
+
+.paper-equity-summary {
+  grid-template-columns: repeat(auto-fit, minmax(128px, 1fr));
+  gap: 8px;
+}
+
+.paper-equity-table-wrap {
+  overflow-x: auto;
+}
+
+.paper-equity-table {
+  width: 100%;
+  min-width: 760px;
+  border-collapse: collapse;
+}
+
+.paper-equity-table th,
+.paper-equity-table td {
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--line);
+  text-align: left;
+  font-size: 0.82rem;
+  line-height: 1.35;
+  white-space: nowrap;
+}
+
+.paper-equity-table thead th {
+  color: var(--muted);
+  font-size: 0.72rem;
+  font-weight: 850;
+  text-transform: uppercase;
+}
+
+.paper-equity-table tbody th,
+.paper-equity-table tbody td {
+  font-weight: 750;
+}
+
+.paper-equity-table tbody tr:last-child th,
+.paper-equity-table tbody tr:last-child td {
+  border-bottom: 0;
+}
+
+.paper-equity-note {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.84rem;
+  font-weight: 800;
+}
+
+.paper-equity-note.error {
   color: var(--danger);
 }
 

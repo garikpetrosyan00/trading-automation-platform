@@ -25,6 +25,7 @@ let selectedSummary = null;
 let selectedPerformance = null;
 let paperPortfolio = null;
 let paperPosition = null;
+let paperEquitySnapshots = [];
 let draftBalance = null;
 let recentPaperOrders = [];
 let recentExecutionAttempts = [];
@@ -37,6 +38,7 @@ let isLoadingSummary = false;
 let isLoadingPerformance = false;
 let isLoadingPaperPortfolio = true;
 let isLoadingPaperPosition = false;
+let isLoadingPaperEquity = false;
 let isLoadingDraftBalance = false;
 let isResettingDraftBalance = false;
 let isLoadingRecentPaperOrders = false;
@@ -77,6 +79,7 @@ let summaryError = "";
 let performanceError = "";
 let paperPortfolioError = "";
 let paperPositionError = "";
+let paperEquityError = "";
 let draftBalanceError = "";
 let recentPaperOrdersError = "";
 let recentExecutionAttemptsError = "";
@@ -211,6 +214,23 @@ const translations = {
     paper_position_assets_label: "Assets",
     paper_position_position_value_label: "Position value",
     paper_position_updated_label: "Updated",
+    paper_equity: "Paper Equity",
+    paper_equity_aria: "Paper Equity",
+    paper_equity_help: "Read-only paper equity snapshots for the selected bot.",
+    paper_equity_loading: "Loading paper equity…",
+    paper_equity_unavailable: "Paper equity unavailable",
+    paper_equity_select_bot: "Select a bot to view paper equity.",
+    paper_equity_empty: "No paper equity snapshots for this bot.",
+    paper_equity_latest: "Latest snapshot",
+    paper_equity_recent: "Recent snapshots",
+    paper_equity_event_label: "Event",
+    paper_equity_cash_available_label: "Cash available",
+    paper_equity_cash_locked_label: "Cash locked",
+    paper_equity_base_quantity_label: "Base quantity",
+    paper_equity_base_locked_label: "Base locked",
+    paper_equity_market_price_label: "Market price",
+    paper_equity_position_value_label: "Position value",
+    paper_equity_created_label: "Created",
     draft_balance: "Draft Balance",
     draft_balance_aria: "Draft Balance",
     draft_balance_help: "Bot-scoped simulated funds for future draft execution.",
@@ -1014,6 +1034,23 @@ const translations = {
     paper_position_assets_label: "Asset-ներ",
     paper_position_position_value_label: "Position-ի արժեք",
     paper_position_updated_label: "Թարմացվել է",
+    paper_equity: "Paper equity",
+    paper_equity_aria: "Paper equity",
+    paper_equity_help: "Ընտրված Bot-ի paper equity snapshot-ները՝ միայն դիտելու համար։",
+    paper_equity_loading: "Paper equity-ն բեռնվում է…",
+    paper_equity_unavailable: "Paper equity-ն հասանելի չէ",
+    paper_equity_select_bot: "Ընտրիր Bot՝ paper equity-ն դիտելու համար։",
+    paper_equity_empty: "Այս Bot-ի համար paper equity snapshot-ներ չկան։",
+    paper_equity_latest: "Վերջին snapshot",
+    paper_equity_recent: "Վերջին snapshot-ները",
+    paper_equity_event_label: "Event",
+    paper_equity_cash_available_label: "Հասանելի cash",
+    paper_equity_cash_locked_label: "Locked cash",
+    paper_equity_base_quantity_label: "Base քանակ",
+    paper_equity_base_locked_label: "Locked base",
+    paper_equity_market_price_label: "Շուկայական գին",
+    paper_equity_position_value_label: "Position-ի արժեք",
+    paper_equity_created_label: "Ստեղծվել է",
     draft_balance: "Փորձնական հաշվեկշիռ",
     draft_balance_aria: "Փորձնական հաշվեկշիռ",
     draft_balance_help: "Bot-ի simulated միջոցներն են ապագա draft execution-ի համար։",
@@ -1860,6 +1897,10 @@ const paperPositionPanel = document.querySelector(".paper-position-panel");
 const paperPositionHeading = document.querySelector("#paper-position-heading");
 const paperPositionHelp = document.querySelector("#paper-position-help");
 const paperPositionContent = document.querySelector("#paper-position-content");
+const paperEquityPanel = document.querySelector(".paper-equity-panel");
+const paperEquityHeading = document.querySelector("#paper-equity-heading");
+const paperEquityHelp = document.querySelector("#paper-equity-help");
+const paperEquityContent = document.querySelector("#paper-equity-content");
 const draftBalancePanel = document.querySelector(".draft-balance-panel");
 const draftBalanceHeading = document.querySelector("#draft-balance-heading");
 const draftBalanceHelp = document.querySelector("#draft-balance-help");
@@ -2226,6 +2267,9 @@ function applyStaticTranslations() {
   paperPositionPanel?.setAttribute("aria-label", t("paper_position_aria"));
   paperPositionHeading.textContent = t("paper_position");
   paperPositionHelp.textContent = t("paper_position_help");
+  paperEquityPanel?.setAttribute("aria-label", t("paper_equity_aria"));
+  paperEquityHeading.textContent = t("paper_equity");
+  paperEquityHelp.textContent = t("paper_equity_help");
   draftBalancePanel?.setAttribute("aria-label", t("draft_balance_aria"));
   draftBalanceHeading.textContent = t("draft_balance");
   draftBalanceHelp.textContent = t("draft_balance_help");
@@ -2588,6 +2632,33 @@ function normalizePaperPosition(rawPosition) {
     positionValue: rawPosition.position_value ?? rawPosition.positionValue ?? null,
     updatedAt: rawPosition.updated_at ?? rawPosition.updatedAt ?? null,
   };
+}
+
+function normalizePaperEquitySnapshot(rawSnapshot) {
+  if (!rawSnapshot || typeof rawSnapshot !== "object") return null;
+  return {
+    id: rawSnapshot.id ?? null,
+    botId: rawSnapshot.bot_id ?? rawSnapshot.botId ?? null,
+    symbol: rawSnapshot.symbol ?? "",
+    quoteAsset: rawSnapshot.quote_asset ?? rawSnapshot.quoteAsset ?? "",
+    cashAvailable: rawSnapshot.cash_available ?? rawSnapshot.cashAvailable ?? null,
+    cashLocked: rawSnapshot.cash_locked ?? rawSnapshot.cashLocked ?? null,
+    baseQuantity: rawSnapshot.base_quantity ?? rawSnapshot.baseQuantity ?? null,
+    baseLocked: rawSnapshot.base_locked ?? rawSnapshot.baseLocked ?? null,
+    averageEntryPrice: rawSnapshot.average_entry_price ?? rawSnapshot.averageEntryPrice ?? null,
+    realizedPnl: rawSnapshot.realized_pnl ?? rawSnapshot.realizedPnl ?? null,
+    marketPrice: rawSnapshot.market_price ?? rawSnapshot.marketPrice ?? null,
+    positionValue: rawSnapshot.position_value ?? rawSnapshot.positionValue ?? null,
+    totalEquity: rawSnapshot.total_equity ?? rawSnapshot.totalEquity ?? null,
+    eventType: rawSnapshot.event_type ?? rawSnapshot.eventType ?? "",
+    createdAt: rawSnapshot.created_at ?? rawSnapshot.createdAt ?? null,
+  };
+}
+
+function normalizePaperEquitySnapshots(data) {
+  const rawSnapshots = Array.isArray(data) ? data : data?.items ?? [];
+  if (!Array.isArray(rawSnapshots)) return [];
+  return rawSnapshots.map(normalizePaperEquitySnapshot).filter(Boolean);
 }
 
 function normalizePaperOrder(rawOrder) {
@@ -6101,6 +6172,17 @@ function applyPaperPositionResult(result) {
   isLoadingPaperPosition = false;
 }
 
+function applyPaperEquityResult(result) {
+  if (result.status === "fulfilled") {
+    paperEquitySnapshots = normalizePaperEquitySnapshots(result.value);
+    paperEquityError = "";
+  } else {
+    paperEquitySnapshots = [];
+    paperEquityError = requestErrorMessage(result.reason, t("paper_equity_unavailable"));
+  }
+  isLoadingPaperEquity = false;
+}
+
 function applyDraftBalanceResult(result) {
   if (result.status === "fulfilled") {
     draftBalance = normalizeDraftBalance(result.value);
@@ -6189,6 +6271,12 @@ function clearPaperPosition() {
   paperPosition = null;
   paperPositionError = "";
   isLoadingPaperPosition = false;
+}
+
+function clearPaperEquity() {
+  paperEquitySnapshots = [];
+  paperEquityError = "";
+  isLoadingPaperEquity = false;
 }
 
 function clearRecentExecutionAttempts() {
@@ -6388,6 +6476,7 @@ function clearSelectedBotMessages() {
   performanceError = "";
   isLoadingPerformance = false;
   clearPaperPosition();
+  clearPaperEquity();
   clearDraftBalance();
   clearRecentPaperOrders();
   backtestStrategyTouched = false;
@@ -6449,6 +6538,7 @@ async function loadBots() {
       performanceError = "";
       isLoadingPerformance = false;
       clearPaperPosition();
+      clearPaperEquity();
       clearDraftBalance();
       clearRecentPaperOrders();
       clearExecutionSafety();
@@ -6465,6 +6555,7 @@ async function loadBots() {
     performanceError = "";
     isLoadingPerformance = false;
     clearPaperPosition();
+    clearPaperEquity();
     clearDraftBalance();
     clearRecentPaperOrders();
     clearExecutionSafety();
@@ -6494,6 +6585,7 @@ async function refreshSelectedData() {
     isLoadingPerformance = true;
     isLoadingPaperPortfolio = true;
     isLoadingPaperPosition = true;
+    isLoadingPaperEquity = true;
     isLoadingDraftBalance = true;
     isLoadingRecentPaperOrders = true;
     isLoadingRecentExecutionAttempts = true;
@@ -6506,6 +6598,7 @@ async function refreshSelectedData() {
       performanceResult,
       portfolioResult,
       paperPositionResult,
+      paperEquityResult,
       draftBalanceResult,
       ordersResult,
       executionAttemptsResult,
@@ -6518,6 +6611,7 @@ async function refreshSelectedData() {
       fetchJson(`/api/v1/bots/${selectedBotId}/performance`),
       fetchJson("/api/v1/paper-portfolio"),
       fetchJson(`/api/v1/bots/${selectedBotId}/paper-position`),
+      fetchJson(`/api/v1/bots/${selectedBotId}/paper-equity?limit=50`),
       fetchJson(`/api/v1/bots/${selectedBotId}/draft-balance`),
       fetchJson(`/api/v1/bots/${selectedBotId}/orders?limit=10`),
       fetchJson(`/api/v1/bots/${selectedBotId}/execution-attempts?limit=10`),
@@ -6528,6 +6622,7 @@ async function refreshSelectedData() {
 
     applyPaperPortfolioResult(portfolioResult);
     applyPaperPositionResult(paperPositionResult);
+    applyPaperEquityResult(paperEquityResult);
     applyDraftBalanceResult(draftBalanceResult);
     applyRecentPaperOrdersResult(ordersResult);
     applyRecentExecutionAttemptsResult(executionAttemptsResult);
@@ -6563,6 +6658,7 @@ async function refreshSelectedData() {
     selectedPerformance = null;
     await loadPaperPortfolio({ silent: true });
     clearPaperPosition();
+    clearPaperEquity();
     clearDraftBalance();
     performanceError = "";
     isLoadingPerformance = false;
@@ -6605,6 +6701,7 @@ async function refreshDashboardData({ silent = false } = {}) {
       isLoadingPerformance = true;
       isLoadingPaperPortfolio = true;
       isLoadingPaperPosition = true;
+      isLoadingPaperEquity = true;
       isLoadingDraftBalance = true;
       isLoadingRecentPaperOrders = true;
       isLoadingRecentExecutionAttempts = true;
@@ -6617,6 +6714,7 @@ async function refreshDashboardData({ silent = false } = {}) {
         performanceResult,
         portfolioResult,
         paperPositionResult,
+        paperEquityResult,
         draftBalanceResult,
         ordersResult,
         executionAttemptsResult,
@@ -6629,6 +6727,7 @@ async function refreshDashboardData({ silent = false } = {}) {
         fetchJson(`/api/v1/bots/${selectedBotId}/performance`),
         fetchJson("/api/v1/paper-portfolio"),
         fetchJson(`/api/v1/bots/${selectedBotId}/paper-position`),
+        fetchJson(`/api/v1/bots/${selectedBotId}/paper-equity?limit=50`),
         fetchJson(`/api/v1/bots/${selectedBotId}/draft-balance`),
         fetchJson(`/api/v1/bots/${selectedBotId}/orders?limit=10`),
         fetchJson(`/api/v1/bots/${selectedBotId}/execution-attempts?limit=10`),
@@ -6639,6 +6738,7 @@ async function refreshDashboardData({ silent = false } = {}) {
 
       applyPaperPortfolioResult(portfolioResult);
       applyPaperPositionResult(paperPositionResult);
+      applyPaperEquityResult(paperEquityResult);
       applyDraftBalanceResult(draftBalanceResult);
       applyRecentPaperOrdersResult(ordersResult);
       applyRecentExecutionAttemptsResult(executionAttemptsResult);
@@ -6674,6 +6774,7 @@ async function refreshDashboardData({ silent = false } = {}) {
       selectedPerformance = null;
       await loadPaperPortfolio({ silent: true });
       clearPaperPosition();
+      clearPaperEquity();
       clearDraftBalance();
       performanceError = "";
       isLoadingPerformance = false;
@@ -6698,6 +6799,7 @@ async function refreshDashboardData({ silent = false } = {}) {
     isLoadingPerformance = false;
     isLoadingPaperPortfolio = false;
     isLoadingPaperPosition = false;
+    isLoadingPaperEquity = false;
     isLoadingDraftBalance = false;
     isLoadingRecentPaperOrders = false;
     isLoadingRecentExecutionAttempts = false;
@@ -8442,6 +8544,7 @@ async function loadSelectedSummary(botId) {
   isLoadingPerformance = true;
   isLoadingPaperPortfolio = true;
   isLoadingPaperPosition = true;
+  isLoadingPaperEquity = true;
   isLoadingDraftBalance = true;
   isLoadingRecentPaperOrders = true;
   isLoadingRecentExecutionAttempts = true;
@@ -8462,6 +8565,7 @@ async function loadSelectedSummary(botId) {
       performanceResult,
       portfolioResult,
       paperPositionResult,
+      paperEquityResult,
       draftBalanceResult,
       ordersResult,
       executionAttemptsResult,
@@ -8475,6 +8579,7 @@ async function loadSelectedSummary(botId) {
       fetchJson(`/api/v1/bots/${botId}/performance`),
       fetchJson("/api/v1/paper-portfolio"),
       fetchJson(`/api/v1/bots/${botId}/paper-position`),
+      fetchJson(`/api/v1/bots/${botId}/paper-equity?limit=50`),
       fetchJson(`/api/v1/bots/${botId}/draft-balance`),
       fetchJson(`/api/v1/bots/${botId}/orders?limit=10`),
       fetchJson(`/api/v1/bots/${botId}/execution-attempts?limit=10`),
@@ -8485,6 +8590,7 @@ async function loadSelectedSummary(botId) {
 
     applyPaperPortfolioResult(portfolioResult);
     applyPaperPositionResult(paperPositionResult);
+    applyPaperEquityResult(paperEquityResult);
     applyDraftBalanceResult(draftBalanceResult);
     applyRecentPaperOrdersResult(ordersResult);
     applyRecentExecutionAttemptsResult(executionAttemptsResult);
@@ -8514,6 +8620,7 @@ async function loadSelectedSummary(botId) {
     selectedBotConfig = null;
     selectedExecutionProfile = null;
     clearPaperPosition();
+    clearPaperEquity();
     clearDraftBalance();
     clearRecentPaperOrders();
     clearRecentExecutionAttempts();
@@ -8524,6 +8631,7 @@ async function loadSelectedSummary(botId) {
     isLoadingPerformance = false;
     isLoadingPaperPortfolio = false;
     isLoadingPaperPosition = false;
+    isLoadingPaperEquity = false;
     isLoadingDraftBalance = false;
     isLoadingRecentPaperOrders = false;
     isLoadingRecentExecutionAttempts = false;
@@ -9195,6 +9303,121 @@ function renderPaperPosition() {
     error.className = "paper-position-note error";
     error.textContent = paperPositionError;
     paperPositionContent.append(error);
+  }
+}
+
+function renderPaperEquity() {
+  paperEquityContent.innerHTML = "";
+
+  if (!selectedBotId) {
+    paperEquityContent.textContent = t("paper_equity_select_bot");
+    paperEquityContent.className = "paper-equity-content empty";
+    return;
+  }
+
+  if (isLoadingPaperEquity && paperEquitySnapshots.length === 0) {
+    paperEquityContent.textContent = t("paper_equity_loading");
+    paperEquityContent.className = "paper-equity-content empty loading";
+    return;
+  }
+
+  if (paperEquityError && paperEquitySnapshots.length === 0) {
+    paperEquityContent.textContent = paperEquityError;
+    paperEquityContent.className = "paper-equity-content empty error";
+    return;
+  }
+
+  if (paperEquitySnapshots.length === 0) {
+    paperEquityContent.textContent = t("paper_equity_empty");
+    paperEquityContent.className = "paper-equity-content empty";
+    return;
+  }
+
+  const latest = paperEquitySnapshots[0];
+  const quoteAsset = latest.quoteAsset || "";
+  const summary = document.createElement("section");
+  summary.className = "paper-equity-summary-section";
+  const summaryHeading = document.createElement("h3");
+  summaryHeading.textContent = t("paper_equity_latest");
+  const summaryGrid = document.createElement("dl");
+  summaryGrid.className = "paper-equity-summary";
+  [
+    { label: t("total_equity_label"), value: formatCompactMoney(latest.totalEquity, quoteAsset) },
+    { label: t("paper_equity_cash_available_label"), value: formatCompactMoney(latest.cashAvailable, quoteAsset) },
+    { label: t("paper_equity_position_value_label"), value: formatCompactMoney(latest.positionValue, quoteAsset) },
+    {
+      label: t("realized_pnl_label"),
+      value: formatCompactPnlMoney(latest.realizedPnl, quoteAsset),
+      valueClass: pnlClass(latest.realizedPnl),
+    },
+    { label: t("paper_equity_market_price_label"), value: formatMoney(latest.marketPrice, quoteAsset) },
+    { label: t("paper_equity_event_label"), value: humanizeMessage(latest.eventType, "—") },
+    { label: t("paper_equity_created_label"), value: formatDateTime(latest.createdAt) },
+  ].forEach((metric) => appendMetric(summaryGrid, metric));
+  summary.append(summaryHeading, summaryGrid);
+
+  const recentSection = document.createElement("section");
+  recentSection.className = "paper-equity-recent-section";
+  const recentHeading = document.createElement("h3");
+  recentHeading.textContent = t("paper_equity_recent");
+
+  const tableWrapper = document.createElement("div");
+  tableWrapper.className = "paper-equity-table-wrap";
+  const table = document.createElement("table");
+  table.className = "paper-equity-table";
+  const head = document.createElement("thead");
+  const headRow = document.createElement("tr");
+  [
+    t("paper_equity_created_label"),
+    t("symbol"),
+    t("paper_equity_event_label"),
+    t("paper_equity_cash_available_label"),
+    t("paper_equity_base_quantity_label"),
+    t("paper_equity_position_value_label"),
+    t("total_equity_label"),
+    t("realized_pnl_label"),
+  ].forEach((labelText) => {
+    const cell = document.createElement("th");
+    cell.scope = "col";
+    cell.textContent = labelText;
+    headRow.append(cell);
+  });
+  head.append(headRow);
+
+  const body = document.createElement("tbody");
+  paperEquitySnapshots.forEach((snapshot) => {
+    const row = document.createElement("tr");
+    const currency = snapshot.quoteAsset || quoteAsset;
+    [
+      formatDateTime(snapshot.createdAt),
+      formatValue(snapshot.symbol),
+      humanizeMessage(snapshot.eventType, "—"),
+      formatCompactMoney(snapshot.cashAvailable, currency),
+      formatDecimal(snapshot.baseQuantity, "0"),
+      formatCompactMoney(snapshot.positionValue, currency),
+      formatCompactMoney(snapshot.totalEquity, currency),
+      formatCompactPnlMoney(snapshot.realizedPnl, currency),
+    ].forEach((value, index) => {
+      const cell = document.createElement(index === 0 ? "th" : "td");
+      if (index === 0) cell.scope = "row";
+      if (index === 7) cell.className = pnlClass(snapshot.realizedPnl);
+      cell.textContent = value;
+      row.append(cell);
+    });
+    body.append(row);
+  });
+  table.append(head, body);
+  tableWrapper.append(table);
+  recentSection.append(recentHeading, tableWrapper);
+
+  paperEquityContent.className = "paper-equity-content";
+  paperEquityContent.append(summary, recentSection);
+
+  if (paperEquityError) {
+    const error = document.createElement("p");
+    error.className = "paper-equity-note error";
+    error.textContent = paperEquityError;
+    paperEquityContent.append(error);
   }
 }
 
@@ -10517,6 +10740,7 @@ function render() {
   renderBotPerformance();
   renderPaperPortfolio();
   renderPaperPosition();
+  renderPaperEquity();
   renderDraftBalance();
   renderRecentPaperOrders();
   renderRecentExecutionAttempts();
