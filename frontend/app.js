@@ -3269,6 +3269,12 @@ function formatCompactPnlMoney(value, currency, fallback = "—") {
   return currency ? `${formatted} ${currency}` : formatted;
 }
 
+function numericOrNull(value) {
+  if (value === null || value === undefined || value === "") return null;
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
 function formatPercent(value, fallback = "—") {
   if (value === null || value === undefined || value === "") return fallback;
   const parsed = Number(value);
@@ -3309,6 +3315,11 @@ function formatParameterValue(value) {
 
 function firstAvailable(...values) {
   return values.find((value) => value !== null && value !== undefined && value !== "");
+}
+
+function draftBalanceAsset(asset) {
+  if (!draftBalance || !Array.isArray(draftBalance.assets)) return null;
+  return draftBalance.assets.find((item) => item.asset === asset) ?? null;
 }
 
 function formatBoolean(value) {
@@ -6530,13 +6541,13 @@ async function loadBots() {
     lastRefreshedAt = new Date();
     isLoadingBots = false;
     render();
-    await loadPaperPortfolio({ silent: true });
     if (selectedBotId) {
       await loadSelectedSummary(selectedBotId);
     } else {
       selectedPerformance = null;
       performanceError = "";
       isLoadingPerformance = false;
+      await loadPaperPortfolio({ silent: true });
       clearPaperPosition();
       clearPaperEquity();
       clearDraftBalance();
@@ -6596,7 +6607,6 @@ async function refreshSelectedData() {
       summaryResult,
       configResult,
       performanceResult,
-      portfolioResult,
       paperPositionResult,
       paperEquityResult,
       draftBalanceResult,
@@ -6609,7 +6619,6 @@ async function refreshSelectedData() {
       fetchJson(`/api/v1/bots/${selectedBotId}/summary`),
       fetchJson(`/api/v1/bots/${selectedBotId}`),
       fetchJson(`/api/v1/bots/${selectedBotId}/performance`),
-      fetchJson("/api/v1/paper-portfolio"),
       fetchJson(`/api/v1/bots/${selectedBotId}/paper-position`),
       fetchJson(`/api/v1/bots/${selectedBotId}/paper-equity?limit=50`),
       fetchJson(`/api/v1/bots/${selectedBotId}/draft-balance`),
@@ -6620,10 +6629,10 @@ async function refreshSelectedData() {
       fetchJson("/api/v1/execution-reconciliation-jobs?limit=10"),
     ]);
 
-    applyPaperPortfolioResult(portfolioResult);
     applyPaperPositionResult(paperPositionResult);
     applyPaperEquityResult(paperEquityResult);
     applyDraftBalanceResult(draftBalanceResult);
+    isLoadingPaperPortfolio = false;
     applyRecentPaperOrdersResult(ordersResult);
     applyRecentExecutionAttemptsResult(executionAttemptsResult);
     applyExecutionSafetyResult(executionSafetyResult);
@@ -6712,7 +6721,6 @@ async function refreshDashboardData({ silent = false } = {}) {
         summaryResult,
         configResult,
         performanceResult,
-        portfolioResult,
         paperPositionResult,
         paperEquityResult,
         draftBalanceResult,
@@ -6725,7 +6733,6 @@ async function refreshDashboardData({ silent = false } = {}) {
         fetchJson(`/api/v1/bots/${selectedBotId}/summary`),
         fetchJson(`/api/v1/bots/${selectedBotId}`),
         fetchJson(`/api/v1/bots/${selectedBotId}/performance`),
-        fetchJson("/api/v1/paper-portfolio"),
         fetchJson(`/api/v1/bots/${selectedBotId}/paper-position`),
         fetchJson(`/api/v1/bots/${selectedBotId}/paper-equity?limit=50`),
         fetchJson(`/api/v1/bots/${selectedBotId}/draft-balance`),
@@ -6736,10 +6743,10 @@ async function refreshDashboardData({ silent = false } = {}) {
         fetchJson("/api/v1/execution-reconciliation-jobs?limit=10"),
       ]);
 
-      applyPaperPortfolioResult(portfolioResult);
       applyPaperPositionResult(paperPositionResult);
       applyPaperEquityResult(paperEquityResult);
       applyDraftBalanceResult(draftBalanceResult);
+      isLoadingPaperPortfolio = false;
       applyRecentPaperOrdersResult(ordersResult);
       applyRecentExecutionAttemptsResult(executionAttemptsResult);
       applyExecutionSafetyResult(executionSafetyResult);
@@ -8563,7 +8570,6 @@ async function loadSelectedSummary(botId) {
       configResult,
       profileResult,
       performanceResult,
-      portfolioResult,
       paperPositionResult,
       paperEquityResult,
       draftBalanceResult,
@@ -8577,7 +8583,6 @@ async function loadSelectedSummary(botId) {
       fetchJson(`/api/v1/bots/${botId}`),
       fetchJson(`/api/v1/bots/${botId}/execution-profile`),
       fetchJson(`/api/v1/bots/${botId}/performance`),
-      fetchJson("/api/v1/paper-portfolio"),
       fetchJson(`/api/v1/bots/${botId}/paper-position`),
       fetchJson(`/api/v1/bots/${botId}/paper-equity?limit=50`),
       fetchJson(`/api/v1/bots/${botId}/draft-balance`),
@@ -8588,10 +8593,10 @@ async function loadSelectedSummary(botId) {
       fetchJson("/api/v1/execution-reconciliation-jobs?limit=10"),
     ]);
 
-    applyPaperPortfolioResult(portfolioResult);
     applyPaperPositionResult(paperPositionResult);
     applyPaperEquityResult(paperEquityResult);
     applyDraftBalanceResult(draftBalanceResult);
+    isLoadingPaperPortfolio = false;
     applyRecentPaperOrdersResult(ordersResult);
     applyRecentExecutionAttemptsResult(executionAttemptsResult);
     applyExecutionSafetyResult(executionSafetyResult);
@@ -9010,6 +9015,12 @@ function renderBotPerformance() {
   }
 
   const performance = selectedPerformance;
+  const scopedPosition =
+    paperPosition && botIdsEqual(paperPosition.botId, selectedBotId) ? paperPosition : null;
+  const latestPrice = firstAvailable(scopedPosition?.marketPrice, performance.latestMarketPrice);
+  const positionQuantity = firstAvailable(scopedPosition?.quantity, performance.currentPositionQuantity);
+  const realizedPnl = firstAvailable(scopedPosition?.realizedPnl, performance.realizedPnl);
+  const unrealizedPnl = firstAvailable(scopedPosition?.unrealizedPnl, performance.unrealizedPnl);
   const decisionLabel = performance.lastDecision
     ? formatDecisionLabel(performance.lastDecision)
     : "—";
@@ -9019,8 +9030,8 @@ function renderBotPerformance() {
       value: performanceHealthLabel(performance.health),
       valueClass: `status-pill performance-health ${performanceHealthClass(performance.health)}`,
     },
-    { label: t("latest_price_label"), value: formatDecimal(performance.latestMarketPrice) },
-    { label: t("current_position_qty_label"), value: formatDecimal(performance.currentPositionQuantity) },
+    { label: t("latest_price_label"), value: formatDecimal(latestPrice) },
+    { label: t("current_position_qty_label"), value: formatDecimal(positionQuantity) },
     { label: t("last_decision_label"), value: decisionLabel },
     {
       label: t("decision_reason_label"),
@@ -9036,13 +9047,13 @@ function renderBotPerformance() {
     { label: t("order_filled_count_label"), value: formatDecimal(performance.filledOrderEventCount) },
     {
       label: t("realized_pnl_label"),
-      value: formatPnlDecimal(performance.realizedPnl),
-      valueClass: pnlClass(performance.realizedPnl),
+      value: formatPnlDecimal(realizedPnl),
+      valueClass: pnlClass(realizedPnl),
     },
     {
       label: t("unrealized_pnl_label"),
-      value: formatPnlDecimal(performance.unrealizedPnl),
-      valueClass: pnlClass(performance.unrealizedPnl),
+      value: formatPnlDecimal(unrealizedPnl),
+      valueClass: pnlClass(unrealizedPnl),
     },
   ];
 
@@ -9092,6 +9103,11 @@ function appendMetric(grid, item) {
 
 function renderPaperPortfolio() {
   paperPortfolioContent.innerHTML = "";
+
+  if (selectedBotId) {
+    renderSelectedBotPaperPortfolio();
+    return;
+  }
 
   if (isLoadingPaperPortfolio && !paperPortfolio) {
     paperPortfolioContent.textContent = t("paper_portfolio_loading");
@@ -9223,6 +9239,120 @@ function renderPaperPortfolio() {
     error.textContent = paperPortfolioError;
     paperPortfolioContent.append(error);
   }
+}
+
+function renderSelectedBotPaperPortfolio() {
+  if ((isLoadingPaperPosition && !paperPosition) || (isLoadingDraftBalance && !draftBalance)) {
+    paperPortfolioContent.textContent = t("paper_portfolio_loading");
+    paperPortfolioContent.className = "paper-portfolio-content empty loading";
+    return;
+  }
+
+  if (paperPositionError && draftBalanceError && !paperPosition && !draftBalance) {
+    paperPortfolioContent.textContent = paperPositionError || draftBalanceError;
+    paperPortfolioContent.className = "paper-portfolio-content empty error";
+    return;
+  }
+
+  const scopedPosition =
+    paperPosition && botIdsEqual(paperPosition.botId, selectedBotId) ? paperPosition : null;
+  const quoteAsset = scopedPosition?.quoteAsset || "USDT";
+  const quoteBalance = draftBalanceAsset(quoteAsset);
+  const cashBalance = quoteBalance?.available ?? quoteBalance?.total ?? null;
+  const positionQuantity = numericOrNull(scopedPosition?.quantity);
+  const hasOpenPosition = positionQuantity !== null && positionQuantity > 0;
+  const positionValue = hasOpenPosition ? scopedPosition?.positionValue : "0";
+  const cashValue = numericOrNull(cashBalance);
+  const positionValueNumber = numericOrNull(positionValue);
+  const totalEquity =
+    cashValue !== null && positionValueNumber !== null ? cashValue + positionValueNumber : null;
+
+  const summaryRows = [
+    { label: t("cash_balance_label"), value: formatCompactMoney(cashBalance, quoteAsset) },
+    { label: t("positions_value_label"), value: formatCompactMoney(positionValue, quoteAsset, "0") },
+    { label: t("total_equity_label"), value: formatCompactMoney(totalEquity, quoteAsset) },
+    {
+      label: t("realized_pnl_label"),
+      value: formatCompactPnlMoney(scopedPosition?.realizedPnl, quoteAsset, "0"),
+      valueClass: pnlClass(scopedPosition?.realizedPnl),
+    },
+    {
+      label: t("unrealized_pnl_label"),
+      value: hasOpenPosition ? formatCompactPnlMoney(scopedPosition?.unrealizedPnl, quoteAsset) : "0",
+      valueClass: hasOpenPosition ? pnlClass(scopedPosition?.unrealizedPnl) : "pnl-neutral",
+    },
+    { label: t("open_positions_label"), value: hasOpenPosition ? "1" : "0" },
+    { label: t("paper_position_updated_label"), value: formatDateTime(scopedPosition?.updatedAt) },
+  ];
+
+  const summaryGrid = document.createElement("dl");
+  summaryGrid.className = "paper-portfolio-summary";
+  summaryRows.forEach((item) => appendMetric(summaryGrid, item));
+
+  paperPortfolioContent.className = "paper-portfolio-content";
+  paperPortfolioContent.append(summaryGrid);
+
+  const positionsSection = document.createElement("div");
+  positionsSection.className = "paper-portfolio-positions";
+  const positionsHeading = document.createElement("h3");
+  positionsHeading.textContent = t("open_positions_label");
+  positionsSection.append(positionsHeading);
+
+  if (!hasOpenPosition || !scopedPosition) {
+    const empty = document.createElement("p");
+    empty.className = "paper-portfolio-note";
+    empty.textContent = t("paper_portfolio_no_open_positions");
+    positionsSection.append(empty);
+    paperPortfolioContent.append(positionsSection);
+  } else {
+    const list = document.createElement("div");
+    list.className = "paper-portfolio-position-list";
+    const item = document.createElement("article");
+    item.className = "paper-portfolio-position";
+
+    const header = document.createElement("div");
+    header.className = "paper-portfolio-position-header";
+    const symbol = document.createElement("strong");
+    symbol.textContent = formatValue(scopedPosition.symbol);
+    header.append(symbol);
+    if (scopedPosition.marketPrice === null || scopedPosition.marketPrice === undefined) {
+      const badge = document.createElement("span");
+      badge.className = "paper-portfolio-price-status";
+      badge.textContent = t("price_unavailable");
+      header.append(badge);
+    }
+
+    const metrics = document.createElement("dl");
+    metrics.className = "paper-portfolio-position-grid";
+    [
+      { label: t("quantity"), value: formatDecimal(scopedPosition.quantity) },
+      { label: t("average_entry_label"), value: formatMoney(scopedPosition.averageEntryPrice, quoteAsset) },
+      { label: t("latest_price_label"), value: formatMoney(scopedPosition.marketPrice, quoteAsset) },
+      { label: t("market_value_label"), value: formatMoney(scopedPosition.positionValue, quoteAsset) },
+      {
+        label: t("realized_pnl_label"),
+        value: formatPnlMoney(scopedPosition.realizedPnl, quoteAsset),
+        valueClass: pnlClass(scopedPosition.realizedPnl),
+      },
+      {
+        label: t("unrealized_pnl_label"),
+        value: formatPnlMoney(scopedPosition.unrealizedPnl, quoteAsset),
+        valueClass: pnlClass(scopedPosition.unrealizedPnl),
+      },
+    ].forEach((metric) => appendMetric(metrics, metric));
+
+    item.append(header, metrics);
+    list.append(item);
+    positionsSection.append(list);
+    paperPortfolioContent.append(positionsSection);
+  }
+
+  [paperPositionError, draftBalanceError].filter(Boolean).forEach((message) => {
+    const error = document.createElement("p");
+    error.className = "paper-portfolio-note error";
+    error.textContent = message;
+    paperPortfolioContent.append(error);
+  });
 }
 
 function renderPaperPosition() {
