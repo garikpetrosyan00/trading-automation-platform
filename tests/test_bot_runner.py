@@ -2139,6 +2139,85 @@ def test_selected_bot_read_models_ignore_global_and_other_bot_positions(
     assert status.current_position_quantity == Decimal("0")
 
 
+def test_legacy_global_position_still_drives_sell_decision_when_bot_scoped_position_missing(
+    db_session,
+    db_session_factory,
+    stub_market_data_service,
+    bot_stack_factory,
+    funded_account,
+) -> None:
+    # Characterization: _evaluate_bot still uses legacy/global positions for execution
+    # decisions. A future refactor should make this decision input bot-scoped.
+    funded_account(db_session)
+    strategy_a, bot_a, _ = bot_stack_factory(
+        db_session,
+        name="Scoped position bot",
+        symbol="BTCUSDT",
+        status="active",
+    )
+    _, bot_b, _ = bot_stack_factory(
+        db_session,
+        name="Legacy decision bot",
+        symbol="BTCUSDT",
+        status="active",
+    )
+    reset_draft_balance(db_session, bot_b.id)
+    db_session.add(
+        Position(
+            symbol=strategy_a.symbol,
+            quantity=Decimal("0.5"),
+            average_entry_price=Decimal("90"),
+            realized_pnl=Decimal("7.25"),
+        )
+    )
+    db_session.add(
+        PaperPosition(
+            bot_id=bot_a.id,
+            symbol=strategy_a.symbol,
+            base_asset="BTC",
+            quote_asset="USDT",
+            quantity=Decimal("0.25"),
+            average_entry_price=Decimal("80"),
+            realized_pnl=Decimal("3.50"),
+        )
+    )
+    db_session.commit()
+    stub_market_data_service.set_price(strategy_a.symbol, "115")
+    runner = build_runner(db_session_factory, stub_market_data_service)
+
+    response = asyncio.run(run_bot_once_endpoint(bot_b.id, runner))
+    dashboard = asyncio.run(list_bots_endpoint(runner))
+    summary = asyncio.run(get_bot_summary_endpoint(bot_b.id, runner))
+    status = runner.get_bot_status(bot_b.id)
+    run_events = asyncio.run(
+        list_run_events_endpoint(
+            db_session,
+            bot_id=bot_b.id,
+            run_id=None,
+            event_type=None,
+            level=None,
+        )
+    )
+
+    assert response.action == "skipped"
+    assert response.message == "order_rejected"
+    assert response.current_position_qty == Decimal("0")
+    assert response.decision_explanation is not None
+    assert response.decision_explanation.position_qty == Decimal("0.5")
+    assert response.decision_explanation.decision == "sell"
+    assert response.decision_explanation.reason == "price is above strategy sell_above and position exists"
+
+    sell_signal = next(event for event in run_events if event.message == "sell_signal")
+    assert sell_signal.payload["quantity"] == "0.50000000"
+    assert sell_signal.payload["position_qty"] == "0.50000000"
+    assert sell_signal.payload["decision"] == "sell"
+
+    selected_dashboard_item = next(item for item in dashboard.items if item.bot_id == bot_b.id)
+    assert selected_dashboard_item.current_position_qty == Decimal("0")
+    assert summary.current_position_qty == Decimal("0")
+    assert status.current_position_quantity == Decimal("0")
+
+
 def test_bots_dashboard_response_shape_stays_minimal_and_clean(
     db_session,
     db_session_factory,
