@@ -441,6 +441,14 @@ def test_paper_sell_rejects_insufficient_draft_base_without_paper_mutation(
     PortfolioAccountService(repository).ensure_account(base_currency="USD", starting_cash=Decimal("1000.00"))
     PaperPortfolioService(repository).apply_fill(build_fill(side="buy", quantity=Decimal("2"), fill_price=Decimal("100")))
     db_session.commit()
+    build_paper_position_service(db_session).apply_buy_fill(
+        bot_id=bot.id,
+        symbol="BTCUSDT",
+        base_asset="BTC",
+        quote_asset="USDT",
+        quantity=Decimal("1"),
+        fill_price=Decimal("100"),
+    )
     build_draft_balance_service(db_session).reset_bot_draft_balance(
         bot.id,
         defaults={"BTC": (Decimal("0.25"), Decimal("0"))},
@@ -468,6 +476,60 @@ def test_paper_sell_rejects_insufficient_draft_base_without_paper_mutation(
     assert repository.get_position_by_symbol("BTCUSDT").quantity == Decimal("2.00000000")
     assert assets["BTC"].available == Decimal("0.25000000")
     assert assets["BTC"].locked == Decimal("0E-8")
+
+
+def test_paper_sell_rejects_insufficient_bot_scoped_position_without_legacy_mutation(
+    db_session,
+    stub_market_data_service,
+    bot_stack_factory,
+) -> None:
+    _, bot, _ = bot_stack_factory(db_session)
+    repository = PortfolioRepository(db_session)
+    PortfolioAccountService(repository).ensure_account(base_currency="USD", starting_cash=Decimal("1000.00"))
+    PaperPortfolioService(repository).apply_fill(build_fill(side="buy", quantity=Decimal("2"), fill_price=Decimal("100")))
+    db_session.commit()
+    build_paper_position_service(db_session).apply_buy_fill(
+        bot_id=bot.id,
+        symbol="BTCUSDT",
+        base_asset="BTC",
+        quote_asset="USDT",
+        quantity=Decimal("0.25"),
+        fill_price=Decimal("100"),
+    )
+    build_draft_balance_service(db_session).reset_bot_draft_balance(
+        bot.id,
+        defaults={"BTC": (Decimal("1"), Decimal("0")), "USDT": (Decimal("10000"), Decimal("0"))},
+    )
+    stub_market_data_service.set_price("BTCUSDT", "100.00")
+    service = PaperExecutionService(
+        repository=repository,
+        market_data_service=stub_market_data_service,
+        simulation_enabled=True,
+        fee_bps=Decimal("0"),
+        slippage_bps=Decimal("0"),
+    )
+
+    result = service.submit_order_intent(
+        PaperOrderIntent(bot_id=bot.id, symbol="BTCUSDT", side="sell", quantity=Decimal("1"))
+    )
+
+    assets = draft_assets_by_symbol(db_session, bot.id)
+    position = build_paper_position_service(db_session).get_current_position(bot_id=bot.id, symbol="BTCUSDT")
+    orders = repository.list_orders()
+    assert result.accepted is False
+    assert result.order is not None
+    assert result.order.status == "rejected"
+    assert result.order.rejection_reason == "insufficient_paper_position_quantity"
+    assert result.fill is None
+    assert result.message == "insufficient_paper_position_quantity"
+    assert len(orders) == 1
+    assert repository.list_fills() == []
+    assert repository.get_position_by_symbol("BTCUSDT").quantity == Decimal("2.00000000")
+    assert position is not None
+    assert position.quantity == Decimal("0.25000000")
+    assert assets["BTC"].available == Decimal("1.00000000")
+    assert assets["BTC"].locked == Decimal("0E-8")
+    assert assets["USDT"].available == Decimal("10000.00000000")
 
 
 def test_paper_accounting_failure_releases_draft_reservation(

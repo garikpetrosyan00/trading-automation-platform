@@ -20,6 +20,7 @@ from app.repositories.bot import BotRepository
 from app.repositories.bot_run import BotRunRepository
 from app.repositories.draft_balance import DraftBalanceRepository
 from app.repositories.execution_attempt import ExecutionAttemptRepository
+from app.repositories.paper_equity_snapshot import PaperEquitySnapshotRepository
 from app.repositories.portfolio import PortfolioRepository
 from app.repositories.run_event import RunEventRepository
 from app.schemas.market import MarketPriceUpdateRequest
@@ -2218,15 +2219,15 @@ def test_paper_decision_ignores_legacy_global_position_when_bot_scoped_position_
     assert status.current_position_quantity == Decimal("0")
 
 
-def test_paper_sell_decision_rejects_when_legacy_global_position_missing(
+def test_paper_sell_settles_from_bot_scoped_state_when_legacy_global_position_missing(
     db_session,
     db_session_factory,
     stub_market_data_service,
     bot_stack_factory,
     funded_account,
 ) -> None:
-    # Characterization: paper decisions are now bot-scoped, but downstream
-    # simulated accounting still requires a legacy/global position to settle a sell.
+    # Regression: bot-scoped draft balance and paper position are the source of
+    # truth for paper sells; legacy/global position state is only a compatibility mirror.
     funded_account(db_session)
     strategy, bot, _ = bot_stack_factory(
         db_session,
@@ -2269,29 +2270,39 @@ def test_paper_sell_decision_rejects_when_legacy_global_position_missing(
         )
     )
     btc_balance = DraftBalanceRepository(db_session).get_for_bot_asset(bot_id=bot.id, asset="BTC")
+    usdt_balance = DraftBalanceRepository(db_session).get_for_bot_asset(bot_id=bot.id, asset="USDT")
+    snapshots = PaperEquitySnapshotRepository(db_session).list_latest_for_bot(bot_id=bot.id)
 
-    assert response.action == "skipped"
-    assert response.message == "order_rejected"
-    assert response.current_position_qty == Decimal("0.1")
+    assert response.action == "sold"
+    assert response.message == "sell_filled"
+    assert response.current_position_qty == Decimal("0E-8")
     assert response.decision_explanation is not None
     assert response.decision_explanation.position_qty == Decimal("0.1")
     assert response.decision_explanation.decision == "sell"
     assert response.decision_explanation.reason == "price is above strategy sell_above and position exists"
 
     sell_signal = next(event for event in run_events if event.message == "sell_signal")
-    rejection = next(event for event in run_events if event.message == "order_rejected")
+    filled = next(event for event in run_events if event.message == "order_filled")
     assert sell_signal.payload["quantity"] == "0.10000000"
-    assert rejection.payload["message"] == "Insufficient position quantity for this sell order"
-    assert orders[0].status == "rejected"
-    assert orders[0].rejection_reason == "Insufficient position quantity for this sell order"
-    assert attempts[0].final_status == "rejected_by_broker"
-    assert attempts[0].final_reason == "Insufficient position quantity for this sell order"
+    assert filled.payload["message"] == "Market sell order filled"
+    assert orders[0].status == "filled"
+    assert orders[0].rejection_reason is None
+    assert attempts[0].final_status == "filled"
+    assert attempts[0].final_reason == "Market sell order filled"
     assert PortfolioRepository(db_session).get_position_by_symbol(strategy.symbol) is None
     assert persisted_paper_position is not None
-    assert persisted_paper_position.quantity == Decimal("0.1")
+    assert persisted_paper_position.quantity == Decimal("0E-8")
+    assert persisted_paper_position.realized_pnl == Decimal("2.00000000")
     assert btc_balance is not None
-    assert btc_balance.available == Decimal("0.1")
+    assert btc_balance.available == Decimal("0E-8")
     assert btc_balance.locked == Decimal("0")
+    assert usdt_balance is not None
+    assert usdt_balance.available == Decimal("10011.50000000")
+    assert usdt_balance.locked == Decimal("0E-8")
+    assert len(snapshots) == 1
+    assert snapshots[0].event_type == "sell_fill"
+    assert snapshots[0].source_order_id == orders[0].id
+    assert snapshots[0].source_fill_id == filled.payload["fill_id"]
 
 
 def test_bots_dashboard_response_shape_stays_minimal_and_clean(

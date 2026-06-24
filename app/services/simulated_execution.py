@@ -23,7 +23,7 @@ from app.services.execution_attempt import ExecutionAttemptService
 from app.services.execution_limits import ExecutionDailyLimitService
 from app.services.paper_equity_snapshot import PaperEquitySnapshotService
 from app.services.paper_position import PaperPositionService
-from app.services.paper_portfolio import PaperPortfolioService
+from app.services.paper_portfolio import PaperPortfolioResult, PaperPortfolioService
 
 ZERO = Decimal("0")
 BPS_DIVISOR = Decimal("10000")
@@ -417,19 +417,6 @@ class PaperExecutionService:
 
             order = self._create_order(intent, symbol, latest_price, status="filled")
             fill = self._create_fill(order, intent, symbol, fill_price, fee)
-            accounting_result = PaperPortfolioService(self.repository).apply_fill(fill)
-            if not accounting_result.accepted:
-                self.repository.rollback()
-                return self._reject_order(
-                    intent=intent,
-                    symbol=symbol,
-                    requested_price_snapshot=latest_price,
-                    reason=accounting_result.message,
-                    cash_balance=account.cash_balance,
-                    position=position,
-                    attempt=None,
-                )
-
             if draft_reserved:
                 try:
                     self._paper_position_service().apply_sell_fill(
@@ -469,6 +456,25 @@ class PaperExecutionService:
                     source_fill_id=fill.id,
                 )
 
+                accounting_result = self._mirror_legacy_sell_fill_if_possible(
+                    fill=fill,
+                    account=account,
+                    position=position,
+                )
+            else:
+                accounting_result = PaperPortfolioService(self.repository).apply_fill(fill)
+                if not accounting_result.accepted:
+                    self.repository.rollback()
+                    return self._reject_order(
+                        intent=intent,
+                        symbol=symbol,
+                        requested_price_snapshot=latest_price,
+                        reason=accounting_result.message,
+                        cash_balance=account.cash_balance,
+                        position=position,
+                        attempt=None,
+                    )
+
             self._finalize_attempt(
                 attempt,
                 final_status="filled",
@@ -503,6 +509,31 @@ class PaperExecutionService:
         except Exception:
             self.repository.rollback()
             raise
+
+    def _mirror_legacy_sell_fill_if_possible(
+        self,
+        *,
+        fill: SimulatedFill,
+        account,
+        position: Position | None,
+    ) -> PaperPortfolioResult:
+        quantity = fill.fill_quantity if fill.fill_quantity is not None else fill.quantity
+        if position is None or position.quantity < quantity:
+            return PaperPortfolioResult(
+                accepted=True,
+                message="Legacy sell mirror skipped",
+                account=account,
+                position=position,
+            )
+        result = PaperPortfolioService(self.repository).apply_fill(fill)
+        if result.accepted:
+            return result
+        return PaperPortfolioResult(
+            accepted=True,
+            message="Legacy sell mirror skipped",
+            account=account,
+            position=position,
+        )
 
     @staticmethod
     def build_position_snapshot(position: Position | None) -> ExecutionPositionSnapshot | None:
