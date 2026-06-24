@@ -173,6 +173,21 @@ The controlled runtime smoke passed with paused paper bot `6`, `Draft Balance BT
 
 Final safety state: bot `6` remained paper mode and was paused. A pre-existing Binance WebSocket-enabled API was stopped before trade actions; the smoke API ran with market data, bot runner, testnet, and reconciliation workers disabled and was stopped afterward. No Binance endpoints, live/testnet commands, or runner/scheduler loops were used. Only PostgreSQL remained running, and the repository remained clean.
 
+### Paper Trading Observability checkpoint
+
+The Paper Trading Observability phase is complete. The selected-bot dashboard now includes Paper Equity visibility alongside paper orders, execution attempts, Draft Balance, and Paper Position / PnL. The Paper Equity card reads `GET /api/v1/bots/{bot_id}/paper-equity?limit=50`, shows the latest snapshot summary, and lists recent snapshots without polling or mutation controls.
+
+Safe paused behavior was verified first with bot `6`, `Draft Balance BTC BUY Smoke Bot 20260617-1422`. A manual run while paused returned `action: skipped` with `message: bot_skipped_paused`; paper orders, execution attempts, Draft Balance, Paper Position, and Paper Equity snapshots did not change.
+
+A controlled manual paper run was then completed for bot `6` using the Local Simulator and a local-only `BTCUSDT` price of `50`. The bot was resumed only for the single manual run, returned `action: bought` and `message: buy_filled`, then was stopped back to paused. The read-only API/dashboard data refreshed as expected:
+
+- paper order and execution attempt advanced to new filled paper records
+- Draft Balance moved BTC from `0` to `0.01` and USDT from `10003.991002` to `10003.49025175`
+- Paper Position moved quantity from `0` to `0.01` with average entry `50.075025`
+- Paper Equity snapshot count moved from `0` to `1`; latest snapshot `event_type` was `buy_fill` and `total_equity` was `10003.99025175`
+
+Safety closeout: live trading was not enabled, Binance live/testnet behavior was not changed, periodic workers were not started, reconciliation worker status remained disabled/uninitialized with no jobs, and bot `6` was stopped back to paused. Repo hygiene note from the smoke: if present, pre-existing untracked `.hist.swp` and `hist` should be removed or ignored before claiming a final clean tree.
+
 ### Manual runtime smoke closeout
 
 Draft Balance manual runtime smoke has been completed and closed out on the local Docker/API runtime. The controlled paper bot used for the final smoke was bot `6`, `BTCUSDT`, paper mode. It was paused after the smoke so it cannot accidentally continue running.
