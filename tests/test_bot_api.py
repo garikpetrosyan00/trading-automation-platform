@@ -9,6 +9,7 @@ from app.models.alert_event import AlertEvent
 from app.models.alert_rule import AlertRule
 from app.models.bot_run import BotRun
 from app.models.execution_profile import ExecutionProfile
+from app.models.paper_position import PaperPosition
 from app.models.position import Position
 from app.models.run_event import RunEvent
 from app.models.strategy import Strategy
@@ -346,8 +347,11 @@ def test_bot_performance_includes_latest_market_price_and_position_fields(
 ) -> None:
     with db_session_factory() as session:
         strategy, bot, _ = bot_stack_factory(session, status="active")
-        position = Position(
+        position = PaperPosition(
+            bot_id=bot.id,
             symbol=strategy.symbol,
+            base_asset="BTC",
+            quote_asset="USDT",
             quantity=Decimal("0.5"),
             average_entry_price=Decimal("90"),
             realized_pnl=Decimal("7.25"),
@@ -372,6 +376,55 @@ def test_bot_performance_includes_latest_market_price_and_position_fields(
     assert Decimal(body["current_position_quantity"]) == Decimal("0.5")
     assert Decimal(body["realized_pnl"]) == Decimal("7.25")
     assert Decimal(body["unrealized_pnl"]) == Decimal("5")
+
+
+def test_bot_performance_ignores_global_and_other_bot_positions(
+    db_session_factory,
+    stub_market_data_service,
+    noop_bot_runner,
+    bot_stack_factory,
+    configure_app_state,
+) -> None:
+    with db_session_factory() as session:
+        strategy, selected_bot, _ = bot_stack_factory(session, name="Selected Bot", status="active")
+        _, other_bot, _ = bot_stack_factory(session, name="Other Bot", status="active")
+        session.add(
+            Position(
+                symbol=strategy.symbol,
+                quantity=Decimal("0.5"),
+                average_entry_price=Decimal("90"),
+                realized_pnl=Decimal("7.25"),
+            )
+        )
+        session.add(
+            PaperPosition(
+                bot_id=other_bot.id,
+                symbol=strategy.symbol,
+                base_asset="BTC",
+                quote_asset="USDT",
+                quantity=Decimal("0.25"),
+                average_entry_price=Decimal("80"),
+                realized_pnl=Decimal("3.50"),
+            )
+        )
+        session.commit()
+        bot_id = selected_bot.id
+        symbol = strategy.symbol
+
+    stub_market_data_service.set_price(symbol, "100")
+    configure_app_state(
+        market_data_service=stub_market_data_service,
+        bot_runner=noop_bot_runner,
+    )
+
+    with TestClient(app) as client:
+        response = client.get(f"/api/v1/bots/{bot_id}/performance")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert Decimal(body["current_position_quantity"]) == Decimal("0")
+    assert body["realized_pnl"] is None
+    assert body["unrealized_pnl"] is None
 
 
 def test_bot_performance_reflects_paper_fill_accounting(

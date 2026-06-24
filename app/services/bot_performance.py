@@ -4,7 +4,7 @@ from app.core.errors import NotFoundError
 from app.models.run_event import RunEvent
 from app.repositories.bot import BotRepository
 from app.repositories.market_candle import MarketCandleRepository
-from app.repositories.portfolio import PortfolioRepository
+from app.repositories.paper_position import PaperPositionRepository
 from app.repositories.run_event import RunEventRepository
 from app.repositories.strategy import StrategyRepository
 from app.schemas.bot_performance import BotPerformanceRead
@@ -30,7 +30,10 @@ class BotPerformanceService:
         run_events = RunEventRepository(self.db).list_recent_for_bot(bot.id, limit=RECENT_EVENT_LIMIT)
         latest_event = run_events[0] if run_events else None
         latest_decision_event = next((event for event in run_events if self._decision_from_event(event) is not None), None)
-        position = PortfolioRepository(self.db).get_position_by_symbol(strategy.symbol)
+        position = PaperPositionRepository(self.db).get_for_bot_symbol(
+            bot_id=bot.id,
+            symbol=strategy.symbol,
+        )
         latest_price = self._latest_market_price(strategy.symbol, strategy.timeframe)
 
         current_position_quantity = position.quantity if position is not None else ZERO
