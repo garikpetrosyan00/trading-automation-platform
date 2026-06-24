@@ -392,7 +392,12 @@ class BotRunner:
 
         strategy_type = self._strategy_type(strategy)
         latest_price = self._get_latest_price(strategy.symbol)
-        position = portfolio_repository.get_position_by_symbol(strategy.symbol)
+        position = self._get_decision_position(
+            db,
+            bot=bot,
+            symbol=strategy.symbol,
+            portfolio_repository=portfolio_repository,
+        )
         position_quantity = position.quantity if position is not None else ZERO
         candles = None
         candle_source = None
@@ -1032,6 +1037,12 @@ class BotRunner:
     @staticmethod
     def _get_bot_paper_position(db, *, bot_id: int, symbol: str):
         return PaperPositionRepository(db).get_for_bot_symbol(bot_id=bot_id, symbol=symbol)
+
+    @classmethod
+    def _get_decision_position(cls, db, *, bot, symbol: str, portfolio_repository: PortfolioRepository):
+        if cls._bot_execution_mode(bot) == "paper":
+            return cls._get_bot_paper_position(db, bot_id=bot.id, symbol=symbol)
+        return portfolio_repository.get_position_by_symbol(symbol)
 
     @staticmethod
     def _build_decision_explanation(run_event, action: str, message: str) -> BotDecisionExplanationRead | None:

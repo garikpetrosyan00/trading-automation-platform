@@ -2139,15 +2139,15 @@ def test_selected_bot_read_models_ignore_global_and_other_bot_positions(
     assert status.current_position_quantity == Decimal("0")
 
 
-def test_legacy_global_position_still_drives_sell_decision_when_bot_scoped_position_missing(
+def test_paper_decision_ignores_legacy_global_position_when_bot_scoped_position_missing(
     db_session,
     db_session_factory,
     stub_market_data_service,
     bot_stack_factory,
     funded_account,
 ) -> None:
-    # Characterization: _evaluate_bot still uses legacy/global positions for execution
-    # decisions. A future refactor should make this decision input bot-scoped.
+    # Regression: paper-mode decisions must use bot-scoped paper positions, not
+    # legacy/global same-symbol positions owned by another bot or old state.
     funded_account(db_session)
     strategy_a, bot_a, _ = bot_stack_factory(
         db_session,
@@ -2199,18 +2199,18 @@ def test_legacy_global_position_still_drives_sell_decision_when_bot_scoped_posit
         )
     )
 
-    assert response.action == "skipped"
-    assert response.message == "order_rejected"
+    assert response.action == "no_action"
+    assert response.message == "evaluation_no_signal"
     assert response.current_position_qty == Decimal("0")
     assert response.decision_explanation is not None
-    assert response.decision_explanation.position_qty == Decimal("0.5")
-    assert response.decision_explanation.decision == "sell"
-    assert response.decision_explanation.reason == "price is above strategy sell_above and position exists"
+    assert response.decision_explanation.position_qty == Decimal("0")
+    assert response.decision_explanation.decision == "hold"
+    assert response.decision_explanation.reason == "price did not go below buy_below, so no buy signal"
 
-    sell_signal = next(event for event in run_events if event.message == "sell_signal")
-    assert sell_signal.payload["quantity"] == "0.50000000"
-    assert sell_signal.payload["position_qty"] == "0.50000000"
-    assert sell_signal.payload["decision"] == "sell"
+    messages = [event.message for event in run_events]
+    assert "sell_signal" not in messages
+    assert "order_rejected" not in messages
+    assert PortfolioRepository(db_session).list_orders() == []
 
     selected_dashboard_item = next(item for item in dashboard.items if item.bot_id == bot_b.id)
     assert selected_dashboard_item.current_position_qty == Decimal("0")
