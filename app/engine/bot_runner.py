@@ -26,6 +26,7 @@ from app.repositories.execution_profile import ExecutionProfileRepository
 from app.repositories.execution_attempt import ExecutionAttemptRepository
 from app.repositories.market_candle import MarketCandleRepository
 from app.repositories.paper_accounting import PaperAccountingRepository
+from app.repositories.paper_position import PaperPositionRepository
 from app.repositories.portfolio import PortfolioRepository
 from app.repositories.run_event import RunEventRepository
 from app.repositories.strategy import StrategyRepository
@@ -902,7 +903,6 @@ class BotRunner:
         profile_repository = ExecutionProfileRepository(db)
         bot_run_repository = BotRunRepository(db)
         run_event_repository = RunEventRepository(db)
-        portfolio_repository = PortfolioRepository(db)
 
         bot = bot_repository.get_by_id(bot_id)
         if bot is None:
@@ -921,7 +921,7 @@ class BotRunner:
 
         active_run = bot_run_repository.get_active_for_bot(bot_id)
         latest_event = run_event_repository.get_latest_for_bot(bot_id)
-        position = portfolio_repository.get_position_by_symbol(strategy.symbol)
+        position = self._get_bot_paper_position(db, bot_id=bot.id, symbol=strategy.symbol)
         latest_price = self._get_latest_price(strategy.symbol)
         cooldown_until = self._get_cooldown_until(run_event_repository, bot.id, profile.cooldown_seconds)
         cooldown_active = cooldown_until is not None and self.now_provider() < cooldown_until
@@ -953,7 +953,7 @@ class BotRunner:
             raise NotFoundError(f"Strategy with id {bot.strategy_id} was not found", error_code="strategy_not_found")
 
         profile = ExecutionProfileRepository(db).get_by_bot_id(bot.id)
-        position = PortfolioRepository(db).get_position_by_symbol(strategy.symbol)
+        position = self._get_bot_paper_position(db, bot_id=bot.id, symbol=strategy.symbol)
         run_event_repository = RunEventRepository(db)
         latest_price = self._get_latest_price(strategy.symbol)
         cooldown_until = None
@@ -1028,6 +1028,10 @@ class BotRunner:
             decision_explanation=self._build_decision_explanation(latest_event, action, message),
             recent_activity_preview=[build_activity_item(event, portfolio_repository) for event in recent_events],
         )
+
+    @staticmethod
+    def _get_bot_paper_position(db, *, bot_id: int, symbol: str):
+        return PaperPositionRepository(db).get_for_bot_symbol(bot_id=bot_id, symbol=symbol)
 
     @staticmethod
     def _build_decision_explanation(run_event, action: str, message: str) -> BotDecisionExplanationRead | None:

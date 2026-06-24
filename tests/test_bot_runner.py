@@ -2088,6 +2088,57 @@ def test_bots_dashboard_includes_current_position_quantity(
     assert response.items[0].last_price == Decimal("95")
 
 
+def test_selected_bot_read_models_ignore_global_and_other_bot_positions(
+    db_session,
+    db_session_factory,
+    stub_market_data_service,
+    bot_stack_factory,
+) -> None:
+    strategy, selected_bot, _ = bot_stack_factory(
+        db_session,
+        name="Selected position bot",
+        symbol="BTCUSDT",
+        status="active",
+    )
+    _, other_bot, _ = bot_stack_factory(
+        db_session,
+        name="Other position bot",
+        symbol="BTCUSDT",
+        status="active",
+    )
+    db_session.add(
+        Position(
+            symbol=strategy.symbol,
+            quantity=Decimal("0.5"),
+            average_entry_price=Decimal("90"),
+            realized_pnl=Decimal("7.25"),
+        )
+    )
+    db_session.add(
+        PaperPosition(
+            bot_id=other_bot.id,
+            symbol=strategy.symbol,
+            base_asset="BTC",
+            quote_asset="USDT",
+            quantity=Decimal("0.25"),
+            average_entry_price=Decimal("80"),
+            realized_pnl=Decimal("3.50"),
+        )
+    )
+    db_session.commit()
+    stub_market_data_service.set_price(strategy.symbol, "100")
+    runner = build_runner(db_session_factory, stub_market_data_service)
+
+    dashboard = asyncio.run(list_bots_endpoint(runner))
+    summary = asyncio.run(get_bot_summary_endpoint(selected_bot.id, runner))
+    status = runner.get_bot_status(selected_bot.id)
+
+    selected_dashboard_item = next(item for item in dashboard.items if item.bot_id == selected_bot.id)
+    assert selected_dashboard_item.current_position_qty == Decimal("0")
+    assert summary.current_position_qty == Decimal("0")
+    assert status.current_position_quantity == Decimal("0")
+
+
 def test_bots_dashboard_response_shape_stays_minimal_and_clean(
     db_session,
     db_session_factory,
