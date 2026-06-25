@@ -321,32 +321,43 @@ class PaperExecutionService:
                             fee=fill.fee,
                         )
                     except AppError as exc:
-                        self.repository.rollback()
-                        return self._reject_order(
+                        return self._reject_after_settlement_failure(
                             intent=intent,
                             symbol=symbol,
                             requested_price_snapshot=latest_price,
                             reason=exc.error_code,
                             cash_balance=account.cash_balance,
                             position=position,
-                            attempt=None,
                         )
-                    self._draft_balance_service().apply_draft_balance_buy_fill(
-                        bot_id=intent.bot_id,
-                        base_asset=base_asset,
-                        quote_asset=quote_asset,
-                        received_base_amount=fill.fill_quantity,
-                        spent_quote_amount=(fill.fill_quantity * fill.fill_price) + fill.fee,
-                    )
-                    self._paper_equity_snapshot_service().create_snapshot(
-                        bot_id=intent.bot_id,
-                        symbol=symbol,
-                        base_asset=base_asset,
-                        quote_asset=quote_asset,
-                        event_type="buy_fill",
-                        source_order_id=order.id,
-                        source_fill_id=fill.id,
-                    )
+                    try:
+                        self._draft_balance_service().apply_draft_balance_buy_fill(
+                            bot_id=intent.bot_id,
+                            base_asset=base_asset,
+                            quote_asset=quote_asset,
+                            received_base_amount=fill.fill_quantity,
+                            spent_quote_amount=(fill.fill_quantity * fill.fill_price) + fill.fee,
+                        )
+                        self._paper_equity_snapshot_service().create_snapshot(
+                            bot_id=intent.bot_id,
+                            symbol=symbol,
+                            base_asset=base_asset,
+                            quote_asset=quote_asset,
+                            event_type="buy_fill",
+                            source_order_id=order.id,
+                            source_fill_id=fill.id,
+                        )
+                    except AppError as exc:
+                        return self._reject_after_settlement_failure(
+                            intent=intent,
+                            symbol=symbol,
+                            requested_price_snapshot=latest_price,
+                            reason=exc.error_code,
+                            cash_balance=account.cash_balance,
+                            position=position,
+                        )
+                    except Exception:
+                        self.repository.rollback()
+                        raise
 
                 self._finalize_attempt(
                     attempt,
@@ -429,32 +440,43 @@ class PaperExecutionService:
                         fee=fill.fee,
                     )
                 except AppError as exc:
-                    self.repository.rollback()
-                    return self._reject_order(
+                    return self._reject_after_settlement_failure(
                         intent=intent,
                         symbol=symbol,
                         requested_price_snapshot=latest_price,
                         reason=exc.error_code,
                         cash_balance=account.cash_balance,
                         position=position,
-                        attempt=None,
                     )
-                self._draft_balance_service().apply_draft_balance_sell_fill(
-                    bot_id=intent.bot_id,
-                    base_asset=base_asset,
-                    quote_asset=quote_asset,
-                    sold_base_amount=fill.fill_quantity,
-                    received_quote_amount=(fill.fill_quantity * fill.fill_price) - fill.fee,
-                )
-                self._paper_equity_snapshot_service().create_snapshot(
-                    bot_id=intent.bot_id,
-                    symbol=symbol,
-                    base_asset=base_asset,
-                    quote_asset=quote_asset,
-                    event_type="sell_fill",
-                    source_order_id=order.id,
-                    source_fill_id=fill.id,
-                )
+                try:
+                    self._draft_balance_service().apply_draft_balance_sell_fill(
+                        bot_id=intent.bot_id,
+                        base_asset=base_asset,
+                        quote_asset=quote_asset,
+                        sold_base_amount=fill.fill_quantity,
+                        received_quote_amount=(fill.fill_quantity * fill.fill_price) - fill.fee,
+                    )
+                    self._paper_equity_snapshot_service().create_snapshot(
+                        bot_id=intent.bot_id,
+                        symbol=symbol,
+                        base_asset=base_asset,
+                        quote_asset=quote_asset,
+                        event_type="sell_fill",
+                        source_order_id=order.id,
+                        source_fill_id=fill.id,
+                    )
+                except AppError as exc:
+                    return self._reject_after_settlement_failure(
+                        intent=intent,
+                        symbol=symbol,
+                        requested_price_snapshot=latest_price,
+                        reason=exc.error_code,
+                        cash_balance=account.cash_balance,
+                        position=position,
+                    )
+                except Exception:
+                    self.repository.rollback()
+                    raise
 
                 accounting_result = self._mirror_legacy_sell_fill_if_possible(
                     fill=fill,
@@ -556,6 +578,7 @@ class PaperExecutionService:
         position: Position | None,
         attempt: ExecutionAttempt | None = None,
         final_status: str = "rejected_by_broker",
+        record_attempt_if_missing: bool = False,
     ) -> ExecutionResult:
         try:
             order = SimulatedOrder(
@@ -574,6 +597,30 @@ class PaperExecutionService:
             )
             self.repository.save(order)
             self.repository.flush()
+            if attempt is None and record_attempt_if_missing and self.attempt_service is not None:
+                attempt = self.attempt_service.record(
+                    bot_id=intent.bot_id,
+                    strategy_id=intent.strategy_id,
+                    symbol=symbol,
+                    side=intent.side,
+                    mode=intent.mode,
+                    broker="paper",
+                    requested_quantity=intent.quantity,
+                    requested_price=requested_price_snapshot,
+                    decision_reason=intent.decision_reason,
+                    risk_status="allowed",
+                    safety_status="allowed" if final_status == "rejected_by_broker" else reason,
+                    final_status=final_status,
+                    final_reason=reason,
+                    order_id=order.id,
+                    metadata={
+                        "broker": "paper",
+                        "symbol": symbol,
+                        "side": intent.side,
+                        "mode": intent.mode,
+                        "fill_id": None,
+                    },
+                )
             self._finalize_attempt(
                 attempt,
                 final_status=final_status,
@@ -603,6 +650,29 @@ class PaperExecutionService:
         except Exception:
             self.repository.rollback()
             raise
+
+    def _reject_after_settlement_failure(
+        self,
+        *,
+        intent: PaperOrderIntent,
+        symbol: str,
+        requested_price_snapshot: Decimal | None,
+        reason: str,
+        cash_balance: Decimal,
+        position: Position | None,
+    ) -> ExecutionResult:
+        self.repository.rollback()
+        return self._reject_order(
+            intent=intent,
+            symbol=symbol,
+            requested_price_snapshot=requested_price_snapshot,
+            reason=reason,
+            cash_balance=cash_balance,
+            position=position,
+            attempt=None,
+            final_status="rejected_by_broker",
+            record_attempt_if_missing=True,
+        )
 
     def _reject_without_order(
         self,
