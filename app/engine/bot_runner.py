@@ -359,7 +359,7 @@ class BotRunner:
         portfolio_repository = PortfolioRepository(db)
         bot_run_service = self._build_bot_run_service(db)
 
-        bot = bot_repository.get_by_id_for_update(bot_id)
+        bot = bot_repository.get_by_id(bot_id)
         if bot is None:
             return
         if bot.status == "paused":
@@ -377,6 +377,22 @@ class BotRunner:
             return
 
         bot_run = self._ensure_running_run(bot_run_service, bot_id, trigger_type="system")
+        bot = bot_repository.get_by_id_for_update(bot_id)
+        if bot is None:
+            return
+        if bot.status == "paused":
+            if record_noop_events:
+                self._record_paused_skip(db, bot.id)
+            return
+        if bot.status != "active":
+            return
+        profile = profile_repository.get_by_bot_id(bot_id)
+        strategy = strategy_repository.get_by_id(bot.strategy_id)
+        if strategy is None:
+            raise NotFoundError(f"Strategy with id {bot.strategy_id} was not found", error_code="strategy_not_found")
+        if profile is None or not profile.is_enabled:
+            return
+
         if not strategy.is_active:
             if record_noop_events:
                 self._record_event(
@@ -615,9 +631,11 @@ class BotRunner:
                 **decision_payload,
             },
         )
-        db.commit()
 
         execution_mode = self._bot_execution_mode(bot)
+        if execution_mode != "paper":
+            db.commit()
+
         if execution_mode == "live":
             ExecutionAttemptService(ExecutionAttemptRepository(db)).record(
                 bot_id=bot.id,

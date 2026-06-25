@@ -4,6 +4,7 @@ from decimal import Decimal
 
 from sqlalchemy.dialects import postgresql
 from sqlalchemy import select, text
+from sqlalchemy.orm import Session
 
 from app.api.v1.endpoints.bots import list_bots as list_bots_endpoint
 from app.api.v1.endpoints.bots import get_bot_summary as get_bot_summary_endpoint
@@ -26,6 +27,7 @@ from app.repositories.portfolio import PortfolioRepository
 from app.repositories.run_event import RunEventRepository
 from app.schemas.market import MarketPriceUpdateRequest
 from app.services.draft_balance import DraftBalanceService
+from app.services.simulated_execution import SimulatedExecutionService
 
 
 class FakeClock:
@@ -2779,6 +2781,47 @@ def test_manual_bot_run_uses_db_backed_bot_lock_before_paper_execution(
 
     assert response.action == "bought"
     assert locked_bot_ids == [bot.id]
+
+
+def test_manual_bot_run_does_not_commit_between_bot_lock_and_paper_settlement(
+    db_session,
+    db_session_factory,
+    stub_market_data_service,
+    bot_stack_factory,
+    funded_account,
+    monkeypatch,
+) -> None:
+    funded_account(db_session)
+    _, bot, _ = bot_stack_factory(db_session)
+    reset_draft_balance(db_session, bot.id)
+    runner = build_runner(db_session_factory, stub_market_data_service)
+    runner.start_bot(bot.id)
+    stub_market_data_service.set_price("BTCUSDT", "95")
+    state = {"locked": False, "settlement_started": False}
+    original_lock = BotRepository.get_by_id_for_update
+    original_submit = SimulatedExecutionService.submit_order_intent
+    original_commit = Session.commit
+
+    def counting_get_by_id_for_update(self, bot_id: int):
+        state["locked"] = True
+        return original_lock(self, bot_id)
+
+    def counting_submit_order_intent(self, intent):
+        state["settlement_started"] = True
+        return original_submit(self, intent)
+
+    def guarded_commit(self):
+        assert not (state["locked"] and not state["settlement_started"])
+        return original_commit(self)
+
+    monkeypatch.setattr(BotRepository, "get_by_id_for_update", counting_get_by_id_for_update)
+    monkeypatch.setattr(SimulatedExecutionService, "submit_order_intent", counting_submit_order_intent)
+    monkeypatch.setattr(Session, "commit", guarded_commit)
+
+    response = asyncio.run(run_bot_once_endpoint(bot.id, runner))
+
+    assert response.action == "bought"
+    assert state == {"locked": True, "settlement_started": True}
 
 
 def test_manual_bot_run_sell_eligible_returns_sold_result(
