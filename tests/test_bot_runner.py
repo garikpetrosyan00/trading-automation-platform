@@ -2754,6 +2754,96 @@ def test_duplicate_manual_buy_run_does_not_double_create_bot_scoped_artifacts(
     assert position.current_position_quantity == Decimal("0.10000000")
 
 
+def test_duplicate_manual_sell_run_returns_no_signal_without_double_settlement(
+    db_session,
+    db_session_factory,
+    stub_market_data_service,
+    bot_stack_factory,
+    funded_account,
+) -> None:
+    funded_account(db_session)
+    _, bot, _ = bot_stack_factory(db_session)
+    reset_draft_balance(db_session, bot.id)
+    first_runner = build_runner(db_session_factory, stub_market_data_service)
+    second_runner = build_runner(db_session_factory, stub_market_data_service)
+    first_runner.start_bot(bot.id)
+    stub_market_data_service.set_price("BTCUSDT", "95")
+    asyncio.run(run_bot_once_endpoint(bot.id, first_runner))
+    stub_market_data_service.set_price("BTCUSDT", "115")
+
+    sell_response = asyncio.run(run_bot_once_endpoint(bot.id, first_runner))
+    duplicate_response = asyncio.run(run_bot_once_endpoint(bot.id, second_runner))
+
+    repository = PortfolioRepository(db_session)
+    orders = repository.list_orders_filtered(bot_id=bot.id, mode="paper")
+    fills = repository.list_fills()
+    attempts = ExecutionAttemptRepository(db_session).list_filtered(bot_id=bot.id, mode="paper")
+    snapshots = PaperEquitySnapshotRepository(db_session).list_latest_for_bot(bot_id=bot.id)
+    draft_assets = {row.asset: row for row in DraftBalanceRepository(db_session).list_for_bot(bot.id)}
+    paper_position = first_runner.get_bot_status(bot.id)
+    latest_event = RunEventRepository(db_session).get_latest_for_bot(bot.id)
+
+    assert sell_response.action == "sold"
+    assert sell_response.message == "sell_filled"
+    assert duplicate_response.action == "no_action"
+    assert duplicate_response.message == "evaluation_no_signal"
+    assert duplicate_response.decision_explanation is not None
+    assert duplicate_response.decision_explanation.position_qty == Decimal("0E-8")
+    assert duplicate_response.decision_explanation.decision == "hold"
+    assert latest_event is not None
+    assert latest_event.message == duplicate_response.message
+    assert len([order for order in orders if order.side == "sell" and order.status == "filled"]) == 1
+    assert len(fills) == 2
+    assert len([attempt for attempt in attempts if attempt.side == "sell" and attempt.final_status == "filled"]) == 1
+    assert [snapshot.event_type for snapshot in snapshots] == ["sell_fill", "buy_fill"]
+    assert draft_assets["BTC"].available == Decimal("0E-8")
+    assert draft_assets["BTC"].locked == Decimal("0E-8")
+    assert draft_assets["USDT"].available == Decimal("10002.00000000")
+    assert draft_assets["USDT"].locked == Decimal("0E-8")
+    assert paper_position.current_position_quantity == Decimal("0E-8")
+
+
+def test_manual_run_response_uses_event_created_by_locked_evaluation(
+    db_session,
+    db_session_factory,
+    stub_market_data_service,
+    bot_stack_factory,
+    funded_account,
+    monkeypatch,
+) -> None:
+    funded_account(db_session)
+    _, bot, _ = bot_stack_factory(db_session)
+    reset_draft_balance(db_session, bot.id)
+    runner = build_runner(db_session_factory, stub_market_data_service)
+    runner.start_bot(bot.id)
+    stub_market_data_service.set_price("BTCUSDT", "95")
+    asyncio.run(run_bot_once_endpoint(bot.id, runner))
+    stub_market_data_service.set_price("BTCUSDT", "115")
+    sell_response = asyncio.run(run_bot_once_endpoint(bot.id, runner))
+    stale_latest_event = RunEventRepository(db_session).get_latest_for_bot(bot.id)
+    assert sell_response.message == "sell_filled"
+    assert stale_latest_event is not None
+    assert stale_latest_event.message == "order_filled"
+
+    original_get_latest_for_bot = RunEventRepository.get_latest_for_bot
+
+    def stale_get_latest_for_bot(self, bot_id: int):
+        return stale_latest_event
+
+    monkeypatch.setattr(RunEventRepository, "get_latest_for_bot", stale_get_latest_for_bot)
+
+    duplicate_response = asyncio.run(run_bot_once_endpoint(bot.id, runner))
+
+    monkeypatch.setattr(RunEventRepository, "get_latest_for_bot", original_get_latest_for_bot)
+    actual_latest_event = RunEventRepository(db_session).get_latest_for_bot(bot.id)
+    assert duplicate_response.action == "no_action"
+    assert duplicate_response.message == "evaluation_no_signal"
+    assert duplicate_response.decision_explanation is not None
+    assert duplicate_response.decision_explanation.position_qty == Decimal("0E-8")
+    assert actual_latest_event is not None
+    assert actual_latest_event.message == duplicate_response.message
+
+
 def test_manual_bot_run_uses_db_backed_bot_lock_before_paper_execution(
     db_session,
     db_session_factory,

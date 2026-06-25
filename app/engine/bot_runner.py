@@ -310,12 +310,11 @@ class BotRunner:
                 )
                 return self._build_manual_run_result(db, bot_id=bot_id, latest_event=latest_event)
 
-            self._evaluate_bot(db, bot_id, record_noop_events=True)
-            latest_event = RunEventRepository(db).get_latest_for_bot(bot_id)
+            evaluation_event = self._evaluate_bot(db, bot_id, record_noop_events=True)
             return self._build_manual_run_result(
                 db,
                 bot_id=bot_id,
-                latest_event=latest_event if latest_event is not None and latest_event != previous_event else None,
+                latest_event=evaluation_event if evaluation_event is not None and evaluation_event != previous_event else None,
             )
 
     def _run_cycle_sync(self) -> None:
@@ -352,7 +351,7 @@ class BotRunner:
             logger.info("bot_runner_cancelled")
             raise
 
-    def _evaluate_bot(self, db, bot_id: int, *, record_noop_events: bool = False) -> None:
+    def _evaluate_bot(self, db, bot_id: int, *, record_noop_events: bool = False) -> RunEvent | None:
         bot_repository = BotRepository(db)
         strategy_repository = StrategyRepository(db)
         profile_repository = ExecutionProfileRepository(db)
@@ -361,41 +360,41 @@ class BotRunner:
 
         bot = bot_repository.get_by_id(bot_id)
         if bot is None:
-            return
+            return None
         if bot.status == "paused":
             if record_noop_events:
-                self._record_paused_skip(db, bot.id)
-            return
+                return self._record_paused_skip(db, bot.id)
+            return None
         if bot.status != "active":
-            return
+            return None
 
         profile = profile_repository.get_by_bot_id(bot_id)
         strategy = strategy_repository.get_by_id(bot.strategy_id)
         if strategy is None:
             raise NotFoundError(f"Strategy with id {bot.strategy_id} was not found", error_code="strategy_not_found")
         if profile is None or not profile.is_enabled:
-            return
+            return None
 
         bot_run = self._ensure_running_run(bot_run_service, bot_id, trigger_type="system")
         bot = bot_repository.get_by_id_for_update(bot_id)
         if bot is None:
-            return
+            return None
         if bot.status == "paused":
             if record_noop_events:
-                self._record_paused_skip(db, bot.id)
-            return
+                return self._record_paused_skip(db, bot.id)
+            return None
         if bot.status != "active":
-            return
+            return None
         profile = profile_repository.get_by_bot_id(bot_id)
         strategy = strategy_repository.get_by_id(bot.strategy_id)
         if strategy is None:
             raise NotFoundError(f"Strategy with id {bot.strategy_id} was not found", error_code="strategy_not_found")
         if profile is None or not profile.is_enabled:
-            return
+            return None
 
         if not strategy.is_active:
             if record_noop_events:
-                self._record_event(
+                event = self._record_event(
                     db,
                     bot_run.id,
                     event_type="system",
@@ -404,7 +403,8 @@ class BotRunner:
                     payload={"symbol": strategy.symbol, "strategy_id": strategy.id},
                 )
                 db.commit()
-            return
+                return event
+            return None
 
         strategy_type = self._strategy_type(strategy)
         latest_price = self._get_latest_price(strategy.symbol)
@@ -466,7 +466,7 @@ class BotRunner:
             MACD_CROSSOVER_STRATEGY_TYPE,
         }:
             if record_noop_events:
-                self._record_event(
+                event = self._record_event(
                     db,
                     bot_run.id,
                     event_type="system",
@@ -475,11 +475,12 @@ class BotRunner:
                     payload={"symbol": strategy.symbol, **decision_payload},
                 )
                 db.commit()
-            return
+                return event
+            return None
 
         if decision.metadata.get("parameter") is not None:
             if record_noop_events:
-                self._record_event(
+                event = self._record_event(
                     db,
                     bot_run.id,
                     event_type="system",
@@ -488,7 +489,8 @@ class BotRunner:
                     payload={"symbol": strategy.symbol, **decision_payload, "reason": "invalid_strategy_parameter"},
                 )
                 db.commit()
-            return
+                return event
+            return None
 
         cooldown_until = self._get_cooldown_until(RunEventRepository(db), bot.id, profile.cooldown_seconds)
 
@@ -499,7 +501,7 @@ class BotRunner:
             and self.now_provider() < cooldown_until
         ):
             if record_noop_events:
-                self._record_event(
+                event = self._record_event(
                     db,
                     bot_run.id,
                     event_type="system",
@@ -508,7 +510,8 @@ class BotRunner:
                     payload={"symbol": strategy.symbol, "cooldown_until": cooldown_until.isoformat(), **decision_payload},
                 )
                 db.commit()
-            return
+                return event
+            return None
 
         risk_manager = self.risk_manager
         if not self._risk_manager_override:
@@ -539,7 +542,7 @@ class BotRunner:
                     final_reason=risk_decision.reason,
                     metadata={"decision": decision_payload, "risk": risk_decision.details},
                 )
-            self._record_event(
+            event = self._record_event(
                 db,
                 bot_run.id,
                 event_type="system",
@@ -555,7 +558,7 @@ class BotRunner:
                 },
             )
             db.commit()
-            return
+            return event
 
         execution_action = risk_decision.action
         if risk_decision.reason == RISK_REASON_STOP_LOSS_TRIGGERED:
@@ -569,7 +572,7 @@ class BotRunner:
 
         if execution_action == "skip":
             if record_noop_events:
-                self._record_event(
+                event = self._record_event(
                     db,
                     bot_run.id,
                     event_type="system",
@@ -578,11 +581,12 @@ class BotRunner:
                     payload={"symbol": strategy.symbol, **decision_payload},
                 )
                 db.commit()
-            return
+                return event
+            return None
 
         if execution_action == "hold":
             if record_noop_events:
-                self._record_event(
+                event = self._record_event(
                     db,
                     bot_run.id,
                     event_type="log",
@@ -591,7 +595,8 @@ class BotRunner:
                     payload={"symbol": strategy.symbol, **decision_payload},
                 )
                 db.commit()
-            return
+                return event
+            return None
 
         quantity = decision.metadata.get("_order_quantity")
         if execution_action == "sell":
@@ -602,7 +607,7 @@ class BotRunner:
             if strategy_type == PRICE_THRESHOLD_STRATEGY_TYPE:
                 detail = "strategy quantity is missing and execution profile order_quantity is not configured"
             if record_noop_events:
-                self._record_event(
+                event = self._record_event(
                     db,
                     bot_run.id,
                     event_type="system",
@@ -617,7 +622,8 @@ class BotRunner:
                     },
                 )
                 db.commit()
-            return
+                return event
+            return None
 
         self._record_event(
             db,
@@ -653,7 +659,7 @@ class BotRunner:
                 final_reason="live_mode_not_implemented",
                 metadata={"decision": decision_payload},
             )
-            self._record_event(
+            event = self._record_event(
                 db,
                 bot_run.id,
                 event_type="system",
@@ -662,7 +668,7 @@ class BotRunner:
                 payload={"side": execution_action, "symbol": strategy.symbol, "quantity": str(quantity), **decision_payload},
             )
             db.commit()
-            return
+            return event
 
         attempt_repository = ExecutionAttemptRepository(db)
         safety_guard = ExecutionSafetyGuard(
@@ -693,7 +699,7 @@ class BotRunner:
                 decision_reason=decision_payload.get("detail") or decision_payload.get("reason"),
                 decision_metadata=decision_payload,
             )
-            self._record_event(
+            event = self._record_event(
                 db,
                 bot_run.id,
                 event_type="system",
@@ -708,7 +714,7 @@ class BotRunner:
                 },
             )
             db.commit()
-            return
+            return event
 
         safety_decision = safety_guard.validate_order(
             PaperOrderIntent(
@@ -741,7 +747,7 @@ class BotRunner:
                 final_reason=safety_decision.reason,
                 metadata={**safety_decision.metadata, "decision": decision_payload},
             )
-            self._record_event(
+            event = self._record_event(
                 db,
                 bot_run.id,
                 event_type="system",
@@ -755,7 +761,7 @@ class BotRunner:
                 },
             )
             db.commit()
-            return
+            return event
 
         execution_service = SimulatedExecutionService(
             repository=portfolio_repository,
@@ -801,7 +807,7 @@ class BotRunner:
                 },
             )
 
-        self._record_event(
+        event = self._record_event(
             db,
             bot_run.id,
             event_type="system",
@@ -817,6 +823,7 @@ class BotRunner:
             },
         )
         db.commit()
+        return event
 
     def _submit_binance_testnet_order(
         self,
@@ -1141,16 +1148,16 @@ class BotRunner:
                 )
             db.commit()
 
-    def _record_event(self, db, bot_run_id: int, event_type: str, level: str, message: str, payload: dict | None) -> None:
-        db.add(
-            RunEvent(
-                bot_run_id=bot_run_id,
-                event_type=event_type,
-                level=level,
-                message=message,
-                payload=payload,
-            )
+    def _record_event(self, db, bot_run_id: int, event_type: str, level: str, message: str, payload: dict | None) -> RunEvent:
+        event = RunEvent(
+            bot_run_id=bot_run_id,
+            event_type=event_type,
+            level=level,
+            message=message,
+            payload=payload,
         )
+        db.add(event)
+        return event
 
     def _record_manual_skip(self, db, bot_id: int, message: str, payload: dict | None) -> RunEvent:
         bot_run = BotRunRepository(db).get_active_for_bot(bot_id)
@@ -1179,11 +1186,11 @@ class BotRunner:
         db.refresh(run_event)
         return run_event
 
-    def _record_paused_skip(self, db, bot_id: int) -> None:
+    def _record_paused_skip(self, db, bot_id: int) -> RunEvent | None:
         active_run = BotRunRepository(db).get_active_for_bot(bot_id)
         if active_run is None:
-            return
-        self._record_event(
+            return None
+        event = self._record_event(
             db,
             active_run.id,
             event_type="system",
@@ -1192,6 +1199,7 @@ class BotRunner:
             payload={"bot_status": "paused"},
         )
         db.commit()
+        return event
 
     def _build_bot_run_service(self, db) -> BotRunService:
         return BotRunService(
