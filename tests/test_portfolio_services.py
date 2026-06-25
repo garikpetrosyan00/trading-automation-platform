@@ -253,6 +253,34 @@ def test_paper_execution_applies_fills_through_portfolio_service(
     assert position.average_entry_price == Decimal("100.00000000")
 
 
+def test_non_bot_scoped_legacy_paper_duplicate_buy_behavior_is_preserved(
+    db_session,
+    stub_market_data_service,
+) -> None:
+    repository = PortfolioRepository(db_session)
+    PortfolioAccountService(repository).ensure_account(base_currency="USD", starting_cash=Decimal("1000.00"))
+    stub_market_data_service.set_price("BTCUSDT", "100.00")
+    service = PaperExecutionService(
+        repository=repository,
+        market_data_service=stub_market_data_service,
+        simulation_enabled=True,
+        fee_bps=Decimal("0"),
+        slippage_bps=Decimal("0"),
+    )
+
+    first = service.submit_order_intent(PaperOrderIntent(symbol="BTCUSDT", side="buy", quantity=Decimal("1")))
+    second = service.submit_order_intent(PaperOrderIntent(symbol="BTCUSDT", side="buy", quantity=Decimal("1")))
+
+    position = repository.get_position_by_symbol("BTCUSDT")
+    assert first.accepted is True
+    assert second.accepted is True
+    assert len(repository.list_orders()) == 2
+    assert len(repository.list_fills()) == 2
+    assert position is not None
+    assert position.quantity == Decimal("2.00000000")
+    assert position.average_entry_price == Decimal("100.00000000")
+
+
 def test_rejected_buy_due_to_insufficient_cash(db_session, stub_market_data_service) -> None:
     repository = PortfolioRepository(db_session)
     PortfolioAccountService(repository).ensure_account(base_currency="USD", starting_cash=Decimal("1000.00"))

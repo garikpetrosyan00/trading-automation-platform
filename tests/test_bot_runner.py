@@ -2554,6 +2554,9 @@ def test_manual_bot_run_paused_bot_returns_skipped_result(
     assert response.is_paused is True
     assert response.recent_activity_preview[0].message == "bot_skipped_paused"
     assert PortfolioRepository(db_session).list_orders() == []
+    assert PortfolioRepository(db_session).list_fills() == []
+    assert ExecutionAttemptRepository(db_session).list_filtered(bot_id=bot.id, mode="paper") == []
+    assert PaperEquitySnapshotRepository(db_session).list_latest_for_bot(bot_id=bot.id) == []
 
 
 def test_manual_bot_run_missing_execution_profile_creates_expected_event(
@@ -2674,6 +2677,59 @@ def test_manual_bot_run_buy_eligible_returns_bought_result(
     assert response.decision_explanation.decision == "buy"
     assert response.decision_explanation.reason == "price is below strategy buy_below"
     assert response.recent_activity_preview[0].message == "buy_filled"
+    assert len(PortfolioRepository(db_session).list_orders_filtered(bot_id=bot.id, mode="paper")) == 1
+    assert len(PortfolioRepository(db_session).list_fills()) == 1
+    assert len(ExecutionAttemptRepository(db_session).list_filtered(bot_id=bot.id, mode="paper")) == 1
+    assert len(PaperEquitySnapshotRepository(db_session).list_latest_for_bot(bot_id=bot.id)) == 1
+
+
+def test_duplicate_manual_buy_run_does_not_double_create_bot_scoped_artifacts(
+    db_session,
+    db_session_factory,
+    stub_market_data_service,
+    bot_stack_factory,
+    funded_account,
+) -> None:
+    funded_account(db_session)
+    _, bot, _ = bot_stack_factory(db_session)
+    reset_draft_balance(db_session, bot.id)
+    runner = build_runner(db_session_factory, stub_market_data_service)
+    runner.start_bot(bot.id)
+    stub_market_data_service.set_price("BTCUSDT", "95")
+
+    first_response = asyncio.run(run_bot_once_endpoint(bot.id, runner))
+    duplicate_response = asyncio.run(run_bot_once_endpoint(bot.id, runner))
+
+    repository = PortfolioRepository(db_session)
+    orders = repository.list_orders_filtered(bot_id=bot.id, mode="paper")
+    fills = repository.list_fills()
+    attempts = ExecutionAttemptRepository(db_session).list_filtered(bot_id=bot.id, mode="paper")
+    snapshots = PaperEquitySnapshotRepository(db_session).list_latest_for_bot(bot_id=bot.id)
+    position = runner.get_bot_status(bot.id)
+    draft_assets = {
+        row.asset: row for row in DraftBalanceRepository(db_session).list_for_bot(bot.id)
+    }
+
+    assert first_response.action == "bought"
+    assert first_response.message == "buy_filled"
+    assert duplicate_response.action == "no_action"
+    assert duplicate_response.message == "evaluation_no_signal"
+    assert duplicate_response.decision_explanation is not None
+    assert duplicate_response.decision_explanation.position_qty == Decimal("0.10000000")
+    assert duplicate_response.decision_explanation.decision == "hold"
+    assert len(orders) == 1
+    assert orders[0].side == "buy"
+    assert orders[0].status == "filled"
+    assert len(fills) == 1
+    assert len(attempts) == 1
+    assert attempts[0].final_status == "filled"
+    assert len(snapshots) == 1
+    assert snapshots[0].event_type == "buy_fill"
+    assert draft_assets["USDT"].available == Decimal("9990.50000000")
+    assert draft_assets["USDT"].locked == Decimal("0E-8")
+    assert draft_assets["BTC"].available == Decimal("0.10000000")
+    assert draft_assets["BTC"].locked == Decimal("0E-8")
+    assert position.current_position_quantity == Decimal("0.10000000")
 
 
 def test_manual_bot_run_sell_eligible_returns_sold_result(
@@ -2703,6 +2759,21 @@ def test_manual_bot_run_sell_eligible_returns_sold_result(
     assert response.decision_explanation.buy_below == Decimal("100")
     assert response.decision_explanation.sell_above == Decimal("110")
     assert response.decision_explanation.position_qty == Decimal("0.10000000")
+    orders = PortfolioRepository(db_session).list_orders_filtered(bot_id=bot.id, mode="paper")
+    attempts = ExecutionAttemptRepository(db_session).list_filtered(bot_id=bot.id, mode="paper")
+    snapshots = PaperEquitySnapshotRepository(db_session).list_latest_for_bot(bot_id=bot.id)
+    draft_assets = {row.asset: row for row in DraftBalanceRepository(db_session).list_for_bot(bot.id)}
+    assert len(orders) == 2
+    assert [order.side for order in orders] == ["sell", "buy"]
+    assert all(order.status == "filled" for order in orders)
+    assert len(PortfolioRepository(db_session).list_fills()) == 2
+    assert len(attempts) == 2
+    assert [attempt.side for attempt in attempts] == ["sell", "buy"]
+    assert all(attempt.final_status == "filled" for attempt in attempts)
+    assert [snapshot.event_type for snapshot in snapshots] == ["sell_fill", "buy_fill"]
+    assert draft_assets["BTC"].available == Decimal("0E-8")
+    assert draft_assets["BTC"].locked == Decimal("0E-8")
+    assert draft_assets["USDT"].locked == Decimal("0E-8")
     assert response.decision_explanation.decision == "sell"
     assert response.decision_explanation.reason == "price is above strategy sell_above and position exists"
     assert response.recent_activity_preview[0].message == "sell_filled"
