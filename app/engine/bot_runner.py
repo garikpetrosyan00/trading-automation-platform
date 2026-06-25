@@ -359,7 +359,7 @@ class BotRunner:
         portfolio_repository = PortfolioRepository(db)
         bot_run_service = self._build_bot_run_service(db)
 
-        bot = bot_repository.get_by_id(bot_id)
+        bot = bot_repository.get_by_id_for_update(bot_id)
         if bot is None:
             return
         if bot.status == "paused":

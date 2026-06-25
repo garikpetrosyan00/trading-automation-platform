@@ -2,6 +2,7 @@ import asyncio
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 
+from sqlalchemy.dialects import postgresql
 from sqlalchemy import select, text
 
 from app.api.v1.endpoints.bots import list_bots as list_bots_endpoint
@@ -51,6 +52,24 @@ def build_runner(db_session_factory, stub_market_data_service, clock: FakeClock 
         ),
         now_provider=clock.now if clock is not None else None,
     )
+
+
+def test_bot_repository_get_by_id_for_update_uses_row_lock() -> None:
+    class RecordingSession:
+        def __init__(self):
+            self.statement = None
+
+        def scalar(self, statement):
+            self.statement = statement
+            return None
+
+    session = RecordingSession()
+
+    BotRepository(session).get_by_id_for_update(123)
+
+    compiled = str(session.statement.compile(dialect=postgresql.dialect()))
+    assert "FOR UPDATE" in compiled
+    assert "bots.id" in compiled
 
 
 def reset_draft_balance(
@@ -2693,19 +2712,20 @@ def test_duplicate_manual_buy_run_does_not_double_create_bot_scoped_artifacts(
     funded_account(db_session)
     _, bot, _ = bot_stack_factory(db_session)
     reset_draft_balance(db_session, bot.id)
-    runner = build_runner(db_session_factory, stub_market_data_service)
-    runner.start_bot(bot.id)
+    first_runner = build_runner(db_session_factory, stub_market_data_service)
+    second_runner = build_runner(db_session_factory, stub_market_data_service)
+    first_runner.start_bot(bot.id)
     stub_market_data_service.set_price("BTCUSDT", "95")
 
-    first_response = asyncio.run(run_bot_once_endpoint(bot.id, runner))
-    duplicate_response = asyncio.run(run_bot_once_endpoint(bot.id, runner))
+    first_response = asyncio.run(run_bot_once_endpoint(bot.id, first_runner))
+    duplicate_response = asyncio.run(run_bot_once_endpoint(bot.id, second_runner))
 
     repository = PortfolioRepository(db_session)
     orders = repository.list_orders_filtered(bot_id=bot.id, mode="paper")
     fills = repository.list_fills()
     attempts = ExecutionAttemptRepository(db_session).list_filtered(bot_id=bot.id, mode="paper")
     snapshots = PaperEquitySnapshotRepository(db_session).list_latest_for_bot(bot_id=bot.id)
-    position = runner.get_bot_status(bot.id)
+    position = first_runner.get_bot_status(bot.id)
     draft_assets = {
         row.asset: row for row in DraftBalanceRepository(db_session).list_for_bot(bot.id)
     }
@@ -2730,6 +2750,35 @@ def test_duplicate_manual_buy_run_does_not_double_create_bot_scoped_artifacts(
     assert draft_assets["BTC"].available == Decimal("0.10000000")
     assert draft_assets["BTC"].locked == Decimal("0E-8")
     assert position.current_position_quantity == Decimal("0.10000000")
+
+
+def test_manual_bot_run_uses_db_backed_bot_lock_before_paper_execution(
+    db_session,
+    db_session_factory,
+    stub_market_data_service,
+    bot_stack_factory,
+    funded_account,
+    monkeypatch,
+) -> None:
+    funded_account(db_session)
+    _, bot, _ = bot_stack_factory(db_session)
+    reset_draft_balance(db_session, bot.id)
+    runner = build_runner(db_session_factory, stub_market_data_service)
+    runner.start_bot(bot.id)
+    stub_market_data_service.set_price("BTCUSDT", "95")
+    locked_bot_ids = []
+    original = BotRepository.get_by_id_for_update
+
+    def counting_get_by_id_for_update(self, bot_id: int):
+        locked_bot_ids.append(bot_id)
+        return original(self, bot_id)
+
+    monkeypatch.setattr(BotRepository, "get_by_id_for_update", counting_get_by_id_for_update)
+
+    response = asyncio.run(run_bot_once_endpoint(bot.id, runner))
+
+    assert response.action == "bought"
+    assert locked_bot_ids == [bot.id]
 
 
 def test_manual_bot_run_sell_eligible_returns_sold_result(

@@ -18,6 +18,10 @@ class BotRepository:
         statement = select(Bot).where(Bot.id == bot_id)
         return self.db.scalar(statement)
 
+    def get_by_id_for_update(self, bot_id: int) -> Bot | None:
+        statement = select(Bot).where(Bot.id == bot_id).with_for_update()
+        return self.db.scalar(statement)
+
     def list_all(self, strategy_id: int | None = None, status: str | None = None) -> list[Bot]:
         statement = select(Bot)
 
