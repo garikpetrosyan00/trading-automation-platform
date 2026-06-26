@@ -12,6 +12,7 @@ from app.repositories.paper_equity_snapshot import PaperEquitySnapshotRepository
 from app.repositories.paper_position import PaperPositionRepository
 from app.repositories.portfolio import PortfolioRepository
 from app.repositories.execution_attempt import ExecutionAttemptRepository
+from app.repositories.execution_reconciliation_job import ExecutionReconciliationJobRepository
 from app.schemas.execution import MarketOrderRequest
 from app.models.simulated_fill import SimulatedFill
 from app.services.brokers.base import BrokerOrderIntent
@@ -651,6 +652,201 @@ def test_bot_scoped_snapshot_app_error_rejects_without_filled_artifacts(
     assert assets["USDT"].available == Decimal("10000.00000000")
     assert assets["USDT"].locked == Decimal("0E-8")
     assert assets["BTC"].available == Decimal("0E-8")
+
+
+def test_bot_scoped_buy_draft_settlement_app_error_rejects_without_filled_artifacts(
+    db_session,
+    stub_market_data_service,
+    bot_stack_factory,
+    monkeypatch,
+) -> None:
+    _, bot, _ = bot_stack_factory(db_session)
+    repository = PortfolioRepository(db_session)
+    PortfolioAccountService(repository).ensure_account(base_currency="USD", starting_cash=Decimal("1000.00"))
+    build_draft_balance_service(db_session).reset_bot_draft_balance(bot.id)
+    stub_market_data_service.set_price("BTCUSDT", "100.00")
+    service = PaperExecutionService(
+        repository=repository,
+        market_data_service=stub_market_data_service,
+        simulation_enabled=True,
+        fee_bps=Decimal("0"),
+        slippage_bps=Decimal("0"),
+        attempt_service=ExecutionAttemptService(ExecutionAttemptRepository(db_session)),
+    )
+
+    def fail_draft_buy_settlement(self, **kwargs):
+        raise AppError("forced draft buy failure", status_code=409, error_code="forced_draft_buy_failure")
+
+    monkeypatch.setattr(DraftBalanceService, "apply_draft_balance_buy_fill", fail_draft_buy_settlement)
+
+    result = service.submit_order_intent(
+        PaperOrderIntent(bot_id=bot.id, symbol="BTCUSDT", side="buy", quantity=Decimal("1"))
+    )
+
+    assets = draft_assets_by_symbol(db_session, bot.id)
+    orders = repository.list_orders_filtered(bot_id=bot.id, mode="paper")
+    attempts = ExecutionAttemptRepository(db_session).list_filtered(bot_id=bot.id, mode="paper")
+    assert result.accepted is False
+    assert result.message == "forced_draft_buy_failure"
+    assert result.order is not None
+    assert result.order.status == "rejected"
+    assert result.order.rejection_reason == "forced_draft_buy_failure"
+    assert result.fill is None
+    assert result.execution_attempt is not None
+    assert result.execution_attempt.final_status == "rejected_by_broker"
+    assert attempts == [result.execution_attempt]
+    assert attempts[0].order_id == result.order.id
+    assert orders == [result.order]
+    assert repository.list_fills() == []
+    assert repository.get_account().cash_balance == Decimal("1000.00000000")
+    assert repository.get_position_by_symbol("BTCUSDT") is None
+    assert build_paper_position_service(db_session).get_current_position(bot_id=bot.id, symbol="BTCUSDT") is None
+    assert PaperEquitySnapshotRepository(db_session).list_latest_for_bot(bot_id=bot.id) == []
+    assert PaperAccountingRepository(db_session).list_events() == []
+    assert assets["USDT"].available == Decimal("10000.00000000")
+    assert assets["USDT"].locked == Decimal("0E-8")
+    assert assets["BTC"].available == Decimal("0E-8")
+    assert assets["BTC"].locked == Decimal("0E-8")
+
+
+def test_bot_scoped_sell_draft_settlement_app_error_rejects_without_filled_artifacts(
+    db_session,
+    stub_market_data_service,
+    bot_stack_factory,
+    monkeypatch,
+) -> None:
+    _, bot, _ = bot_stack_factory(db_session)
+    repository = PortfolioRepository(db_session)
+    PortfolioAccountService(repository).ensure_account(base_currency="USD", starting_cash=Decimal("1000.00"))
+    PaperPortfolioService(repository).apply_fill(build_fill(side="buy", quantity=Decimal("2"), fill_price=Decimal("100")))
+    db_session.commit()
+    build_paper_position_service(db_session).apply_buy_fill(
+        bot_id=bot.id,
+        symbol="BTCUSDT",
+        base_asset="BTC",
+        quote_asset="USDT",
+        quantity=Decimal("1"),
+        fill_price=Decimal("100"),
+    )
+    build_draft_balance_service(db_session).reset_bot_draft_balance(
+        bot.id,
+        defaults={"BTC": (Decimal("1"), Decimal("0")), "USDT": (Decimal("10000"), Decimal("0"))},
+    )
+    stub_market_data_service.set_price("BTCUSDT", "100.00")
+    service = PaperExecutionService(
+        repository=repository,
+        market_data_service=stub_market_data_service,
+        simulation_enabled=True,
+        fee_bps=Decimal("0"),
+        slippage_bps=Decimal("0"),
+        attempt_service=ExecutionAttemptService(ExecutionAttemptRepository(db_session)),
+    )
+
+    def fail_draft_sell_settlement(self, **kwargs):
+        raise AppError("forced draft sell failure", status_code=409, error_code="forced_draft_sell_failure")
+
+    monkeypatch.setattr(DraftBalanceService, "apply_draft_balance_sell_fill", fail_draft_sell_settlement)
+
+    result = service.submit_order_intent(
+        PaperOrderIntent(bot_id=bot.id, symbol="BTCUSDT", side="sell", quantity=Decimal("1"))
+    )
+
+    assets = draft_assets_by_symbol(db_session, bot.id)
+    scoped_position = build_paper_position_service(db_session).get_current_position(bot_id=bot.id, symbol="BTCUSDT")
+    orders = repository.list_orders_filtered(bot_id=bot.id, mode="paper")
+    attempts = ExecutionAttemptRepository(db_session).list_filtered(bot_id=bot.id, mode="paper")
+    assert result.accepted is False
+    assert result.message == "forced_draft_sell_failure"
+    assert result.order is not None
+    assert result.order.status == "rejected"
+    assert result.order.rejection_reason == "forced_draft_sell_failure"
+    assert result.fill is None
+    assert result.execution_attempt is not None
+    assert result.execution_attempt.final_status == "rejected_by_broker"
+    assert attempts == [result.execution_attempt]
+    assert attempts[0].order_id == result.order.id
+    assert orders == [result.order]
+    assert repository.list_fills() == []
+    assert repository.get_account().cash_balance == Decimal("800.00000000")
+    assert repository.get_position_by_symbol("BTCUSDT").quantity == Decimal("2.00000000")
+    assert scoped_position is not None
+    assert scoped_position.quantity == Decimal("1.00000000")
+    assert PaperEquitySnapshotRepository(db_session).list_latest_for_bot(bot_id=bot.id) == []
+    assert assets["BTC"].available == Decimal("1.00000000")
+    assert assets["BTC"].locked == Decimal("0E-8")
+    assert assets["USDT"].available == Decimal("10000.00000000")
+    assert assets["USDT"].locked == Decimal("0E-8")
+
+
+def test_bot_scoped_sell_succeeds_when_legacy_mirror_raises(
+    db_session,
+    stub_market_data_service,
+    bot_stack_factory,
+    monkeypatch,
+) -> None:
+    _, bot, _ = bot_stack_factory(db_session)
+    repository = PortfolioRepository(db_session)
+    PortfolioAccountService(repository).ensure_account(base_currency="USD", starting_cash=Decimal("1000.00"))
+    PaperPortfolioService(repository).apply_fill(build_fill(side="buy", quantity=Decimal("1"), fill_price=Decimal("100")))
+    db_session.commit()
+    build_paper_position_service(db_session).apply_buy_fill(
+        bot_id=bot.id,
+        symbol="BTCUSDT",
+        base_asset="BTC",
+        quote_asset="USDT",
+        quantity=Decimal("1"),
+        fill_price=Decimal("100"),
+    )
+    build_draft_balance_service(db_session).reset_bot_draft_balance(
+        bot.id,
+        defaults={"BTC": (Decimal("1"), Decimal("0")), "USDT": (Decimal("10000"), Decimal("0"))},
+    )
+    stub_market_data_service.set_price("BTCUSDT", "110.00")
+    service = PaperExecutionService(
+        repository=repository,
+        market_data_service=stub_market_data_service,
+        simulation_enabled=True,
+        fee_bps=Decimal("0"),
+        slippage_bps=Decimal("0"),
+        attempt_service=ExecutionAttemptService(ExecutionAttemptRepository(db_session)),
+    )
+
+    def fail_legacy_mirror(self, fill):
+        raise RuntimeError("forced legacy mirror failure")
+
+    monkeypatch.setattr(PaperPortfolioService, "apply_fill", fail_legacy_mirror)
+
+    result = service.submit_order_intent(
+        PaperOrderIntent(bot_id=bot.id, symbol="BTCUSDT", side="sell", quantity=Decimal("1"))
+    )
+
+    assets = draft_assets_by_symbol(db_session, bot.id)
+    scoped_position = build_paper_position_service(db_session).get_current_position(bot_id=bot.id, symbol="BTCUSDT")
+    orders = repository.list_orders_filtered(bot_id=bot.id, mode="paper")
+    fills = repository.list_fills()
+    attempts = ExecutionAttemptRepository(db_session).list_filtered(bot_id=bot.id, mode="paper")
+    snapshots = PaperEquitySnapshotRepository(db_session).list_latest_for_bot(bot_id=bot.id)
+    assert result.accepted is True
+    assert result.order is not None
+    assert result.order.status == "filled"
+    assert result.fill is not None
+    assert len(orders) == 1
+    assert orders[0].side == "sell"
+    assert len(fills) == 1
+    assert len(attempts) == 1
+    assert attempts[0].final_status == "filled"
+    assert attempts[0].order_id == result.order.id
+    assert scoped_position is not None
+    assert scoped_position.quantity == Decimal("0E-8")
+    assert scoped_position.realized_pnl == Decimal("10.00000000")
+    assert assets["BTC"].available == Decimal("0E-8")
+    assert assets["BTC"].locked == Decimal("0E-8")
+    assert assets["USDT"].available == Decimal("10110.00000000")
+    assert assets["USDT"].locked == Decimal("0E-8")
+    assert [snapshot.event_type for snapshot in snapshots] == ["sell_fill"]
+    assert snapshots[0].source_order_id == result.order.id
+    assert snapshots[0].source_fill_id == result.fill.id
+    assert ExecutionReconciliationJobRepository(db_session).list_for_bot(bot_id=bot.id) == []
 
 
 def test_paper_accounting_failure_releases_draft_reservation(

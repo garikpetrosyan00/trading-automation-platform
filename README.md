@@ -200,6 +200,25 @@ Dashboard safety was also verified. The dashboard no longer auto-fetches Binance
 
 Safety closeout: no Binance/testnet/live order path was touched, no secrets or internal tokens were exposed in public API/dashboard output, the smoke bot was paused, and the repository was clean after verification.
 
+### Bot-scoped paper execution safety checkpoint
+
+Bot-scoped paper execution now settles BUY and SELL through the bot's own accounting surfaces. BUY mutates the selected bot's Draft Balance and Paper Position after the paper fill succeeds. SELL settles the bot-scoped Paper Position and Draft Balance first; any legacy/global paper portfolio SELL update is mirror-only and must not reject a valid bot-scoped SELL.
+
+Settlement is treated as one logical unit across Order, Fill, ExecutionAttempt, DraftBalance, PaperPosition, and PaperEquitySnapshot. If settlement raises an `AppError`, provisional filled artifacts are rolled back and the run records a clean rejection instead of leaving partial filled state behind.
+
+Duplicate execution protection is layered: the runner keeps the existing single-process lock, manual/API evaluations use DB-backed per-bot `SELECT ... FOR UPDATE` serialization, and the bot row lock is held through the full paper settlement critical section.
+
+Runtime concurrency proof has passed in Local Simulator / paper mode only:
+
+- two API processes issuing concurrent BUY produced one `buy_filled` and one `evaluation_no_signal`
+- two API processes issuing concurrent SELL produced one `sell_filled` and one `evaluation_no_signal`
+- duplicate orders, fills, execution attempts, and paper equity snapshots were not created
+- Draft Balance and Paper Position mutated once per accepted fill
+
+Safety boundaries: Binance/testnet/live behavior is unchanged and was not enabled or exercised. The reconciliation worker was not involved.
+
+Current verification: full pytest `637 passed`; `py_compile` passed; `git diff --check` passed; Alembic head is `20260619_0031 (head)`.
+
 ## One-shot paper runner CLI
 
 Use this operator CLI for controlled one-shot paper runner checks:

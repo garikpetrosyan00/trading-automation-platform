@@ -311,40 +311,13 @@ class PaperExecutionService:
 
                 if draft_reserved:
                     try:
-                        self._paper_position_service().apply_buy_fill(
+                        self._settle_bot_scoped_buy_fill(
                             bot_id=intent.bot_id,
                             symbol=symbol,
                             base_asset=base_asset,
                             quote_asset=quote_asset,
-                            quantity=fill.fill_quantity,
-                            fill_price=fill.fill_price,
-                            fee=fill.fee,
-                        )
-                    except AppError as exc:
-                        return self._reject_after_settlement_failure(
-                            intent=intent,
-                            symbol=symbol,
-                            requested_price_snapshot=latest_price,
-                            reason=exc.error_code,
-                            cash_balance=account.cash_balance,
-                            position=position,
-                        )
-                    try:
-                        self._draft_balance_service().apply_draft_balance_buy_fill(
-                            bot_id=intent.bot_id,
-                            base_asset=base_asset,
-                            quote_asset=quote_asset,
-                            received_base_amount=fill.fill_quantity,
-                            spent_quote_amount=(fill.fill_quantity * fill.fill_price) + fill.fee,
-                        )
-                        self._paper_equity_snapshot_service().create_snapshot(
-                            bot_id=intent.bot_id,
-                            symbol=symbol,
-                            base_asset=base_asset,
-                            quote_asset=quote_asset,
-                            event_type="buy_fill",
-                            source_order_id=order.id,
-                            source_fill_id=fill.id,
+                            order=order,
+                            fill=fill,
                         )
                     except AppError as exc:
                         return self._reject_after_settlement_failure(
@@ -430,40 +403,13 @@ class PaperExecutionService:
             fill = self._create_fill(order, intent, symbol, fill_price, fee)
             if draft_reserved:
                 try:
-                    self._paper_position_service().apply_sell_fill(
+                    self._settle_bot_scoped_sell_fill(
                         bot_id=intent.bot_id,
                         symbol=symbol,
                         base_asset=base_asset,
                         quote_asset=quote_asset,
-                        quantity=fill.fill_quantity,
-                        fill_price=fill.fill_price,
-                        fee=fill.fee,
-                    )
-                except AppError as exc:
-                    return self._reject_after_settlement_failure(
-                        intent=intent,
-                        symbol=symbol,
-                        requested_price_snapshot=latest_price,
-                        reason=exc.error_code,
-                        cash_balance=account.cash_balance,
-                        position=position,
-                    )
-                try:
-                    self._draft_balance_service().apply_draft_balance_sell_fill(
-                        bot_id=intent.bot_id,
-                        base_asset=base_asset,
-                        quote_asset=quote_asset,
-                        sold_base_amount=fill.fill_quantity,
-                        received_quote_amount=(fill.fill_quantity * fill.fill_price) - fill.fee,
-                    )
-                    self._paper_equity_snapshot_service().create_snapshot(
-                        bot_id=intent.bot_id,
-                        symbol=symbol,
-                        base_asset=base_asset,
-                        quote_asset=quote_asset,
-                        event_type="sell_fill",
-                        source_order_id=order.id,
-                        source_fill_id=fill.id,
+                        order=order,
+                        fill=fill,
                     )
                 except AppError as exc:
                     return self._reject_after_settlement_failure(
@@ -547,7 +493,15 @@ class PaperExecutionService:
                 account=account,
                 position=position,
             )
-        result = PaperPortfolioService(self.repository).apply_fill(fill)
+        try:
+            result = PaperPortfolioService(self.repository).apply_fill(fill)
+        except Exception:
+            return PaperPortfolioResult(
+                accepted=True,
+                message="Legacy sell mirror skipped",
+                account=account,
+                position=position,
+            )
         if result.accepted:
             return result
         return PaperPortfolioResult(
@@ -555,6 +509,78 @@ class PaperExecutionService:
             message="Legacy sell mirror skipped",
             account=account,
             position=position,
+        )
+
+    def _settle_bot_scoped_buy_fill(
+        self,
+        *,
+        bot_id: int,
+        symbol: str,
+        base_asset: str,
+        quote_asset: str,
+        order: SimulatedOrder,
+        fill: SimulatedFill,
+    ) -> None:
+        self._paper_position_service().apply_buy_fill(
+            bot_id=bot_id,
+            symbol=symbol,
+            base_asset=base_asset,
+            quote_asset=quote_asset,
+            quantity=fill.fill_quantity,
+            fill_price=fill.fill_price,
+            fee=fill.fee,
+        )
+        self._draft_balance_service().apply_draft_balance_buy_fill(
+            bot_id=bot_id,
+            base_asset=base_asset,
+            quote_asset=quote_asset,
+            received_base_amount=fill.fill_quantity,
+            spent_quote_amount=(fill.fill_quantity * fill.fill_price) + fill.fee,
+        )
+        self._paper_equity_snapshot_service().create_snapshot(
+            bot_id=bot_id,
+            symbol=symbol,
+            base_asset=base_asset,
+            quote_asset=quote_asset,
+            event_type="buy_fill",
+            source_order_id=order.id,
+            source_fill_id=fill.id,
+        )
+
+    def _settle_bot_scoped_sell_fill(
+        self,
+        *,
+        bot_id: int,
+        symbol: str,
+        base_asset: str,
+        quote_asset: str,
+        order: SimulatedOrder,
+        fill: SimulatedFill,
+    ) -> None:
+        self._paper_position_service().apply_sell_fill(
+            bot_id=bot_id,
+            symbol=symbol,
+            base_asset=base_asset,
+            quote_asset=quote_asset,
+            quantity=fill.fill_quantity,
+            fill_price=fill.fill_price,
+            fee=fill.fee,
+        )
+        self._draft_balance_service().apply_draft_balance_sell_fill(
+            bot_id=bot_id,
+            base_asset=base_asset,
+            quote_asset=quote_asset,
+            sold_base_amount=fill.fill_quantity,
+            received_quote_amount=(fill.fill_quantity * fill.fill_price) - fill.fee,
+        )
+        self._paper_equity_snapshot_service().create_snapshot(
+            bot_id=bot_id,
+            symbol=symbol,
+            base_asset=base_asset,
+            quote_asset=quote_asset,
+            event_type="sell_fill",
+            source_order_id=order.id,
+            source_fill_id=fill.id,
         )
 
     @staticmethod
