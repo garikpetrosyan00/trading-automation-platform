@@ -13,7 +13,7 @@ from app.api.v1.endpoints.bot_runtime import resume_bot as resume_bot_endpoint
 from app.api.v1.endpoints.bot_runtime import run_bot_once as run_bot_once_endpoint
 from app.api.v1.endpoints.bot_runtime import list_run_events as list_run_events_endpoint
 from app.api.v1.endpoints.market import set_market_price as set_market_price_endpoint
-from app.core.errors import NotFoundError
+from app.core.errors import AppError, NotFoundError
 from app.engine.bot_runner import BotRunner, RunnerConfig
 from app.models.market_candle import MarketCandle
 from app.models.paper_position import PaperPosition
@@ -22,6 +22,7 @@ from app.repositories.bot import BotRepository
 from app.repositories.bot_run import BotRunRepository
 from app.repositories.draft_balance import DraftBalanceRepository
 from app.repositories.execution_attempt import ExecutionAttemptRepository
+from app.repositories.execution_reconciliation_job import ExecutionReconciliationJobRepository
 from app.repositories.paper_equity_snapshot import PaperEquitySnapshotRepository
 from app.repositories.portfolio import PortfolioRepository
 from app.repositories.run_event import RunEventRepository
@@ -125,6 +126,21 @@ def seed_open_position(
             ),
         ]
     )
+
+
+def assert_no_reconciliation_activity(session, bot_id: int) -> None:
+    assert ExecutionReconciliationJobRepository(session).list_for_bot(bot_id=bot_id) == []
+
+
+def paper_audit_events(session, bot_id: int):
+    messages = {
+        "buy_signal",
+        "sell_signal",
+        "order_filled",
+        "order_rejected",
+        "evaluation_no_signal",
+    }
+    return [event for event in RunEventRepository(session).list_for_bot(bot_id) if event.message in messages]
 
 
 def add_candles(
@@ -2698,10 +2714,38 @@ def test_manual_bot_run_buy_eligible_returns_bought_result(
     assert response.decision_explanation.decision == "buy"
     assert response.decision_explanation.reason == "price is below strategy buy_below"
     assert response.recent_activity_preview[0].message == "buy_filled"
-    assert len(PortfolioRepository(db_session).list_orders_filtered(bot_id=bot.id, mode="paper")) == 1
-    assert len(PortfolioRepository(db_session).list_fills()) == 1
-    assert len(ExecutionAttemptRepository(db_session).list_filtered(bot_id=bot.id, mode="paper")) == 1
-    assert len(PaperEquitySnapshotRepository(db_session).list_latest_for_bot(bot_id=bot.id)) == 1
+    repository = PortfolioRepository(db_session)
+    orders = repository.list_orders_filtered(bot_id=bot.id, mode="paper")
+    fills = repository.list_fills()
+    attempts = ExecutionAttemptRepository(db_session).list_filtered(bot_id=bot.id, mode="paper")
+    snapshots = PaperEquitySnapshotRepository(db_session).list_latest_for_bot(bot_id=bot.id)
+    run_events = paper_audit_events(db_session, bot.id)
+    draft_assets = {row.asset: row for row in DraftBalanceRepository(db_session).list_for_bot(bot.id)}
+    assert [event.message for event in run_events] == ["buy_signal", "order_filled"]
+    filled_event = run_events[-1]
+    assert filled_event.payload["side"] == "buy"
+    assert filled_event.payload["message"] == "Market buy order filled"
+    assert filled_event.payload["order_id"] == orders[0].id
+    assert filled_event.payload["fill_id"] == fills[0].id
+    assert len(orders) == 1
+    assert orders[0].side == "buy"
+    assert orders[0].status == "filled"
+    assert len(fills) == 1
+    assert fills[0].order_id == orders[0].id
+    assert fills[0].side == "buy"
+    assert len(attempts) == 1
+    assert attempts[0].final_status == "filled"
+    assert attempts[0].order_id == orders[0].id
+    assert attempts[0].metadata_["fill_id"] == fills[0].id
+    assert len(snapshots) == 1
+    assert snapshots[0].event_type == "buy_fill"
+    assert snapshots[0].source_order_id == orders[0].id
+    assert snapshots[0].source_fill_id == fills[0].id
+    assert draft_assets["USDT"].available == Decimal("9990.50000000")
+    assert draft_assets["USDT"].locked == Decimal("0E-8")
+    assert draft_assets["BTC"].available == Decimal("0.10000000")
+    assert draft_assets["BTC"].locked == Decimal("0E-8")
+    assert_no_reconciliation_activity(db_session, bot.id)
 
 
 def test_duplicate_manual_buy_run_does_not_double_create_bot_scoped_artifacts(
@@ -2739,19 +2783,32 @@ def test_duplicate_manual_buy_run_does_not_double_create_bot_scoped_artifacts(
     assert duplicate_response.decision_explanation is not None
     assert duplicate_response.decision_explanation.position_qty == Decimal("0.10000000")
     assert duplicate_response.decision_explanation.decision == "hold"
+    run_events = paper_audit_events(db_session, bot.id)
+    assert [event.message for event in run_events] == ["buy_signal", "order_filled", "evaluation_no_signal"]
+    assert run_events[1].payload["side"] == "buy"
+    assert run_events[1].payload["order_id"] == orders[0].id
+    assert run_events[1].payload["fill_id"] == fills[0].id
+    assert run_events[-1].payload["decision"] == "hold"
     assert len(orders) == 1
     assert orders[0].side == "buy"
     assert orders[0].status == "filled"
     assert len(fills) == 1
+    assert fills[0].order_id == orders[0].id
+    assert fills[0].side == "buy"
     assert len(attempts) == 1
     assert attempts[0].final_status == "filled"
+    assert attempts[0].order_id == orders[0].id
+    assert attempts[0].metadata_["fill_id"] == fills[0].id
     assert len(snapshots) == 1
     assert snapshots[0].event_type == "buy_fill"
+    assert snapshots[0].source_order_id == orders[0].id
+    assert snapshots[0].source_fill_id == fills[0].id
     assert draft_assets["USDT"].available == Decimal("9990.50000000")
     assert draft_assets["USDT"].locked == Decimal("0E-8")
     assert draft_assets["BTC"].available == Decimal("0.10000000")
     assert draft_assets["BTC"].locked == Decimal("0E-8")
     assert position.current_position_quantity == Decimal("0.10000000")
+    assert_no_reconciliation_activity(db_session, bot.id)
 
 
 def test_duplicate_manual_sell_run_returns_no_signal_without_double_settlement(
@@ -2792,15 +2849,37 @@ def test_duplicate_manual_sell_run_returns_no_signal_without_double_settlement(
     assert duplicate_response.decision_explanation.decision == "hold"
     assert latest_event is not None
     assert latest_event.message == duplicate_response.message
-    assert len([order for order in orders if order.side == "sell" and order.status == "filled"]) == 1
+    run_events = paper_audit_events(db_session, bot.id)
+    sell_orders = [order for order in orders if order.side == "sell" and order.status == "filled"]
+    sell_fills = [fill for fill in fills if fill.side == "sell"]
+    sell_attempts = [attempt for attempt in attempts if attempt.side == "sell" and attempt.final_status == "filled"]
+    sell_snapshots = [snapshot for snapshot in snapshots if snapshot.event_type == "sell_fill"]
+    assert [event.message for event in run_events] == [
+        "buy_signal",
+        "order_filled",
+        "sell_signal",
+        "order_filled",
+        "evaluation_no_signal",
+    ]
+    assert run_events[3].payload["side"] == "sell"
+    assert len(sell_orders) == 1
+    assert len(sell_fills) == 1
+    assert sell_fills[0].order_id == sell_orders[0].id
+    assert run_events[3].payload["order_id"] == sell_orders[0].id
+    assert run_events[3].payload["fill_id"] == sell_fills[0].id
     assert len(fills) == 2
-    assert len([attempt for attempt in attempts if attempt.side == "sell" and attempt.final_status == "filled"]) == 1
+    assert len(sell_attempts) == 1
+    assert sell_attempts[0].order_id == sell_orders[0].id
+    assert sell_attempts[0].metadata_["fill_id"] == sell_fills[0].id
     assert [snapshot.event_type for snapshot in snapshots] == ["sell_fill", "buy_fill"]
+    assert sell_snapshots[0].source_order_id == sell_orders[0].id
+    assert sell_snapshots[0].source_fill_id == sell_fills[0].id
     assert draft_assets["BTC"].available == Decimal("0E-8")
     assert draft_assets["BTC"].locked == Decimal("0E-8")
     assert draft_assets["USDT"].available == Decimal("10002.00000000")
     assert draft_assets["USDT"].locked == Decimal("0E-8")
     assert paper_position.current_position_quantity == Decimal("0E-8")
+    assert_no_reconciliation_activity(db_session, bot.id)
 
 
 def test_manual_run_response_uses_event_created_by_locked_evaluation(
@@ -2942,23 +3021,43 @@ def test_manual_bot_run_sell_eligible_returns_sold_result(
     assert response.decision_explanation.sell_above == Decimal("110")
     assert response.decision_explanation.position_qty == Decimal("0.10000000")
     orders = PortfolioRepository(db_session).list_orders_filtered(bot_id=bot.id, mode="paper")
+    fills = PortfolioRepository(db_session).list_fills()
     attempts = ExecutionAttemptRepository(db_session).list_filtered(bot_id=bot.id, mode="paper")
     snapshots = PaperEquitySnapshotRepository(db_session).list_latest_for_bot(bot_id=bot.id)
     draft_assets = {row.asset: row for row in DraftBalanceRepository(db_session).list_for_bot(bot.id)}
+    run_events = paper_audit_events(db_session, bot.id)
+    assert [event.message for event in run_events] == ["buy_signal", "order_filled", "sell_signal", "order_filled"]
+    sell_event = run_events[-1]
+    sell_order = orders[0]
+    sell_fill = fills[0]
+    sell_attempt = attempts[0]
+    sell_snapshot = snapshots[0]
+    assert sell_event.payload["side"] == "sell"
+    assert sell_event.payload["message"] == "Market sell order filled"
+    assert sell_event.payload["order_id"] == sell_order.id
+    assert sell_event.payload["fill_id"] == sell_fill.id
     assert len(orders) == 2
     assert [order.side for order in orders] == ["sell", "buy"]
     assert all(order.status == "filled" for order in orders)
-    assert len(PortfolioRepository(db_session).list_fills()) == 2
+    assert len(fills) == 2
+    assert sell_fill.order_id == sell_order.id
+    assert sell_fill.side == "sell"
     assert len(attempts) == 2
     assert [attempt.side for attempt in attempts] == ["sell", "buy"]
     assert all(attempt.final_status == "filled" for attempt in attempts)
+    assert sell_attempt.order_id == sell_order.id
+    assert sell_attempt.metadata_["fill_id"] == sell_fill.id
     assert [snapshot.event_type for snapshot in snapshots] == ["sell_fill", "buy_fill"]
+    assert sell_snapshot.source_order_id == sell_order.id
+    assert sell_snapshot.source_fill_id == sell_fill.id
     assert draft_assets["BTC"].available == Decimal("0E-8")
     assert draft_assets["BTC"].locked == Decimal("0E-8")
+    assert draft_assets["USDT"].available == Decimal("10002.00000000")
     assert draft_assets["USDT"].locked == Decimal("0E-8")
     assert response.decision_explanation.decision == "sell"
     assert response.decision_explanation.reason == "price is above strategy sell_above and position exists"
     assert response.recent_activity_preview[0].message == "sell_filled"
+    assert_no_reconciliation_activity(db_session, bot.id)
 
 
 def test_manual_bot_run_no_signal_returns_no_action(
@@ -2989,6 +3088,146 @@ def test_manual_bot_run_no_signal_returns_no_action(
     assert response.decision_explanation.decision == "hold"
     assert response.decision_explanation.reason == "price did not go below buy_below, so no buy signal"
     assert response.recent_activity_preview[0].message == "evaluation_no_signal"
+    run_events = paper_audit_events(db_session, bot.id)
+    assert [event.message for event in run_events] == ["evaluation_no_signal"]
+    assert run_events[0].payload["decision"] == "hold"
+    assert run_events[0].payload["position_qty"] == "0"
+    assert PortfolioRepository(db_session).list_orders_filtered(bot_id=bot.id, mode="paper") == []
+    assert PortfolioRepository(db_session).list_fills() == []
+    assert ExecutionAttemptRepository(db_session).list_filtered(bot_id=bot.id, mode="paper") == []
+    assert PaperEquitySnapshotRepository(db_session).list_latest_for_bot(bot_id=bot.id) == []
+    draft_assets = {row.asset: row for row in DraftBalanceRepository(db_session).list_for_bot(bot.id)}
+    assert draft_assets["USDT"].available == Decimal("10000.00000000")
+    assert draft_assets["USDT"].locked == Decimal("0E-8")
+    assert draft_assets["BTC"].available == Decimal("0E-8")
+    assert draft_assets["BTC"].locked == Decimal("0E-8")
+    assert_no_reconciliation_activity(db_session, bot.id)
+
+
+def test_manual_bot_run_rejected_buy_audit_does_not_report_filled_execution(
+    db_session,
+    db_session_factory,
+    stub_market_data_service,
+    bot_stack_factory,
+    funded_account,
+    monkeypatch,
+) -> None:
+    funded_account(db_session)
+    _, bot, _ = bot_stack_factory(db_session)
+    reset_draft_balance(db_session, bot.id)
+    runner = build_runner(db_session_factory, stub_market_data_service)
+    runner.start_bot(bot.id)
+    stub_market_data_service.set_price("BTCUSDT", "95")
+
+    def fail_buy_settlement(self, **kwargs):
+        raise AppError("forced buy settlement failure", status_code=409, error_code="forced_buy_settlement_failure")
+
+    monkeypatch.setattr(DraftBalanceService, "apply_draft_balance_buy_fill", fail_buy_settlement)
+
+    response = asyncio.run(run_bot_once_endpoint(bot.id, runner))
+
+    repository = PortfolioRepository(db_session)
+    orders = repository.list_orders_filtered(bot_id=bot.id, mode="paper")
+    attempts = ExecutionAttemptRepository(db_session).list_filtered(bot_id=bot.id, mode="paper")
+    snapshots = PaperEquitySnapshotRepository(db_session).list_latest_for_bot(bot_id=bot.id)
+    run_events = paper_audit_events(db_session, bot.id)
+    draft_assets = {row.asset: row for row in DraftBalanceRepository(db_session).list_for_bot(bot.id)}
+    assert response.action == "skipped"
+    assert response.message == "order_rejected"
+    assert response.recent_activity_preview[0].message == "order_rejected"
+    assert response.decision_explanation is not None
+    assert response.decision_explanation.decision == "buy"
+    assert [event.message for event in run_events] == ["order_rejected"]
+    assert run_events[-1].payload["side"] == "buy"
+    assert run_events[-1].payload["message"] == "forced_buy_settlement_failure"
+    assert "fill_id" not in run_events[-1].payload or run_events[-1].payload["fill_id"] is None
+    assert len(orders) == 1
+    assert orders[0].side == "buy"
+    assert orders[0].status == "rejected"
+    assert orders[0].rejection_reason == "forced_buy_settlement_failure"
+    assert repository.list_fills() == []
+    assert len(attempts) == 1
+    assert attempts[0].side == "buy"
+    assert attempts[0].final_status == "rejected_by_broker"
+    assert attempts[0].final_reason == "forced_buy_settlement_failure"
+    assert attempts[0].order_id == orders[0].id
+    assert attempts[0].metadata_["fill_id"] is None
+    assert snapshots == []
+    assert repository.get_position_by_symbol("BTCUSDT") is None
+    assert runner.get_bot_status(bot.id).current_position_quantity == Decimal("0")
+    assert draft_assets["USDT"].available == Decimal("10000.00000000")
+    assert draft_assets["USDT"].locked == Decimal("0E-8")
+    assert draft_assets["BTC"].available == Decimal("0E-8")
+    assert draft_assets["BTC"].locked == Decimal("0E-8")
+    assert_no_reconciliation_activity(db_session, bot.id)
+
+
+def test_manual_bot_run_rejected_sell_audit_does_not_report_filled_execution(
+    db_session,
+    db_session_factory,
+    stub_market_data_service,
+    bot_stack_factory,
+    funded_account,
+    monkeypatch,
+) -> None:
+    funded_account(db_session)
+    _, bot, _ = bot_stack_factory(db_session)
+    reset_draft_balance(db_session, bot.id)
+    runner = build_runner(db_session_factory, stub_market_data_service)
+    runner.start_bot(bot.id)
+    stub_market_data_service.set_price("BTCUSDT", "95")
+    buy_response = asyncio.run(run_bot_once_endpoint(bot.id, runner))
+    assert buy_response.message == "buy_filled"
+    stub_market_data_service.set_price("BTCUSDT", "115")
+
+    def fail_sell_settlement(self, **kwargs):
+        raise AppError("forced sell settlement failure", status_code=409, error_code="forced_sell_settlement_failure")
+
+    monkeypatch.setattr(DraftBalanceService, "apply_draft_balance_sell_fill", fail_sell_settlement)
+
+    response = asyncio.run(run_bot_once_endpoint(bot.id, runner))
+
+    repository = PortfolioRepository(db_session)
+    orders = repository.list_orders_filtered(bot_id=bot.id, mode="paper")
+    fills = repository.list_fills()
+    attempts = ExecutionAttemptRepository(db_session).list_filtered(bot_id=bot.id, mode="paper")
+    snapshots = PaperEquitySnapshotRepository(db_session).list_latest_for_bot(bot_id=bot.id)
+    run_events = paper_audit_events(db_session, bot.id)
+    draft_assets = {row.asset: row for row in DraftBalanceRepository(db_session).list_for_bot(bot.id)}
+    assert response.action == "skipped"
+    assert response.message == "order_rejected"
+    assert response.recent_activity_preview[0].message == "order_rejected"
+    assert response.decision_explanation is not None
+    assert response.decision_explanation.decision == "sell"
+    assert [event.message for event in run_events] == ["buy_signal", "order_filled", "order_rejected"]
+    assert run_events[-1].payload["side"] == "sell"
+    assert run_events[-1].payload["message"] == "forced_sell_settlement_failure"
+    assert "fill_id" not in run_events[-1].payload or run_events[-1].payload["fill_id"] is None
+    assert len(orders) == 2
+    assert [order.side for order in orders] == ["sell", "buy"]
+    assert [order.status for order in orders] == ["rejected", "filled"]
+    assert orders[0].rejection_reason == "forced_sell_settlement_failure"
+    assert len(fills) == 1
+    assert fills[0].side == "buy"
+    assert fills[0].order_id == orders[1].id
+    assert len(attempts) == 2
+    assert [attempt.side for attempt in attempts] == ["sell", "buy"]
+    assert attempts[0].final_status == "rejected_by_broker"
+    assert attempts[0].final_reason == "forced_sell_settlement_failure"
+    assert attempts[0].order_id == orders[0].id
+    assert attempts[0].metadata_["fill_id"] is None
+    assert attempts[1].final_status == "filled"
+    assert attempts[1].order_id == orders[1].id
+    assert attempts[1].metadata_["fill_id"] == fills[0].id
+    assert [snapshot.event_type for snapshot in snapshots] == ["buy_fill"]
+    assert snapshots[0].source_order_id == orders[1].id
+    assert snapshots[0].source_fill_id == fills[0].id
+    assert draft_assets["BTC"].available == Decimal("0.10000000")
+    assert draft_assets["BTC"].locked == Decimal("0E-8")
+    assert draft_assets["USDT"].available == Decimal("9990.50000000")
+    assert draft_assets["USDT"].locked == Decimal("0E-8")
+    assert runner.get_bot_status(bot.id).current_position_quantity == Decimal("0.10000000")
+    assert_no_reconciliation_activity(db_session, bot.id)
 
 
 def test_manual_bot_run_response_includes_consistent_bot_state_fields(
