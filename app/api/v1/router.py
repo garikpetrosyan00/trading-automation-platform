@@ -11,6 +11,7 @@ from app.api.v1.endpoints.execution import router as execution_router
 from app.api.v1.endpoints.execution_safety import router as execution_safety_router
 from app.api.v1.endpoints.market import router as market_router
 from app.api.v1.endpoints.execution_profiles import router as execution_profiles_router
+from app.api.v1.endpoints.local_backtest_artifacts import router as local_backtest_artifacts_router
 from app.api.v1.endpoints.market_data import router as market_data_router
 from app.api.v1.endpoints.notification_rules import router as notification_rules_router
 from app.api.v1.endpoints.orders import router as orders_router
@@ -35,6 +36,7 @@ router.include_router(paper_equity_router, tags=["paper-equity"])
 router.include_router(orders_router, tags=["orders"])
 router.include_router(market_router, tags=["market"])
 router.include_router(backtests_router, prefix="/backtests", tags=["backtests"])
+router.include_router(local_backtest_artifacts_router, prefix="/backtests", tags=["backtests"])
 router.include_router(bot_runtime_router, tags=["bot-runtime"])
 router.include_router(strategies_router, prefix="/strategies", tags=["strategies"])
 router.include_router(bots_router, prefix="/bots", tags=["bots"])
