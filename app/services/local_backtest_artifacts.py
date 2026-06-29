@@ -36,6 +36,32 @@ SUMMARY_FIELDS = (
     "order_quantity",
 )
 
+SWEEP_SUMMARY_FIELDS = (
+    "result",
+    "symbol",
+    "timeframe",
+    "strategy_type",
+    "initial_balance",
+    "fee_rate",
+    "order_quantity",
+    "combinations_count",
+    "ranking_metric",
+    "profitability_note",
+)
+
+SWEEP_RESULT_FIELDS = (
+    "rank",
+    "run_name",
+    "entry_below",
+    "exit_above",
+    "final_equity",
+    "total_return_pct",
+    "trades_count",
+    "win_rate_pct",
+    "max_drawdown_pct",
+    "fees_paid",
+)
+
 
 class LocalBacktestArtifactService:
     def __init__(self, runs_root: str | Path = RUNS_ROOT):
@@ -102,6 +128,54 @@ class LocalBacktestArtifactService:
             item["report_included"] = bool(manifest.get("report_included"))
             items.append(item)
         return {"items": sorted(items, key=lambda item: item["name"])}
+
+    def list_sweeps(self) -> dict[str, Any]:
+        items = []
+        for child in self._iter_safe_child_dirs():
+            summary_path = self._optional_first_existing(child, ("sweep_summary.json",))
+            if summary_path is None:
+                continue
+            summary = self._safe_read_json(summary_path)
+            items.append(
+                {
+                    "name": child.name,
+                    "symbol": summary.get("symbol"),
+                    "timeframe": summary.get("timeframe"),
+                    "combinations_count": summary.get("combinations_count"),
+                    "best_result": self._sweep_result(summary.get("best_result")),
+                    "artifacts": {
+                        "sweep_summary_json": True,
+                        "sweep_results_csv": (child / "sweep_results.csv").is_file(),
+                        "sweep_report_md": (child / "sweep_report.md").is_file(),
+                    },
+                }
+            )
+        return {"items": sorted(items, key=lambda item: item["name"])}
+
+    def read_sweep_summary(self, sweep_name: str) -> dict[str, Any]:
+        sweep_dir = self._safe_child_dir(sweep_name)
+        payload = self._read_json(self._first_existing(sweep_dir, ("sweep_summary.json",)), "sweep summary")
+        summary = {field: payload.get(field) for field in SWEEP_SUMMARY_FIELDS if field in payload}
+        summary["best_result"] = self._sweep_result(payload.get("best_result"))
+        return {"sweep_name": sweep_name, "artifact": "sweep_summary", "summary": summary}
+
+    def read_sweep_results(self, sweep_name: str) -> dict[str, Any]:
+        sweep_dir = self._safe_child_dir(sweep_name)
+        results_path = self._first_existing(sweep_dir, ("sweep_results.csv",))
+        return {
+            "sweep_name": sweep_name,
+            "artifact": "sweep_results",
+            "items": self._read_sweep_results_csv(results_path),
+        }
+
+    def read_sweep_report_markdown(self, sweep_name: str) -> str:
+        sweep_dir = self._safe_child_dir(sweep_name)
+        report_path = self._first_existing(sweep_dir, ("sweep_report.md",))
+        try:
+            content = report_path.read_text(encoding="utf-8")
+        except OSError as exc:
+            raise AppError("Local backtest sweep report is not readable", status_code=404, error_code="artifact_not_found") from exc
+        return self._sanitize_markdown(content)
 
     def _safe_child_dir(self, name: str) -> Path:
         if not self._is_safe_name(name):
@@ -203,6 +277,38 @@ class LocalBacktestArtifactService:
             if isinstance(item, dict):
                 unavailable.append({"file": item.get("file"), "reason": item.get("reason")})
         return unavailable
+
+    def _sweep_result(self, value: Any) -> dict[str, Any] | None:
+        if not isinstance(value, dict):
+            return None
+        return {
+            field: self._coerce_sweep_field(field, value.get(field))
+            for field in SWEEP_RESULT_FIELDS
+        }
+
+    def _read_sweep_results_csv(self, path: Path) -> list[dict[str, Any]]:
+        try:
+            with path.open(newline="", encoding="utf-8") as handle:
+                rows = list(csv.DictReader(handle))
+        except OSError as exc:
+            raise AppError("Local backtest sweep results are not readable", status_code=404, error_code="artifact_not_found") from exc
+        return [
+            {
+                field: self._coerce_sweep_field(field, row.get(field))
+                for field in SWEEP_RESULT_FIELDS
+            }
+            for row in rows
+        ]
+
+    def _coerce_sweep_field(self, field: str, value: Any) -> Any:
+        if value in (None, ""):
+            return None
+        if field in {"rank", "trades_count"}:
+            try:
+                return int(value)
+            except (TypeError, ValueError):
+                return None
+        return value
 
     def _count_csv_rows(self, path: Path | None) -> int | None:
         if path is None:

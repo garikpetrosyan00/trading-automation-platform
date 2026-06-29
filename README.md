@@ -158,6 +158,20 @@ Generated sweep artifacts:
 
 Results are ranked deterministically by final equity with stable tie-breakers. This is local historical simulation only, does not fetch market data or place orders, and is not a profitability guarantee.
 
+Sweep artifacts can also be reviewed through the read-only local-demo API:
+
+```bash
+curl http://127.0.0.1:8000/api/v1/backtests/local-demo/sweeps
+
+curl http://127.0.0.1:8000/api/v1/backtests/local-demo/sweeps/BTCUSDT_1h_sweep_demo/summary
+
+curl http://127.0.0.1:8000/api/v1/backtests/local-demo/sweeps/BTCUSDT_1h_sweep_demo/results
+
+curl http://127.0.0.1:8000/api/v1/backtests/local-demo/sweeps/BTCUSDT_1h_sweep_demo/report
+```
+
+The sweep API is read-only and local-artifact based. It only reads under `data/backtests/runs/`, rejects unsafe names, does not expose absolute filesystem paths, and does not fetch data, place orders, invoke the bot runner, persist rows, or create runtime paper/live audit records.
+
 ## What is included
 
 - FastAPI application entrypoint

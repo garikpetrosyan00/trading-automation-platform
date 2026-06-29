@@ -68,3 +68,47 @@ class LocalBacktestBundleCatalogItemRead(LocalBacktestCatalogItemRead):
 
 class LocalBacktestBundleCatalogRead(BaseModel):
     items: list[LocalBacktestBundleCatalogItemRead]
+
+
+class LocalBacktestSweepArtifactsRead(BaseModel):
+    sweep_summary_json: bool
+    sweep_results_csv: bool
+    sweep_report_md: bool
+
+
+class LocalBacktestSweepResultRead(BaseModel):
+    rank: int | None = None
+    run_name: str | None = None
+    entry_below: str | None = None
+    exit_above: str | None = None
+    final_equity: str | None = None
+    total_return_pct: str | None = None
+    trades_count: int | None = None
+    win_rate_pct: str | None = None
+    max_drawdown_pct: str | None = None
+    fees_paid: str | None = None
+
+
+class LocalBacktestSweepCatalogItemRead(BaseModel):
+    name: str
+    symbol: str | None = None
+    timeframe: str | None = None
+    combinations_count: int | None = None
+    best_result: LocalBacktestSweepResultRead | None = None
+    artifacts: LocalBacktestSweepArtifactsRead
+
+
+class LocalBacktestSweepCatalogRead(BaseModel):
+    items: list[LocalBacktestSweepCatalogItemRead]
+
+
+class LocalBacktestSweepSummaryRead(BaseModel):
+    sweep_name: str
+    artifact: str
+    summary: dict[str, Any]
+
+
+class LocalBacktestSweepResultsRead(BaseModel):
+    sweep_name: str
+    artifact: str
+    items: list[LocalBacktestSweepResultRead]

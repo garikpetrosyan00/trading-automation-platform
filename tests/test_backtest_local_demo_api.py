@@ -212,6 +212,124 @@ def test_local_demo_api_lists_available_bundles_sorted_and_sanitized(
     assert str(tmp_path.resolve()) not in response.text
 
 
+def test_local_demo_api_lists_sweeps_sorted_and_sanitized(
+    tmp_path,
+    configure_app_state,
+    stub_market_data_service,
+    noop_bot_runner,
+) -> None:
+    configure_app_state(market_data_service=stub_market_data_service, bot_runner=noop_bot_runner)
+    runs_root = tmp_path / "runs"
+    write_sweep_artifacts(runs_root, "z_sweep", symbol="ETHUSDT")
+    write_sweep_artifacts(runs_root, "a_sweep")
+    write_incomplete_folder(runs_root, "not_a_sweep")
+    override_local_artifact_service(runs_root)
+
+    try:
+        with TestClient(app) as client:
+            response = client.get("/api/v1/backtests/local-demo/sweeps")
+    finally:
+        app.dependency_overrides.pop(get_local_backtest_artifact_service, None)
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "items": [
+            {
+                "name": "a_sweep",
+                "symbol": "BTCUSDT",
+                "timeframe": "1h",
+                "combinations_count": 2,
+                "best_result": sweep_best_result(),
+                "artifacts": {
+                    "sweep_summary_json": True,
+                    "sweep_results_csv": True,
+                    "sweep_report_md": True,
+                },
+            },
+            {
+                "name": "z_sweep",
+                "symbol": "ETHUSDT",
+                "timeframe": "1h",
+                "combinations_count": 2,
+                "best_result": sweep_best_result(),
+                "artifacts": {
+                    "sweep_summary_json": True,
+                    "sweep_results_csv": True,
+                    "sweep_report_md": True,
+                },
+            },
+        ]
+    }
+    assert str(tmp_path.resolve()) not in response.text
+
+
+def test_local_demo_api_reads_sweep_summary_results_and_report(
+    tmp_path,
+    configure_app_state,
+    stub_market_data_service,
+    noop_bot_runner,
+) -> None:
+    configure_app_state(market_data_service=stub_market_data_service, bot_runner=noop_bot_runner)
+    runs_root = tmp_path / "runs"
+    write_sweep_artifacts(runs_root, "demo_sweep")
+    override_local_artifact_service(runs_root)
+
+    try:
+        with TestClient(app) as client:
+            summary_response = client.get("/api/v1/backtests/local-demo/sweeps/demo_sweep/summary")
+            results_response = client.get("/api/v1/backtests/local-demo/sweeps/demo_sweep/results")
+            report_response = client.get("/api/v1/backtests/local-demo/sweeps/demo_sweep/report")
+    finally:
+        app.dependency_overrides.pop(get_local_backtest_artifact_service, None)
+
+    assert summary_response.status_code == 200
+    assert summary_response.json() == {
+        "sweep_name": "demo_sweep",
+        "artifact": "sweep_summary",
+        "summary": {
+            "result": "PASS",
+            "symbol": "BTCUSDT",
+            "timeframe": "1h",
+            "strategy_type": "price_threshold",
+            "initial_balance": "10000",
+            "fee_rate": "0.001",
+            "order_quantity": "0.01",
+            "combinations_count": 2,
+            "ranking_metric": "final_equity",
+            "profitability_note": "Historical local simulation only; not a profitability guarantee.",
+            "best_result": sweep_best_result(),
+        },
+    }
+    assert str(tmp_path.resolve()) not in summary_response.text
+
+    assert results_response.status_code == 200
+    assert results_response.json() == {
+        "sweep_name": "demo_sweep",
+        "artifact": "sweep_results",
+        "items": [
+            sweep_best_result(),
+            {
+                "rank": 2,
+                "run_name": "run_001_entry_90000_exit_105000",
+                "entry_below": "90000",
+                "exit_above": "105000",
+                "final_equity": "10010",
+                "total_return_pct": "0.1",
+                "trades_count": 2,
+                "win_rate_pct": "50",
+                "max_drawdown_pct": "0.5",
+                "fees_paid": "1",
+            },
+        ],
+    }
+    assert str(tmp_path.resolve()) not in results_response.text
+
+    assert report_response.status_code == 200
+    assert report_response.headers["content-type"].startswith("text/markdown")
+    assert "# Sweep Report" in report_response.text
+    assert str(tmp_path.resolve()) not in report_response.text
+
+
 def test_local_demo_api_missing_artifact_returns_clean_404(
     tmp_path,
     configure_app_state,
@@ -224,6 +342,25 @@ def test_local_demo_api_missing_artifact_returns_clean_404(
     try:
         with TestClient(app) as client:
             response = client.get("/api/v1/backtests/local-demo/runs/missing/summary")
+    finally:
+        app.dependency_overrides.pop(get_local_backtest_artifact_service, None)
+
+    assert response.status_code == 404
+    assert response.json() == {"detail": "Local backtest artifact not found", "error_code": "artifact_not_found"}
+
+
+def test_local_demo_api_missing_sweep_artifact_returns_clean_404(
+    tmp_path,
+    configure_app_state,
+    stub_market_data_service,
+    noop_bot_runner,
+) -> None:
+    configure_app_state(market_data_service=stub_market_data_service, bot_runner=noop_bot_runner)
+    override_local_artifact_service(tmp_path / "runs")
+
+    try:
+        with TestClient(app) as client:
+            response = client.get("/api/v1/backtests/local-demo/sweeps/missing/summary")
     finally:
         app.dependency_overrides.pop(get_local_backtest_artifact_service, None)
 
@@ -250,6 +387,25 @@ def test_local_demo_api_rejects_path_traversal(
     assert response.json() == {"detail": "Invalid local backtest artifact name", "error_code": "invalid_artifact_name"}
 
 
+def test_local_demo_api_rejects_sweep_path_traversal(
+    tmp_path,
+    configure_app_state,
+    stub_market_data_service,
+    noop_bot_runner,
+) -> None:
+    configure_app_state(market_data_service=stub_market_data_service, bot_runner=noop_bot_runner)
+    override_local_artifact_service(tmp_path / "runs")
+
+    try:
+        with TestClient(app) as client:
+            response = client.get("/api/v1/backtests/local-demo/sweeps/..secret/summary")
+    finally:
+        app.dependency_overrides.pop(get_local_backtest_artifact_service, None)
+
+    assert response.status_code == 422
+    assert response.json() == {"detail": "Invalid local backtest artifact name", "error_code": "invalid_artifact_name"}
+
+
 def test_local_demo_api_does_not_touch_runtime_audit_tables(
     db_session,
     tmp_path,
@@ -261,15 +417,20 @@ def test_local_demo_api_does_not_touch_runtime_audit_tables(
     runs_root = tmp_path / "runs"
     write_run_artifacts(runs_root, "demo_001")
     write_bundle_artifacts(runs_root, "demo_bundle")
+    write_sweep_artifacts(runs_root, "demo_sweep")
     override_local_artifact_service(runs_root)
 
     try:
         with TestClient(app) as client:
             assert client.get("/api/v1/backtests/local-demo/runs").status_code == 200
             assert client.get("/api/v1/backtests/local-demo/bundles").status_code == 200
+            assert client.get("/api/v1/backtests/local-demo/sweeps").status_code == 200
             assert client.get("/api/v1/backtests/local-demo/runs/demo_001/summary").status_code == 200
             assert client.get("/api/v1/backtests/local-demo/runs/demo_001/report").status_code == 200
             assert client.get("/api/v1/backtests/local-demo/bundles/demo_bundle/manifest").status_code == 200
+            assert client.get("/api/v1/backtests/local-demo/sweeps/demo_sweep/summary").status_code == 200
+            assert client.get("/api/v1/backtests/local-demo/sweeps/demo_sweep/results").status_code == 200
+            assert client.get("/api/v1/backtests/local-demo/sweeps/demo_sweep/report").status_code == 200
     finally:
         app.dependency_overrides.pop(get_local_backtest_artifact_service, None)
 
@@ -349,6 +510,95 @@ def write_incomplete_folder(runs_root, name: str) -> None:
     folder = runs_root / name
     folder.mkdir(parents=True)
     (folder / "notes.txt").write_text("not a local backtest artifact\n", encoding="utf-8")
+
+
+def write_sweep_artifacts(runs_root, sweep_name: str, *, symbol: str = "BTCUSDT") -> None:
+    sweep_dir = runs_root / sweep_name
+    sweep_dir.mkdir(parents=True)
+    (sweep_dir / "sweep_summary.json").write_text(
+        json.dumps(
+            {
+                "result": "PASS",
+                "symbol": symbol,
+                "timeframe": "1h",
+                "strategy_type": "price_threshold",
+                "initial_balance": "10000",
+                "fee_rate": "0.001",
+                "order_quantity": "0.01",
+                "combinations_count": 2,
+                "ranking_metric": "final_equity",
+                "profitability_note": "Historical local simulation only; not a profitability guarantee.",
+                "best_result": {
+                    **sweep_best_result(),
+                    "summary_path": str((sweep_dir / "run_002_entry_95000_exit_110000" / "summary.json").resolve()),
+                },
+                "results": [],
+            },
+            sort_keys=True,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    write_csv(
+        sweep_dir / "sweep_results.csv",
+        [
+            "rank",
+            "run_name",
+            "entry_below",
+            "exit_above",
+            "final_equity",
+            "total_return_pct",
+            "trades_count",
+            "win_rate_pct",
+            "max_drawdown_pct",
+            "fees_paid",
+            "summary_path",
+        ],
+        [
+            [
+                "1",
+                "run_002_entry_95000_exit_110000",
+                "95000",
+                "110000",
+                "10020",
+                "0.2",
+                "2",
+                "100",
+                "0",
+                "1",
+                str((sweep_dir / "run_002_entry_95000_exit_110000" / "summary.json").resolve()),
+            ],
+            [
+                "2",
+                "run_001_entry_90000_exit_105000",
+                "90000",
+                "105000",
+                "10010",
+                "0.1",
+                "2",
+                "50",
+                "0.5",
+                "1",
+                str((sweep_dir / "run_001_entry_90000_exit_105000" / "summary.json").resolve()),
+            ],
+        ],
+    )
+    (sweep_dir / "sweep_report.md").write_text("# Sweep Report\n\nSource: " + str(sweep_dir.resolve()) + "\n", encoding="utf-8")
+
+
+def sweep_best_result() -> dict:
+    return {
+        "rank": 1,
+        "run_name": "run_002_entry_95000_exit_110000",
+        "entry_below": "95000",
+        "exit_above": "110000",
+        "final_equity": "10020",
+        "total_return_pct": "0.2",
+        "trades_count": 2,
+        "win_rate_pct": "100",
+        "max_drawdown_pct": "0",
+        "fees_paid": "1",
+    }
 
 
 def write_csv(path, fieldnames: list[str], rows: list[list[str]]) -> None:
