@@ -100,6 +100,20 @@ def test_prepared_backtest_smoke_stdout_is_summary_only(tmp_path) -> None:
     assert "equity_curve" not in printed
 
 
+def test_prepared_backtest_smoke_supports_moving_average_crossover(tmp_path) -> None:
+    path = write_moving_average_csv(tmp_path)
+    stdout = StringIO()
+
+    exit_code = cli.main(moving_average_args(path), stdout=stdout)
+
+    assert exit_code == 0
+    printed = json.loads(stdout.getvalue())
+    assert printed["strategy_type"] == "moving_average_crossover"
+    assert printed["fast_window"] == "2"
+    assert printed["slow_window"] == "3"
+    assert printed["trades_count"] == 2
+
+
 def test_prepared_backtest_smoke_compares_with_previous_summary(tmp_path) -> None:
     path = write_prepared_csv(tmp_path)
     previous_summary = tmp_path / "previous_summary.json"
@@ -163,6 +177,25 @@ def write_prepared_csv(tmp_path):
     return path
 
 
+def write_moving_average_csv(tmp_path):
+    path = tmp_path / "BTCUSDT_1h_moving_average.csv"
+    path.write_text(
+        "\n".join(
+            [
+                "timestamp,open,high,low,close,volume",
+                "2025-01-01T00:00:00Z,10,10,10,10,1",
+                "2025-01-01T01:00:00Z,10,10,10,10,1",
+                "2025-01-01T02:00:00Z,9,9,9,9,1",
+                "2025-01-01T03:00:00Z,12,12,12,12,1",
+                "2025-01-01T04:00:00Z,5,5,5,5,1",
+                "",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    return path
+
+
 def base_args(path):
     return [
         "--symbol",
@@ -181,6 +214,29 @@ def base_args(path):
         "95",
         "--exit-above",
         "105",
+        "--order-quantity",
+        "1",
+    ]
+
+
+def moving_average_args(path):
+    return [
+        "--symbol",
+        "BTCUSDT",
+        "--timeframe",
+        "1h",
+        "--csv",
+        str(path),
+        "--initial-balance",
+        "10000",
+        "--fee-rate",
+        "0",
+        "--strategy-type",
+        "moving_average_crossover",
+        "--fast-window",
+        "2",
+        "--slow-window",
+        "3",
         "--order-quantity",
         "1",
     ]

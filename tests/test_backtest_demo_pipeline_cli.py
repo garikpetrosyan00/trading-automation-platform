@@ -46,6 +46,23 @@ def test_backtest_demo_pipeline_uses_existing_prepared_csv(tmp_path) -> None:
     assert (work_dir / "dataset" / "prepared.csv").read_text(encoding="utf-8") == prepared.read_text(encoding="utf-8")
 
 
+def test_backtest_demo_pipeline_supports_moving_average_crossover_prepared_csv(tmp_path) -> None:
+    prepared = write_moving_average_csv(tmp_path)
+    work_dir = tmp_path / "pipeline"
+    stdout = StringIO()
+
+    exit_code = cli.main(moving_average_args(work_dir) + ["--prepared-csv", str(prepared)], stdout=stdout)
+
+    assert exit_code == 0
+    payload = json.loads(stdout.getvalue())
+    assert payload["result"] == "PASS"
+    assert payload["run"]["trades_count"] == 2
+    summary = json.loads((work_dir / "run" / "summary.json").read_text(encoding="utf-8"))
+    assert summary["strategy_type"] == "moving_average_crossover"
+    assert summary["fast_window"] == "2"
+    assert summary["slow_window"] == "3"
+
+
 def test_backtest_demo_pipeline_with_base_run_comparison(tmp_path) -> None:
     raw = write_raw_csv(tmp_path)
     base_run = write_base_run_dir(tmp_path)
@@ -186,6 +203,25 @@ def write_prepared_csv(tmp_path):
     return path
 
 
+def write_moving_average_csv(tmp_path):
+    path = tmp_path / "prepared_ma.csv"
+    path.write_text(
+        "\n".join(
+            [
+                "timestamp,open,high,low,close,volume",
+                "2025-01-01T00:00:00Z,10,10,10,10,1",
+                "2025-01-01T01:00:00Z,10,10,10,10,1",
+                "2025-01-01T02:00:00Z,9,9,9,9,1",
+                "2025-01-01T03:00:00Z,12,12,12,12,1",
+                "2025-01-01T04:00:00Z,5,5,5,5,1",
+                "",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    return path
+
+
 def write_base_run_dir(tmp_path):
     run_dir = tmp_path / "base_run"
     run_dir.mkdir()
@@ -223,6 +259,29 @@ def base_args(work_dir):
         "95",
         "--exit-above",
         "105",
+        "--order-quantity",
+        "1",
+    ]
+
+
+def moving_average_args(work_dir):
+    return [
+        "--symbol",
+        "BTCUSDT",
+        "--timeframe",
+        "1h",
+        "--work-dir",
+        str(work_dir),
+        "--initial-balance",
+        "10000",
+        "--fee-rate",
+        "0",
+        "--strategy-type",
+        "moving_average_crossover",
+        "--fast-window",
+        "2",
+        "--slow-window",
+        "3",
         "--order-quantity",
         "1",
     ]

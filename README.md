@@ -74,6 +74,23 @@ If a prepared CSV already exists, skip dataset preparation:
   --compact
 ```
 
+The same local pipeline can run the CSV-only `moving_average_crossover` strategy by replacing the threshold arguments with moving-average windows:
+
+```bash
+.venv/bin/python -m app.cli.run_backtest_demo_pipeline \
+  --symbol BTCUSDT \
+  --timeframe 1h \
+  --prepared-csv data/backtests/datasets/BTCUSDT_1h_prepared.csv \
+  --work-dir data/backtests/runs/BTCUSDT_1h_ma_pipeline_demo \
+  --initial-balance 10000 \
+  --fee-rate 0.001 \
+  --strategy-type moving_average_crossover \
+  --fast-window 5 \
+  --slow-window 20 \
+  --order-quantity 0.01 \
+  --compact
+```
+
 Generated structure:
 
 ```text
@@ -133,7 +150,7 @@ For pipeline outputs, the same summary and manifest reads work with `run/summary
 
 ## Local Backtest Parameter Sweep
 
-Use the parameter sweep CLI to compare multiple `price_threshold` parameter combinations against one prepared CSV dataset:
+Use the parameter sweep CLI to compare multiple `price_threshold` parameter combinations against one prepared CSV dataset. The sweep CLI is intentionally limited to `price_threshold` in this checkpoint; use `run_backtest` or the demo pipeline for individual `moving_average_crossover` runs.
 
 ```bash
 .venv/bin/python -m app.cli.run_backtest_parameter_sweep \
@@ -490,7 +507,9 @@ The selected bot must be paper mode and must not have an open paper position at 
 
 ## CSV backtest CLI
 
-Use this local CLI to backtest a `price_threshold` strategy against historical candles from a CSV file without fetching market data or creating runtime paper/live execution artifacts:
+Use this local CLI to backtest supported strategy rules against historical candles from a CSV file without fetching market data or creating runtime paper/live execution artifacts.
+
+Price threshold example:
 
 ```bash
 .venv/bin/python -m app.cli.run_backtest \
@@ -505,6 +524,21 @@ Use this local CLI to backtest a `price_threshold` strategy against historical c
   --order-quantity 0.01
 ```
 
+Moving average crossover example:
+
+```bash
+.venv/bin/python -m app.cli.run_backtest \
+  --symbol BTCUSDT \
+  --timeframe 1h \
+  --csv data/backtests/BTCUSDT_1h_sample.csv \
+  --initial-balance 10000 \
+  --fee-rate 0.001 \
+  --strategy-type moving_average_crossover \
+  --fast-window 5 \
+  --slow-window 20 \
+  --order-quantity 0.01
+```
+
 CSV format:
 
 ```csv
@@ -513,6 +547,13 @@ timestamp,open,high,low,close,volume
 ```
 
 The loader validates required columns, parseable timestamps, positive OHLC prices, non-negative volume, and duplicate timestamps. Candles are sorted by timestamp before simulation. At each candle, the strategy sees only the current and prior candles.
+
+Supported local CSV strategies:
+
+- `price_threshold`: buy when close price is below `--entry-below`; sell when close price is above `--exit-above`.
+- `moving_average_crossover`: buy when `--fast-window` crosses above `--slow-window`; sell when it crosses below. The fast window must be positive and smaller than the slow window.
+
+All strategy backtests are local CSV simulations only. They are not profitability guarantees and do not place live, testnet, or paper runtime orders.
 
 The CLI prints one JSON object containing summary metrics, trade details, and the equity curve. Use `--output-json <path>` to also write the same JSON payload to a file.
 

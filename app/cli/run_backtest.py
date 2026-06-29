@@ -10,6 +10,9 @@ from typing import Any, TextIO
 
 from app.services.csv_backtest import BacktestCsvError, load_candles_from_csv, run_csv_backtest
 
+PRICE_THRESHOLD_STRATEGY_TYPE = "price_threshold"
+MOVING_AVERAGE_CROSSOVER_STRATEGY_TYPE = "moving_average_crossover"
+
 
 class CliArgumentError(Exception):
     pass
@@ -33,14 +36,11 @@ def main(argv: list[str] | None = None, *, stdout: TextIO | None = None, stderr:
             initial_balance=_decimal_arg(args.initial_balance, "initial-balance"),
             fee_rate=_decimal_arg(args.fee_rate, "fee-rate"),
             strategy_type=args.strategy_type,
-            parameters={
-                "buy_below": _decimal_arg(args.entry_below, "entry-below"),
-                "sell_above": _decimal_arg(args.exit_above, "exit-above"),
-                "quantity": _positive_decimal_arg(args.order_quantity, "order-quantity"),
-            },
+            parameters=_strategy_parameters_from_args(args),
         )
         full_payload = _to_jsonable(result)
         summary_payload = _summary_payload(full_payload)
+        summary_payload.update(_strategy_summary_fields(args))
         if args.output_dir is not None:
             _write_output_dir(Path(args.output_dir), full_payload, summary_payload, overwrite=args.overwrite)
         output_payload = summary_payload if args.summary_only else full_payload
@@ -70,8 +70,10 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--initial-balance", required=True, help="starting quote balance")
     parser.add_argument("--fee-rate", required=True, help="decimal fee rate per trade, for example 0.001")
     parser.add_argument("--strategy-type", required=True)
-    parser.add_argument("--entry-below", required=True, help="price_threshold BUY threshold")
-    parser.add_argument("--exit-above", required=True, help="price_threshold SELL threshold")
+    parser.add_argument("--entry-below", help="price_threshold BUY threshold")
+    parser.add_argument("--exit-above", help="price_threshold SELL threshold")
+    parser.add_argument("--fast-window", help="moving_average_crossover fast moving-average window")
+    parser.add_argument("--slow-window", help="moving_average_crossover slow moving-average window")
     parser.add_argument("--order-quantity", required=True, help="base quantity per BUY")
     parser.add_argument("--output-json", help="optional file path to write the full JSON result")
     parser.add_argument("--output-dir", help="optional directory for summary.json, trades.csv, and equity_curve.csv")
@@ -82,6 +84,45 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--overwrite", action="store_true", help="allow replacing files in --output-dir")
     return parser
+
+
+def _strategy_parameters_from_args(args: Any) -> dict[str, Any]:
+    quantity = _positive_decimal_arg(args.order_quantity, "order-quantity")
+    if args.strategy_type == PRICE_THRESHOLD_STRATEGY_TYPE:
+        if args.entry_below is None:
+            raise ValueError("entry-below is required for price_threshold")
+        if args.exit_above is None:
+            raise ValueError("exit-above is required for price_threshold")
+        return {
+            "buy_below": _decimal_arg(args.entry_below, "entry-below"),
+            "sell_above": _decimal_arg(args.exit_above, "exit-above"),
+            "quantity": quantity,
+        }
+    if args.strategy_type == MOVING_AVERAGE_CROSSOVER_STRATEGY_TYPE:
+        if args.fast_window is None:
+            raise ValueError("fast-window is required for moving_average_crossover")
+        if args.slow_window is None:
+            raise ValueError("slow-window is required for moving_average_crossover")
+        return {
+            "fast_window": _positive_int_arg(args.fast_window, "fast-window"),
+            "slow_window": _positive_int_arg(args.slow_window, "slow-window"),
+            "quantity": quantity,
+        }
+    raise ValueError(f"unsupported strategy type: {args.strategy_type}")
+
+
+def _strategy_summary_fields(args: Any) -> dict[str, Any]:
+    fields: dict[str, Any] = {
+        "strategy_type": args.strategy_type,
+        "order_quantity": args.order_quantity,
+    }
+    if args.strategy_type == PRICE_THRESHOLD_STRATEGY_TYPE:
+        fields["entry_below"] = args.entry_below
+        fields["exit_above"] = args.exit_above
+    elif args.strategy_type == MOVING_AVERAGE_CROSSOVER_STRATEGY_TYPE:
+        fields["fast_window"] = args.fast_window
+        fields["slow_window"] = args.slow_window
+    return fields
 
 
 def _decimal_arg(value: str, name: str) -> Decimal:
@@ -96,6 +137,18 @@ def _decimal_arg(value: str, name: str) -> Decimal:
 
 def _positive_decimal_arg(value: str, name: str) -> Decimal:
     parsed = _decimal_arg(value, name)
+    if parsed <= 0:
+        raise ValueError(f"{name} must be positive")
+    return parsed
+
+
+def _positive_int_arg(value: str, name: str) -> int:
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError) as exc:
+        raise ValueError(f"{name} must be a positive integer") from exc
+    if str(value).strip() != str(parsed):
+        raise ValueError(f"{name} must be a positive integer")
     if parsed <= 0:
         raise ValueError(f"{name} must be positive")
     return parsed

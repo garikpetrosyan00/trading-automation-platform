@@ -13,6 +13,8 @@ from app.engine.strategy_engine import StrategyEngine
 ZERO = Decimal("0")
 HUNDRED = Decimal("100")
 REQUIRED_COLUMNS = ("timestamp", "open", "high", "low", "close", "volume")
+PRICE_THRESHOLD_STRATEGY_TYPE = "price_threshold"
+MOVING_AVERAGE_CROSSOVER_STRATEGY_TYPE = "moving_average_crossover"
 
 
 class BacktestCsvError(ValueError):
@@ -126,10 +128,16 @@ def run_csv_backtest(
 ) -> CsvBacktestResult:
     _validate_positive(initial_balance, "initial_balance")
     _validate_non_negative(fee_rate, "fee_rate")
-    if strategy_type != "price_threshold":
-        raise BacktestCsvError(f"unsupported strategy type: {strategy_type}")
     if not candles:
         raise BacktestCsvError("at least one candle is required")
+    engine_strategy_type = _engine_strategy_type(strategy_type)
+    if engine_strategy_type is None:
+        raise BacktestCsvError(f"unsupported strategy type: {strategy_type}")
+    parameters = _normalized_strategy_parameters(
+        strategy_type=strategy_type,
+        parameters=parameters,
+        candles_count=len(candles),
+    )
 
     cash_balance = initial_balance
     position_quantity = ZERO
@@ -147,7 +155,7 @@ def run_csv_backtest(
     for index, candle in enumerate(candles):
         visible_candles = candles[: index + 1]
         decision = StrategyEngine.evaluate(
-            strategy_type=strategy_type,
+            strategy_type=engine_strategy_type,
             parameters=parameters,
             profile=profile,
             latest_price=candle.close,
@@ -280,6 +288,53 @@ def _parse_row(row: dict[str, str], *, row_number: int) -> CsvBacktestCandle:
         close=close_price,
         volume=volume,
     )
+
+
+def _engine_strategy_type(strategy_type: str) -> str | None:
+    if strategy_type == PRICE_THRESHOLD_STRATEGY_TYPE:
+        return PRICE_THRESHOLD_STRATEGY_TYPE
+    if strategy_type == MOVING_AVERAGE_CROSSOVER_STRATEGY_TYPE:
+        return "moving_average_cross"
+    return None
+
+
+def _normalized_strategy_parameters(
+    *,
+    strategy_type: str,
+    parameters: dict[str, Any],
+    candles_count: int,
+) -> dict[str, Any]:
+    if strategy_type == PRICE_THRESHOLD_STRATEGY_TYPE:
+        return parameters
+    if strategy_type != MOVING_AVERAGE_CROSSOVER_STRATEGY_TYPE:
+        return parameters
+
+    fast_window = _parse_positive_int_parameter(parameters.get("fast_window"), "fast_window")
+    slow_window = _parse_positive_int_parameter(parameters.get("slow_window"), "slow_window")
+    if fast_window >= slow_window:
+        raise BacktestCsvError("fast_window must be smaller than slow_window")
+    required_candles = slow_window + 1
+    if candles_count < required_candles:
+        raise BacktestCsvError(
+            f"not enough candles for moving_average_crossover: need at least {required_candles}, got {candles_count}"
+        )
+    return {
+        "short_window": fast_window,
+        "long_window": slow_window,
+        "quantity": parameters.get("quantity"),
+    }
+
+
+def _parse_positive_int_parameter(value: Any, name: str) -> int:
+    try:
+        parsed = int(str(value))
+    except (TypeError, ValueError) as exc:
+        raise BacktestCsvError(f"{name} must be a positive integer") from exc
+    if str(value).strip() != str(parsed):
+        raise BacktestCsvError(f"{name} must be a positive integer")
+    if parsed <= 0:
+        raise BacktestCsvError(f"{name} must be positive")
+    return parsed
 
 
 def _parse_timestamp(value: str, *, row_number: int) -> datetime:

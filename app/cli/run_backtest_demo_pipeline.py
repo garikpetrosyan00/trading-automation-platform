@@ -8,8 +8,9 @@ from app.cli.run_backtest import (
     CliArgumentError,
     SafeArgumentParser,
     _decimal_arg,
-    _positive_decimal_arg,
     _summary_payload,
+    _strategy_parameters_from_args,
+    _strategy_summary_fields,
     _to_jsonable,
     _write_output_dir,
 )
@@ -103,8 +104,10 @@ def _build_parser() -> SafeArgumentParser:
     parser.add_argument("--initial-balance", required=True, help="starting quote balance")
     parser.add_argument("--fee-rate", required=True, help="decimal fee rate per trade, for example 0.001")
     parser.add_argument("--strategy-type", required=True)
-    parser.add_argument("--entry-below", required=True, help="price_threshold BUY threshold")
-    parser.add_argument("--exit-above", required=True, help="price_threshold SELL threshold")
+    parser.add_argument("--entry-below", help="price_threshold BUY threshold")
+    parser.add_argument("--exit-above", help="price_threshold SELL threshold")
+    parser.add_argument("--fast-window", help="moving_average_crossover fast moving-average window")
+    parser.add_argument("--slow-window", help="moving_average_crossover slow moving-average window")
     parser.add_argument("--order-quantity", required=True, help="base quantity per BUY")
     parser.add_argument("--compare-summary", help="optional previous summary.json path")
     parser.add_argument("--base-run-dir", help="optional previous run directory containing summary.json")
@@ -184,25 +187,18 @@ def _run_backtest(args: Any, prepared_csv: Path, run_dir: Path) -> dict[str, Any
         initial_balance=_decimal_arg(args.initial_balance, "initial-balance"),
         fee_rate=_decimal_arg(args.fee_rate, "fee-rate"),
         strategy_type=args.strategy_type,
-        parameters={
-            "buy_below": _decimal_arg(args.entry_below, "entry-below"),
-            "sell_above": _decimal_arg(args.exit_above, "exit-above"),
-            "quantity": _positive_decimal_arg(args.order_quantity, "order-quantity"),
-        },
+        parameters=_strategy_parameters_from_args(args),
     )
     full_payload = _to_jsonable(result)
     summary_payload = _summary_payload(full_payload)
     summary_payload.update(
         {
             "prepared_csv": str(prepared_csv),
-            "strategy_type": args.strategy_type,
             "initial_balance": args.initial_balance,
             "fee_rate": args.fee_rate,
-            "entry_below": args.entry_below,
-            "exit_above": args.exit_above,
-            "order_quantity": args.order_quantity,
         }
     )
+    summary_payload.update(_strategy_summary_fields(args))
     _write_output_dir(run_dir, full_payload, summary_payload, overwrite=True)
     return summary_payload
 

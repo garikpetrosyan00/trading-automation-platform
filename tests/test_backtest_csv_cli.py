@@ -37,6 +37,23 @@ def run_price_threshold(path, **overrides):
     )
 
 
+def run_moving_average_crossover(path, **overrides):
+    candles = load_candles_from_csv(path)
+    return run_csv_backtest(
+        candles=candles,
+        symbol=overrides.get("symbol", "BTCUSDT"),
+        timeframe=overrides.get("timeframe", "1h"),
+        initial_balance=Decimal(overrides.get("initial_balance", "10000")),
+        fee_rate=Decimal(overrides.get("fee_rate", "0")),
+        strategy_type="moving_average_crossover",
+        parameters={
+            "fast_window": int(overrides.get("fast_window", "2")),
+            "slow_window": int(overrides.get("slow_window", "3")),
+            "quantity": Decimal(overrides.get("quantity", "1")),
+        },
+    )
+
+
 def test_csv_backtest_profitable_buy_sell_path_with_fees(tmp_path) -> None:
     path = write_csv(
         tmp_path,
@@ -79,6 +96,90 @@ def test_csv_backtest_no_trade_path(tmp_path) -> None:
     assert result.final_equity == Decimal("10000")
     assert result.win_rate_pct is None
     assert result.fees_paid == Decimal("0")
+
+
+def test_csv_backtest_moving_average_crossover_buy_sell_path(tmp_path) -> None:
+    path = write_csv(
+        tmp_path,
+        [
+            "2025-01-01T00:00:00Z,10,10,10,10,1",
+            "2025-01-01T01:00:00Z,10,10,10,10,1",
+            "2025-01-01T02:00:00Z,9,9,9,9,1",
+            "2025-01-01T03:00:00Z,12,12,12,12,1",
+            "2025-01-01T04:00:00Z,5,5,5,5,1",
+        ],
+    )
+
+    result = run_moving_average_crossover(path)
+
+    assert result.result == "PASS"
+    assert [trade.side for trade in result.trades] == ["buy", "sell"]
+    assert [trade.price for trade in result.trades] == [Decimal("12"), Decimal("5")]
+    assert result.final_balance == Decimal("9993")
+    assert result.realized_pnl == Decimal("-7")
+    assert result.final_position_quantity == Decimal("0")
+
+
+def test_csv_backtest_moving_average_crossover_no_trade_path(tmp_path) -> None:
+    path = write_csv(
+        tmp_path,
+        [
+            "2025-01-01T00:00:00Z,10,10,10,10,1",
+            "2025-01-01T01:00:00Z,11,11,11,11,1",
+            "2025-01-01T02:00:00Z,12,12,12,12,1",
+            "2025-01-01T03:00:00Z,13,13,13,13,1",
+        ],
+    )
+
+    result = run_moving_average_crossover(path)
+
+    assert result.trades_count == 0
+    assert result.final_balance == Decimal("10000")
+    assert result.final_equity == Decimal("10000")
+
+
+@pytest.mark.parametrize(
+    ("parameters", "expected_error"),
+    [
+        ({"fast_window": 0, "slow_window": 3, "quantity": Decimal("1")}, "fast_window must be positive"),
+        ({"fast_window": 3, "slow_window": 3, "quantity": Decimal("1")}, "fast_window must be smaller than slow_window"),
+    ],
+)
+def test_csv_backtest_moving_average_crossover_invalid_windows(tmp_path, parameters, expected_error) -> None:
+    path = write_csv(
+        tmp_path,
+        [
+            "2025-01-01T00:00:00Z,10,10,10,10,1",
+            "2025-01-01T01:00:00Z,10,10,10,10,1",
+            "2025-01-01T02:00:00Z,9,9,9,9,1",
+            "2025-01-01T03:00:00Z,12,12,12,12,1",
+        ],
+    )
+
+    with pytest.raises(BacktestCsvError, match=expected_error):
+        run_csv_backtest(
+            candles=load_candles_from_csv(path),
+            symbol="BTCUSDT",
+            timeframe="1h",
+            initial_balance=Decimal("10000"),
+            fee_rate=Decimal("0"),
+            strategy_type="moving_average_crossover",
+            parameters=parameters,
+        )
+
+
+def test_csv_backtest_moving_average_crossover_requires_enough_candles(tmp_path) -> None:
+    path = write_csv(
+        tmp_path,
+        [
+            "2025-01-01T00:00:00Z,10,10,10,10,1",
+            "2025-01-01T01:00:00Z,10,10,10,10,1",
+            "2025-01-01T02:00:00Z,9,9,9,9,1",
+        ],
+    )
+
+    with pytest.raises(BacktestCsvError, match="need at least 4, got 3"):
+        run_moving_average_crossover(path)
 
 
 def test_csv_backtest_max_drawdown_and_buy_and_hold_metrics(tmp_path) -> None:
@@ -259,6 +360,38 @@ def test_run_backtest_summary_only_prints_compact_stdout_and_still_writes_files(
     assert (output_dir / "equity_curve.csv").exists()
 
 
+def test_run_backtest_cli_supports_moving_average_crossover_and_summary_params(tmp_path) -> None:
+    path = write_csv(
+        tmp_path,
+        [
+            "2025-01-01T00:00:00Z,10,10,10,10,1",
+            "2025-01-01T01:00:00Z,10,10,10,10,1",
+            "2025-01-01T02:00:00Z,9,9,9,9,1",
+            "2025-01-01T03:00:00Z,12,12,12,12,1",
+            "2025-01-01T04:00:00Z,5,5,5,5,1",
+        ],
+    )
+    output_dir = tmp_path / "runs" / "ma_001"
+    stdout = StringIO()
+
+    exit_code = cli.main(
+        moving_average_cli_args(path)
+        + ["--summary-only", "--output-dir", str(output_dir)],
+        stdout=stdout,
+    )
+
+    assert exit_code == 0
+    printed = json.loads(stdout.getvalue())
+    assert printed["strategy_type"] == "moving_average_crossover"
+    assert printed["fast_window"] == "2"
+    assert printed["slow_window"] == "3"
+    assert printed["trades_count"] == 2
+    summary = json.loads((output_dir / "summary.json").read_text(encoding="utf-8"))
+    assert summary["strategy_type"] == "moving_average_crossover"
+    assert summary["fast_window"] == "2"
+    assert summary["slow_window"] == "3"
+
+
 def test_run_backtest_output_dir_refuses_existing_files_without_overwrite(tmp_path) -> None:
     path = write_csv(
         tmp_path,
@@ -356,6 +489,27 @@ def test_run_backtest_cli_does_not_touch_runtime_audit_tables(db_session, tmp_pa
     assert RunEventRepository(db_session).list_for_bot(bot_id=1) == []
 
 
+def test_run_backtest_cli_moving_average_crossover_does_not_touch_runtime_audit_tables(db_session, tmp_path) -> None:
+    path = write_csv(
+        tmp_path,
+        [
+            "2025-01-01T00:00:00Z,10,10,10,10,1",
+            "2025-01-01T01:00:00Z,10,10,10,10,1",
+            "2025-01-01T02:00:00Z,9,9,9,9,1",
+            "2025-01-01T03:00:00Z,12,12,12,12,1",
+            "2025-01-01T04:00:00Z,5,5,5,5,1",
+        ],
+    )
+
+    assert cli.main(moving_average_cli_args(path), stdout=StringIO()) == 0
+
+    assert PortfolioRepository(db_session).list_orders() == []
+    assert PortfolioRepository(db_session).list_fills() == []
+    assert ExecutionAttemptRepository(db_session).list_filtered(limit=10) == []
+    assert ExecutionReconciliationJobRepository(db_session).list_filtered(limit=10) == []
+    assert RunEventRepository(db_session).list_for_bot(bot_id=1) == []
+
+
 def test_run_backtest_cli_returns_fail_for_invalid_csv(tmp_path) -> None:
     path = write_csv(tmp_path, ["not-a-date,100,101,99,100,1"])
     stdout = StringIO()
@@ -409,6 +563,29 @@ def base_cli_args(path):
         "95",
         "--exit-above",
         "105",
+        "--order-quantity",
+        "1",
+    ]
+
+
+def moving_average_cli_args(path):
+    return [
+        "--symbol",
+        "BTCUSDT",
+        "--timeframe",
+        "1h",
+        "--csv",
+        str(path),
+        "--initial-balance",
+        "10000",
+        "--fee-rate",
+        "0",
+        "--strategy-type",
+        "moving_average_crossover",
+        "--fast-window",
+        "2",
+        "--slow-window",
+        "3",
         "--order-quantity",
         "1",
     ]
