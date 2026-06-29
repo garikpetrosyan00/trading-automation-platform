@@ -1,10 +1,103 @@
 # Trading Automation Platform
 
-This repository provides the initial backend foundation for a production-style trading automation platform. The current scope is intentionally narrow: it sets up a clean FastAPI application skeleton, environment-based configuration, database and migration scaffolding, logging, basic exception handling, starter Docker files, the first real market-data ingestion slice, and the first persisted virtual portfolio and simulated execution slice.
+## Project Overview
 
-The first business entities, `Strategy`, `Bot`, `ExecutionProfile`, `BotRun`, and `RunEvent`, are now included as stored metadata/configuration records. At this stage none of them executes trades. They are only persisted and managed through the REST API.
+Trading Automation Platform is a FastAPI backend for strategy configuration, paper-mode execution, local backtesting, and operator-friendly demo workflows. It is designed as a safety-first trading automation foundation: live trading remains disabled by default, paper/backtest paths are isolated, and local demo commands avoid external exchange side effects.
 
-Production broker integrations, Telegram notifications, production dashboards, scheduler deployment, authentication, and advanced risk workflows are intentionally left for later steps.
+The project currently demonstrates three safe operating surfaces:
+
+- REST APIs for strategies, bots, execution profiles, market data inspection, paper portfolio state, and audit-oriented execution reads.
+- Paper/demo tooling for controlled local BUY/SELL smoke verification without live order submission.
+- Deterministic CSV backtesting with dataset preparation, saved run artifacts, run comparison, Markdown reporting, and demo bundle export.
+
+Production-grade live trading, production scheduler deployment, authentication, Telegram notifications, and broader broker support are intentionally out of scope for the current demo baseline.
+
+## Portfolio Highlights
+
+- FastAPI backend architecture with routers, services, repositories, schemas, and centralized settings.
+- SQLAlchemy 2.x models with Alembic migrations and PostgreSQL-ready configuration.
+- Safety-first execution design with explicit paper/testnet/live boundaries and dry-run defaults.
+- Deterministic local CSV backtesting that uses only current/past candle data at each step.
+- CSV dataset normalization for raw OHLCV inputs, timestamp validation, sorting, dedupe handling, and gap summaries.
+- Saved backtest run artifacts: `summary.json`, `trades.csv`, and `equity_curve.csv`.
+- Local comparison, Markdown report, and demo bundle export for portfolio/client review.
+- Broad pytest coverage for backtest flows, paper execution safety, API behavior, and regression boundaries.
+
+## Safety Guarantees
+
+For the local backtest/demo workflow:
+
+- It is file-based only and runs from CSV artifacts on the local machine.
+- It does not fetch Binance or other network market data.
+- It does not submit live, testnet, or real exchange orders.
+- It does not invoke the bot runner or scheduler loops.
+- It does not create runtime paper/live `Order`, `Fill`, `ExecutionAttempt`, `RunEvent`, reconciliation, or database-backed backtest rows.
+- It does not add migrations or require database persistence for backtest artifacts.
+
+These guarantees apply to the local CSV backtest demo pipeline and reporting/export helpers. Separate paper-mode and Binance Spot testnet sections below have their own explicit operator checklists.
+
+## Local Backtest Demo Pipeline
+
+The fastest portfolio/demo path is the one-command local pipeline. It prepares a dataset, runs a CSV backtest, optionally compares against a prior run, exports a Markdown report, and packages a clean demo bundle:
+
+```bash
+.venv/bin/python -m app.cli.run_backtest_demo_pipeline \
+  --symbol BTCUSDT \
+  --timeframe 1h \
+  --input data/backtests/raw/BTCUSDT_1h_2025.csv \
+  --input data/backtests/raw/BTCUSDT_1h_2026.csv \
+  --work-dir data/backtests/runs/BTCUSDT_1h_pipeline_demo \
+  --initial-balance 10000 \
+  --fee-rate 0.001 \
+  --strategy-type price_threshold \
+  --entry-below 95000 \
+  --exit-above 105000 \
+  --order-quantity 0.01 \
+  --base-run-dir data/backtests/runs/BTCUSDT_1h_smoke_base \
+  --title "BTCUSDT 1h Demo Pipeline"
+```
+
+If a prepared CSV already exists, skip dataset preparation:
+
+```bash
+.venv/bin/python -m app.cli.run_backtest_demo_pipeline \
+  --symbol BTCUSDT \
+  --timeframe 1h \
+  --prepared-csv data/backtests/datasets/BTCUSDT_1h_prepared.csv \
+  --work-dir data/backtests/runs/BTCUSDT_1h_pipeline_demo \
+  --initial-balance 10000 \
+  --fee-rate 0.001 \
+  --strategy-type price_threshold \
+  --entry-below 95000 \
+  --exit-above 105000 \
+  --order-quantity 0.01 \
+  --compact
+```
+
+Generated structure:
+
+```text
+data/backtests/runs/BTCUSDT_1h_pipeline_demo/
+├── dataset/
+│   ├── prepared.csv
+│   └── summary.json
+├── run/
+│   ├── summary.json
+│   ├── trades.csv
+│   └── equity_curve.csv
+├── comparison.json        # only when comparison input is provided
+├── report.md
+└── bundle/
+    ├── README.md
+    ├── manifest.json
+    ├── summary.json
+    ├── trades.csv
+    ├── equity_curve.csv
+    ├── comparison.json    # when available
+    └── report.md
+```
+
+The pipeline refuses a non-empty work directory unless `--overwrite` is passed. Results are historical simulations only; they are not profitability claims and should not be presented as live trading performance.
 
 ## What is included
 
@@ -648,60 +741,11 @@ The bundle contains `summary.json`, optional `trades.csv`, optional `equity_curv
 
 This exporter is local-only and file-based. It does not include raw datasets by default, fetch market data, place orders, invoke the bot runner, write database rows, or create runtime paper/live audit records.
 
-## Run the full backtest demo pipeline
+## Backtest demo pipeline reference
 
-Use the pipeline CLI to prepare a dataset, run the local backtest smoke, optionally compare against a previous run, export a Markdown report, and package a demo bundle in one command:
+For the concise one-command workflow, prepared CSV shortcut, and generated folder structure, see [Local Backtest Demo Pipeline](#local-backtest-demo-pipeline). The component CLIs above are useful when presenting each stage separately: dataset preparation, saved smoke run, comparison JSON, Markdown report, and demo bundle export.
 
-```bash
-.venv/bin/python -m app.cli.run_backtest_demo_pipeline \
-  --symbol BTCUSDT \
-  --timeframe 1h \
-  --input data/backtests/raw/BTCUSDT_1h_2025.csv \
-  --input data/backtests/raw/BTCUSDT_1h_2026.csv \
-  --work-dir data/backtests/runs/BTCUSDT_1h_pipeline_demo \
-  --initial-balance 10000 \
-  --fee-rate 0.001 \
-  --strategy-type price_threshold \
-  --entry-below 95000 \
-  --exit-above 105000 \
-  --order-quantity 0.01 \
-  --base-run-dir data/backtests/runs/BTCUSDT_1h_smoke_base \
-  --title "BTCUSDT 1h Demo Pipeline"
-```
-
-If you already have a prepared CSV, skip dataset preparation and copy it into the pipeline work directory:
-
-```bash
-.venv/bin/python -m app.cli.run_backtest_demo_pipeline \
-  --symbol BTCUSDT \
-  --timeframe 1h \
-  --prepared-csv data/backtests/datasets/BTCUSDT_1h_prepared.csv \
-  --work-dir data/backtests/runs/BTCUSDT_1h_pipeline_demo \
-  --initial-balance 10000 \
-  --fee-rate 0.001 \
-  --strategy-type price_threshold \
-  --entry-below 95000 \
-  --exit-above 105000 \
-  --order-quantity 0.01 \
-  --compact
-```
-
-Pipeline output structure:
-
-```text
-dataset/prepared.csv
-dataset/summary.json
-run/summary.json
-run/trades.csv
-run/equity_curve.csv
-comparison.json        # only when --base-run-dir or --compare-summary is provided
-report.md
-bundle/
-```
-
-The pipeline refuses a non-empty work directory unless `--overwrite` is passed. It is local-only and file-based: no Binance/network fetching, no live/testnet orders, no bot runner invocation, no database rows, no raw datasets in the demo bundle by default, and no runtime paper/live audit records.
-
-Safety behavior:
+Backtest safety behavior:
 
 - pure local simulation over CSV data
 - no Binance, testnet, live, or network calls
