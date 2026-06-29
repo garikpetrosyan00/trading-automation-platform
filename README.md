@@ -322,6 +322,41 @@ To use an existing paper bot instead of creating a fresh one:
 
 The selected bot must be paper mode and must not have an open paper position at the start of the smoke.
 
+## CSV backtest CLI
+
+Use this local CLI to backtest a `price_threshold` strategy against historical candles from a CSV file without fetching market data or creating runtime paper/live execution artifacts:
+
+```bash
+.venv/bin/python -m app.cli.run_backtest \
+  --symbol BTCUSDT \
+  --timeframe 1h \
+  --csv data/backtests/BTCUSDT_1h_sample.csv \
+  --initial-balance 10000 \
+  --fee-rate 0.001 \
+  --strategy-type price_threshold \
+  --entry-below 95000 \
+  --exit-above 105000 \
+  --order-quantity 0.01
+```
+
+CSV format:
+
+```csv
+timestamp,open,high,low,close,volume
+2025-01-01T00:00:00Z,95000,96000,94000,95500,123.45
+```
+
+The loader validates required columns, parseable timestamps, positive OHLC prices, non-negative volume, and duplicate timestamps. Candles are sorted by timestamp before simulation. At each candle, the strategy sees only the current and prior candles.
+
+The CLI prints one JSON object containing summary metrics, trade details, and the equity curve. Use `--output-json <path>` to also write the same JSON payload to a file.
+
+Safety behavior:
+
+- pure local simulation over CSV data
+- no Binance, testnet, live, or network calls
+- no paper/live `Order`, `Fill`, `ExecutionAttempt`, or reconciliation records
+- no database migrations or persisted backtest rows
+
 ## Safe paper demo checklist
 
 Use this checklist before presenting the dashboard or paper runtime flow:
