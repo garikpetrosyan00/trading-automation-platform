@@ -99,6 +99,18 @@ data/backtests/runs/BTCUSDT_1h_pipeline_demo/
 
 The pipeline refuses a non-empty work directory unless `--overwrite` is passed. Results are historical simulations only; they are not profitability claims and should not be presented as live trading performance.
 
+## Demo Checklist
+
+Use this checklist for a stable local backtest demo checkpoint:
+
+1. Confirm setup assumptions: dependencies are installed in `.venv`, and the command is run from the repository root.
+2. Prepare a dataset from raw CSV files under `data/backtests/raw/`, or use an existing prepared CSV under `data/backtests/datasets/`.
+3. Run the one-command demo pipeline from [Local Backtest Demo Pipeline](#local-backtest-demo-pipeline).
+4. Inspect the generated Markdown report at `<work-dir>/report.md`.
+5. Inspect the generated bundle manifest at `<work-dir>/bundle/manifest.json`.
+
+Generated local artifacts under `data/backtests/runs/`, `data/backtests/raw/`, and `data/backtests/datasets/` are ignored by git and should not be committed. Do not commit real private datasets, client data, downloaded exchange history, or local demo bundles unless they have been intentionally sanitized for public presentation.
+
 ## What is included
 
 - FastAPI application entrypoint
