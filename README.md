@@ -648,6 +648,59 @@ The bundle contains `summary.json`, optional `trades.csv`, optional `equity_curv
 
 This exporter is local-only and file-based. It does not include raw datasets by default, fetch market data, place orders, invoke the bot runner, write database rows, or create runtime paper/live audit records.
 
+## Run the full backtest demo pipeline
+
+Use the pipeline CLI to prepare a dataset, run the local backtest smoke, optionally compare against a previous run, export a Markdown report, and package a demo bundle in one command:
+
+```bash
+.venv/bin/python -m app.cli.run_backtest_demo_pipeline \
+  --symbol BTCUSDT \
+  --timeframe 1h \
+  --input data/backtests/raw/BTCUSDT_1h_2025.csv \
+  --input data/backtests/raw/BTCUSDT_1h_2026.csv \
+  --work-dir data/backtests/runs/BTCUSDT_1h_pipeline_demo \
+  --initial-balance 10000 \
+  --fee-rate 0.001 \
+  --strategy-type price_threshold \
+  --entry-below 95000 \
+  --exit-above 105000 \
+  --order-quantity 0.01 \
+  --base-run-dir data/backtests/runs/BTCUSDT_1h_smoke_base \
+  --title "BTCUSDT 1h Demo Pipeline"
+```
+
+If you already have a prepared CSV, skip dataset preparation and copy it into the pipeline work directory:
+
+```bash
+.venv/bin/python -m app.cli.run_backtest_demo_pipeline \
+  --symbol BTCUSDT \
+  --timeframe 1h \
+  --prepared-csv data/backtests/datasets/BTCUSDT_1h_prepared.csv \
+  --work-dir data/backtests/runs/BTCUSDT_1h_pipeline_demo \
+  --initial-balance 10000 \
+  --fee-rate 0.001 \
+  --strategy-type price_threshold \
+  --entry-below 95000 \
+  --exit-above 105000 \
+  --order-quantity 0.01 \
+  --compact
+```
+
+Pipeline output structure:
+
+```text
+dataset/prepared.csv
+dataset/summary.json
+run/summary.json
+run/trades.csv
+run/equity_curve.csv
+comparison.json        # only when --base-run-dir or --compare-summary is provided
+report.md
+bundle/
+```
+
+The pipeline refuses a non-empty work directory unless `--overwrite` is passed. It is local-only and file-based: no Binance/network fetching, no live/testnet orders, no bot runner invocation, no database rows, no raw datasets in the demo bundle by default, and no runtime paper/live audit records.
+
 Safety behavior:
 
 - pure local simulation over CSV data

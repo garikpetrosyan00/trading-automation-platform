@@ -41,11 +41,30 @@ def compare_backtest_run_dirs(base_run_dir: str | Path, candidate_run_dir: str |
     }
 
 
-def compact_backtest_comparison_report(report: dict[str, Any]) -> dict[str, Any]:
+def compare_backtest_summaries(
+    *,
+    base_summary_path: str | Path,
+    candidate_summary_path: str | Path,
+) -> dict[str, Any]:
+    base_path = Path(base_summary_path)
+    candidate_path = Path(candidate_summary_path)
+    base_summary = _load_summary_file(base_path, label="base summary")
+    candidate_summary = _load_summary_file(candidate_path, label="candidate summary")
+
     return {
+        "result": "PASS",
+        "base_summary_path": str(base_path),
+        "candidate_summary_path": str(candidate_path),
+        "metrics": {
+            metric: _compare_metric(base_summary, candidate_summary, metric)
+            for metric in METRICS
+        },
+    }
+
+
+def compact_backtest_comparison_report(report: dict[str, Any]) -> dict[str, Any]:
+    compact = {
         "result": report["result"],
-        "base_run_dir": report["base_run_dir"],
-        "candidate_run_dir": report["candidate_run_dir"],
         "deltas": {
             metric: details["delta"] if details["available"] else None
             for metric, details in report["metrics"].items()
@@ -56,6 +75,10 @@ def compact_backtest_comparison_report(report: dict[str, Any]) -> dict[str, Any]
             if not details["available"]
         ],
     }
+    for key in ("base_run_dir", "candidate_run_dir", "base_summary_path", "candidate_summary_path"):
+        if key in report:
+            compact[key] = report[key]
+    return compact
 
 
 def _load_summary(run_dir: Path) -> dict[str, Any]:
@@ -69,12 +92,20 @@ def _load_summary(run_dir: Path) -> dict[str, Any]:
         raise BacktestRunComparisonError(f"summary.json does not exist: {summary_path}")
     if not summary_path.is_file():
         raise BacktestRunComparisonError(f"summary.json path is not a file: {summary_path}")
+    return _load_summary_file(summary_path, label="summary.json")
+
+
+def _load_summary_file(path: Path, *, label: str) -> dict[str, Any]:
+    if not path.exists():
+        raise BacktestRunComparisonError(f"{label} does not exist: {path}")
+    if not path.is_file():
+        raise BacktestRunComparisonError(f"{label} path is not a file: {path}")
     try:
-        payload = json.loads(summary_path.read_text(encoding="utf-8"))
+        payload = json.loads(path.read_text(encoding="utf-8"))
     except json.JSONDecodeError as exc:
-        raise BacktestRunComparisonError(f"summary.json is not valid JSON: {summary_path}") from exc
+        raise BacktestRunComparisonError(f"{label} is not valid JSON: {path}") from exc
     if not isinstance(payload, dict):
-        raise BacktestRunComparisonError(f"summary.json must contain a JSON object: {summary_path}")
+        raise BacktestRunComparisonError(f"{label} must contain a JSON object: {path}")
     return payload
 
 
