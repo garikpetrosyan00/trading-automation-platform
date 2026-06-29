@@ -116,12 +116,18 @@ Generated local artifacts under `data/backtests/runs/`, `data/backtests/raw/`, a
 Saved local demo artifacts can also be inspected through read-only FastAPI endpoints. These endpoints only read files under `data/backtests/runs/`, reject unsafe artifact names, and return sanitized summary/manifest fields without exposing server filesystem paths.
 
 ```bash
+curl http://127.0.0.1:8000/api/v1/backtests/local-demo/runs
+
+curl http://127.0.0.1:8000/api/v1/backtests/local-demo/bundles
+
 curl http://127.0.0.1:8000/api/v1/backtests/local-demo/runs/BTCUSDT_1h_pipeline_demo/summary
 
 curl http://127.0.0.1:8000/api/v1/backtests/local-demo/runs/BTCUSDT_1h_pipeline_demo/report
 
 curl http://127.0.0.1:8000/api/v1/backtests/local-demo/bundles/BTCUSDT_1h_demo_bundle/manifest
 ```
+
+Use the catalog endpoints first when you do not know the generated folder names. They return names, artifact availability, symbol/timeframe when available, and cheap CSV row counts. After choosing a name, read the summary, Markdown report, or bundle manifest with the detail endpoints.
 
 For pipeline outputs, the same summary and manifest reads work with `run/summary.json` and `bundle/manifest.json` inside the pipeline work directory. The API is read-only and file-based: it does not fetch market data, submit orders, invoke the bot runner, persist backtest rows, or create runtime paper/live audit records.
 

@@ -3,7 +3,12 @@ from typing import Annotated
 from fastapi import APIRouter, Depends
 from fastapi.responses import Response
 
-from app.schemas.local_backtest_artifacts import LocalBacktestBundleManifestRead, LocalBacktestSummaryRead
+from app.schemas.local_backtest_artifacts import (
+    LocalBacktestBundleCatalogRead,
+    LocalBacktestBundleManifestRead,
+    LocalBacktestRunCatalogRead,
+    LocalBacktestSummaryRead,
+)
 from app.services.local_backtest_artifacts import LocalBacktestArtifactService
 
 router = APIRouter(prefix="/local-demo")
@@ -14,6 +19,16 @@ def get_local_backtest_artifact_service() -> LocalBacktestArtifactService:
 
 
 LocalBacktestArtifactServiceDep = Annotated[LocalBacktestArtifactService, Depends(get_local_backtest_artifact_service)]
+
+
+@router.get("/runs", response_model=LocalBacktestRunCatalogRead)
+async def list_local_backtest_runs(service: LocalBacktestArtifactServiceDep) -> dict:
+    return service.list_runs()
+
+
+@router.get("/bundles", response_model=LocalBacktestBundleCatalogRead)
+async def list_local_backtest_bundles(service: LocalBacktestArtifactServiceDep) -> dict:
+    return service.list_bundles()
 
 
 @router.get("/runs/{run_name}/summary", response_model=LocalBacktestSummaryRead)
