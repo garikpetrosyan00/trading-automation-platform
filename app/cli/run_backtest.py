@@ -1,4 +1,5 @@
 import argparse
+import csv
 import json
 import sys
 from dataclasses import asdict, is_dataclass
@@ -35,11 +36,15 @@ def main(argv: list[str] | None = None, *, stdout: TextIO | None = None, stderr:
             parameters={
                 "buy_below": _decimal_arg(args.entry_below, "entry-below"),
                 "sell_above": _decimal_arg(args.exit_above, "exit-above"),
-                "quantity": _decimal_arg(args.order_quantity, "order-quantity"),
+                "quantity": _positive_decimal_arg(args.order_quantity, "order-quantity"),
             },
         )
-        payload = _to_jsonable(result)
-        output = json.dumps(payload, sort_keys=True)
+        full_payload = _to_jsonable(result)
+        summary_payload = _summary_payload(full_payload)
+        if args.output_dir is not None:
+            _write_output_dir(Path(args.output_dir), full_payload, summary_payload, overwrite=args.overwrite)
+        output_payload = summary_payload if args.summary_only else full_payload
+        output = json.dumps(output_payload, sort_keys=True)
         if args.output_json is not None:
             Path(args.output_json).write_text(output + "\n", encoding="utf-8")
         print(output, file=stdout)
@@ -64,11 +69,18 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--csv", required=True, help="path to historical candle CSV")
     parser.add_argument("--initial-balance", required=True, help="starting quote balance")
     parser.add_argument("--fee-rate", required=True, help="decimal fee rate per trade, for example 0.001")
-    parser.add_argument("--strategy-type", required=True, choices=["price_threshold"])
+    parser.add_argument("--strategy-type", required=True)
     parser.add_argument("--entry-below", required=True, help="price_threshold BUY threshold")
     parser.add_argument("--exit-above", required=True, help="price_threshold SELL threshold")
     parser.add_argument("--order-quantity", required=True, help="base quantity per BUY")
     parser.add_argument("--output-json", help="optional file path to write the full JSON result")
+    parser.add_argument("--output-dir", help="optional directory for summary.json, trades.csv, and equity_curve.csv")
+    parser.add_argument(
+        "--summary-only",
+        action="store_true",
+        help="print compact summary JSON to stdout instead of full trades and equity curve",
+    )
+    parser.add_argument("--overwrite", action="store_true", help="allow replacing files in --output-dir")
     return parser
 
 
@@ -80,6 +92,76 @@ def _decimal_arg(value: str, name: str) -> Decimal:
     if not parsed.is_finite():
         raise ValueError(f"{name} must be finite")
     return parsed
+
+
+def _positive_decimal_arg(value: str, name: str) -> Decimal:
+    parsed = _decimal_arg(value, name)
+    if parsed <= 0:
+        raise ValueError(f"{name} must be positive")
+    return parsed
+
+
+def _summary_payload(payload: dict[str, Any]) -> dict[str, Any]:
+    return {key: value for key, value in payload.items() if key not in {"trades", "equity_curve"}}
+
+
+def _write_output_dir(
+    output_dir: Path,
+    full_payload: dict[str, Any],
+    summary_payload: dict[str, Any],
+    *,
+    overwrite: bool,
+) -> None:
+    if output_dir.exists() and not output_dir.is_dir():
+        raise ValueError(f"output-dir points to a file: {output_dir}")
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    summary_path = output_dir / "summary.json"
+    trades_path = output_dir / "trades.csv"
+    equity_curve_path = output_dir / "equity_curve.csv"
+    paths = (summary_path, trades_path, equity_curve_path)
+    existing = [path.name for path in paths if path.exists()]
+    if existing and not overwrite:
+        raise ValueError(
+            "output files already exist; pass --overwrite to replace: "
+            + ", ".join(existing)
+        )
+
+    summary_path.write_text(json.dumps(summary_payload, sort_keys=True) + "\n", encoding="utf-8")
+    _write_csv(
+        trades_path,
+        rows=full_payload["trades"],
+        fieldnames=[
+            "timestamp",
+            "side",
+            "price",
+            "quantity",
+            "fee",
+            "cash_balance_after",
+            "position_quantity_after",
+            "realized_pnl",
+        ],
+    )
+    _write_csv(
+        equity_curve_path,
+        rows=full_payload["equity_curve"],
+        fieldnames=[
+            "timestamp",
+            "cash_balance",
+            "position_quantity",
+            "close_price",
+            "equity",
+            "drawdown_pct",
+        ],
+    )
+
+
+def _write_csv(path: Path, *, rows: list[dict[str, Any]], fieldnames: list[str]) -> None:
+    with path.open("w", newline="", encoding="utf-8") as handle:
+        writer = csv.DictWriter(handle, fieldnames=fieldnames)
+        writer.writeheader()
+        for row in rows:
+            writer.writerow({field: row.get(field) for field in fieldnames})
 
 
 def _to_jsonable(value: Any) -> Any:

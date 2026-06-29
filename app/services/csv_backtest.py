@@ -87,6 +87,10 @@ class CsvBacktestResult:
 
 def load_candles_from_csv(path: str | Path) -> list[CsvBacktestCandle]:
     csv_path = Path(path)
+    if not csv_path.exists():
+        raise BacktestCsvError(f"CSV file does not exist: {csv_path}")
+    if not csv_path.is_file():
+        raise BacktestCsvError(f"CSV path is not a file: {csv_path}")
     try:
         with csv_path.open(newline="", encoding="utf-8") as handle:
             reader = csv.DictReader(handle)
@@ -123,7 +127,7 @@ def run_csv_backtest(
     _validate_positive(initial_balance, "initial_balance")
     _validate_non_negative(fee_rate, "fee_rate")
     if strategy_type != "price_threshold":
-        raise BacktestCsvError("only price_threshold strategy is supported by the CSV backtest CLI")
+        raise BacktestCsvError(f"unsupported strategy type: {strategy_type}")
     if not candles:
         raise BacktestCsvError("at least one candle is required")
 

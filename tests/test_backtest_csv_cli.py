@@ -1,4 +1,5 @@
 import json
+import csv
 from decimal import Decimal
 from io import StringIO
 
@@ -6,6 +7,10 @@ import pytest
 
 from app.cli import run_backtest as cli
 from app.engine.strategy_engine import StrategyEngine
+from app.repositories.execution_attempt import ExecutionAttemptRepository
+from app.repositories.execution_reconciliation_job import ExecutionReconciliationJobRepository
+from app.repositories.portfolio import PortfolioRepository
+from app.repositories.run_event import RunEventRepository
 from app.services.csv_backtest import BacktestCsvError, load_candles_from_csv, run_csv_backtest
 
 
@@ -202,6 +207,155 @@ def test_run_backtest_cli_outputs_json_summary_and_details(tmp_path) -> None:
     assert len(body["equity_curve"]) == 2
 
 
+def test_run_backtest_output_dir_writes_summary_trades_and_equity_curve(tmp_path) -> None:
+    path = write_csv(
+        tmp_path,
+        [
+            "2025-01-01T00:00:00Z,100,101,89,90,1",
+            "2025-01-01T01:00:00Z,90,111,90,110,1",
+        ],
+    )
+    output_dir = tmp_path / "runs" / "demo_001"
+
+    exit_code = cli.main(base_cli_args(path) + ["--output-dir", str(output_dir)], stdout=StringIO())
+
+    assert exit_code == 0
+    summary = json.loads((output_dir / "summary.json").read_text(encoding="utf-8"))
+    assert summary["result"] == "PASS"
+    assert "trades" not in summary
+    assert "equity_curve" not in summary
+    with (output_dir / "trades.csv").open(newline="", encoding="utf-8") as handle:
+        trades = list(csv.DictReader(handle))
+    with (output_dir / "equity_curve.csv").open(newline="", encoding="utf-8") as handle:
+        equity_curve = list(csv.DictReader(handle))
+    assert [trade["side"] for trade in trades] == ["buy", "sell"]
+    assert trades[0]["fee"] == "0.09"
+    assert [point["close_price"] for point in equity_curve] == ["90", "110"]
+
+
+def test_run_backtest_summary_only_prints_compact_stdout_and_still_writes_files(tmp_path) -> None:
+    path = write_csv(
+        tmp_path,
+        [
+            "2025-01-01T00:00:00Z,100,101,89,90,1",
+            "2025-01-01T01:00:00Z,90,111,90,110,1",
+        ],
+    )
+    output_dir = tmp_path / "runs" / "demo_002"
+    stdout = StringIO()
+
+    exit_code = cli.main(
+        base_cli_args(path) + ["--summary-only", "--output-dir", str(output_dir)],
+        stdout=stdout,
+    )
+
+    assert exit_code == 0
+    printed = json.loads(stdout.getvalue())
+    assert printed["result"] == "PASS"
+    assert "trades" not in printed
+    assert "equity_curve" not in printed
+    assert (output_dir / "summary.json").exists()
+    assert (output_dir / "trades.csv").exists()
+    assert (output_dir / "equity_curve.csv").exists()
+
+
+def test_run_backtest_output_dir_refuses_existing_files_without_overwrite(tmp_path) -> None:
+    path = write_csv(
+        tmp_path,
+        [
+            "2025-01-01T00:00:00Z,100,101,89,90,1",
+            "2025-01-01T01:00:00Z,90,111,90,110,1",
+        ],
+    )
+    output_dir = tmp_path / "runs" / "demo_003"
+    assert cli.main(base_cli_args(path) + ["--output-dir", str(output_dir)], stdout=StringIO()) == 0
+    stdout = StringIO()
+
+    exit_code = cli.main(base_cli_args(path) + ["--output-dir", str(output_dir)], stdout=stdout)
+
+    assert exit_code == 1
+    assert json.loads(stdout.getvalue()) == {
+        "error": "output files already exist; pass --overwrite to replace: summary.json, trades.csv, equity_curve.csv",
+        "result": "FAIL",
+    }
+
+
+def test_run_backtest_output_dir_overwrite_replaces_existing_files(tmp_path) -> None:
+    path = write_csv(
+        tmp_path,
+        [
+            "2025-01-01T00:00:00Z,100,101,89,90,1",
+            "2025-01-01T01:00:00Z,90,111,90,110,1",
+        ],
+    )
+    output_dir = tmp_path / "runs" / "demo_004"
+    output_dir.mkdir(parents=True)
+    (output_dir / "summary.json").write_text("old\n", encoding="utf-8")
+    (output_dir / "trades.csv").write_text("old\n", encoding="utf-8")
+    (output_dir / "equity_curve.csv").write_text("old\n", encoding="utf-8")
+
+    exit_code = cli.main(base_cli_args(path) + ["--output-dir", str(output_dir), "--overwrite"], stdout=StringIO())
+
+    assert exit_code == 0
+    assert json.loads((output_dir / "summary.json").read_text(encoding="utf-8"))["result"] == "PASS"
+    assert "old" not in (output_dir / "trades.csv").read_text(encoding="utf-8")
+    assert "old" not in (output_dir / "equity_curve.csv").read_text(encoding="utf-8")
+
+
+@pytest.mark.parametrize(
+    ("extra_args", "expected_error"),
+    [
+        (["--csv", "missing.csv"], "CSV file does not exist: missing.csv"),
+        (["--initial-balance", "0"], "initial_balance must be positive"),
+        (["--fee-rate", "-0.001"], "fee_rate must not be negative"),
+        (["--order-quantity", "0"], "order-quantity must be positive"),
+        (["--strategy-type", "moving_average_cross"], "unsupported strategy type: moving_average_cross"),
+    ],
+)
+def test_run_backtest_cli_invalid_values_fail_cleanly(tmp_path, extra_args, expected_error) -> None:
+    path = write_csv(tmp_path, ["2025-01-01T00:00:00Z,100,101,99,100,1"])
+    args = replace_args(base_cli_args(path), extra_args)
+    stdout = StringIO()
+
+    exit_code = cli.main(args, stdout=stdout)
+
+    assert exit_code == 1
+    assert json.loads(stdout.getvalue()) == {"error": expected_error, "result": "FAIL"}
+
+
+def test_run_backtest_cli_rejects_output_dir_that_is_file(tmp_path) -> None:
+    path = write_csv(tmp_path, ["2025-01-01T00:00:00Z,100,101,99,100,1"])
+    output_path = tmp_path / "not_a_dir"
+    output_path.write_text("", encoding="utf-8")
+    stdout = StringIO()
+
+    exit_code = cli.main(base_cli_args(path) + ["--output-dir", str(output_path)], stdout=stdout)
+
+    assert exit_code == 1
+    assert json.loads(stdout.getvalue()) == {
+        "error": f"output-dir points to a file: {output_path}",
+        "result": "FAIL",
+    }
+
+
+def test_run_backtest_cli_does_not_touch_runtime_audit_tables(db_session, tmp_path) -> None:
+    path = write_csv(
+        tmp_path,
+        [
+            "2025-01-01T00:00:00Z,100,101,89,90,1",
+            "2025-01-01T01:00:00Z,90,111,90,110,1",
+        ],
+    )
+
+    assert cli.main(base_cli_args(path), stdout=StringIO()) == 0
+
+    assert PortfolioRepository(db_session).list_orders() == []
+    assert PortfolioRepository(db_session).list_fills() == []
+    assert ExecutionAttemptRepository(db_session).list_filtered(limit=10) == []
+    assert ExecutionReconciliationJobRepository(db_session).list_filtered(limit=10) == []
+    assert RunEventRepository(db_session).list_for_bot(bot_id=1) == []
+
+
 def test_run_backtest_cli_returns_fail_for_invalid_csv(tmp_path) -> None:
     path = write_csv(tmp_path, ["not-a-date,100,101,99,100,1"])
     stdout = StringIO()
@@ -235,3 +389,34 @@ def test_run_backtest_cli_returns_fail_for_invalid_csv(tmp_path) -> None:
         "error": "row 2: timestamp is not parseable",
         "result": "FAIL",
     }
+
+
+def base_cli_args(path):
+    return [
+        "--symbol",
+        "BTCUSDT",
+        "--timeframe",
+        "1h",
+        "--csv",
+        str(path),
+        "--initial-balance",
+        "10000",
+        "--fee-rate",
+        "0.001",
+        "--strategy-type",
+        "price_threshold",
+        "--entry-below",
+        "95",
+        "--exit-above",
+        "105",
+        "--order-quantity",
+        "1",
+    ]
+
+
+def replace_args(args: list[str], replacements: list[str]) -> list[str]:
+    updated = list(args)
+    for flag, value in zip(replacements[0::2], replacements[1::2]):
+        index = updated.index(flag)
+        updated[index + 1] = value
+    return updated

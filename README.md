@@ -350,6 +350,46 @@ The loader validates required columns, parseable timestamps, positive OHLC price
 
 The CLI prints one JSON object containing summary metrics, trade details, and the equity curve. Use `--output-json <path>` to also write the same JSON payload to a file.
 
+Print only compact summary JSON:
+
+```bash
+.venv/bin/python -m app.cli.run_backtest \
+  --symbol BTCUSDT \
+  --timeframe 1h \
+  --csv data/backtests/BTCUSDT_1h_sample.csv \
+  --initial-balance 10000 \
+  --fee-rate 0.001 \
+  --strategy-type price_threshold \
+  --entry-below 95000 \
+  --exit-above 105000 \
+  --order-quantity 0.01 \
+  --summary-only
+```
+
+Save comparable local results:
+
+```bash
+.venv/bin/python -m app.cli.run_backtest \
+  --symbol BTCUSDT \
+  --timeframe 1h \
+  --csv data/backtests/BTCUSDT_1h_sample.csv \
+  --initial-balance 10000 \
+  --fee-rate 0.001 \
+  --strategy-type price_threshold \
+  --entry-below 95000 \
+  --exit-above 105000 \
+  --order-quantity 0.01 \
+  --output-dir data/backtests/runs/demo_001
+```
+
+The output directory is created if needed. Existing `summary.json`, `trades.csv`, or `equity_curve.csv` files are not overwritten unless `--overwrite` is provided. Generated run directories under `data/backtests/runs/` are ignored by git.
+
+Generated files:
+
+- `summary.json`: compact metrics for comparing runs
+- `trades.csv`: one row per simulated buy/sell
+- `equity_curve.csv`: one row per candle with equity and drawdown
+
 Safety behavior:
 
 - pure local simulation over CSV data
