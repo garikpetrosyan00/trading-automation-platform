@@ -131,6 +131,33 @@ Use the catalog endpoints first when you do not know the generated folder names.
 
 For pipeline outputs, the same summary and manifest reads work with `run/summary.json` and `bundle/manifest.json` inside the pipeline work directory. The API is read-only and file-based: it does not fetch market data, submit orders, invoke the bot runner, persist backtest rows, or create runtime paper/live audit records.
 
+## Local Backtest Parameter Sweep
+
+Use the parameter sweep CLI to compare multiple `price_threshold` parameter combinations against one prepared CSV dataset:
+
+```bash
+.venv/bin/python -m app.cli.run_backtest_parameter_sweep \
+  --symbol BTCUSDT \
+  --timeframe 1h \
+  --csv data/backtests/datasets/BTCUSDT_1h_prepared.csv \
+  --initial-balance 10000 \
+  --fee-rate 0.001 \
+  --strategy-type price_threshold \
+  --entry-below-values 90000,95000,100000 \
+  --exit-above-values 105000,110000 \
+  --order-quantity 0.01 \
+  --output-dir data/backtests/runs/BTCUSDT_1h_sweep_demo
+```
+
+Generated sweep artifacts:
+
+- `sweep_summary.json`: ranked JSON summary and best result
+- `sweep_results.csv`: one row per parameter combination
+- `sweep_report.md`: human-readable sweep table
+- `run_*/summary.json`, `run_*/trades.csv`, `run_*/equity_curve.csv`: per-combination backtest artifacts
+
+Results are ranked deterministically by final equity with stable tie-breakers. This is local historical simulation only, does not fetch market data or place orders, and is not a profitability guarantee.
+
 ## What is included
 
 - FastAPI application entrypoint
