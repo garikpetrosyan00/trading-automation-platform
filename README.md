@@ -495,6 +495,56 @@ Outputs are saved under the chosen `data/backtests/runs/...` directory:
 
 This smoke is local-only. It does not fetch Binance data, place live/testnet orders, invoke the bot runner, or create runtime paper/live audit records.
 
+## Compare saved backtest runs
+
+After saving two local smoke runs, compare their file artifacts without rerunning a strategy:
+
+```bash
+.venv/bin/python -m app.cli.run_prepared_backtest_smoke \
+  --symbol BTCUSDT \
+  --timeframe 1h \
+  --csv data/backtests/datasets/BTCUSDT_1h_prepared.csv \
+  --initial-balance 10000 \
+  --fee-rate 0.001 \
+  --strategy-type price_threshold \
+  --entry-below 95000 \
+  --exit-above 105000 \
+  --order-quantity 0.01 \
+  --output-dir data/backtests/runs/BTCUSDT_1h_smoke_base
+
+.venv/bin/python -m app.cli.run_prepared_backtest_smoke \
+  --symbol BTCUSDT \
+  --timeframe 1h \
+  --csv data/backtests/datasets/BTCUSDT_1h_prepared.csv \
+  --initial-balance 10000 \
+  --fee-rate 0.001 \
+  --strategy-type price_threshold \
+  --entry-below 96000 \
+  --exit-above 104000 \
+  --order-quantity 0.01 \
+  --output-dir data/backtests/runs/BTCUSDT_1h_smoke_candidate
+```
+
+Compare the saved run directories:
+
+```bash
+.venv/bin/python -m app.cli.compare_backtest_runs \
+  --base-run-dir data/backtests/runs/BTCUSDT_1h_smoke_base \
+  --candidate-run-dir data/backtests/runs/BTCUSDT_1h_smoke_candidate \
+  --compact
+```
+
+Write the same JSON report to a file:
+
+```bash
+.venv/bin/python -m app.cli.compare_backtest_runs \
+  --base-run-dir data/backtests/runs/BTCUSDT_1h_smoke_base \
+  --candidate-run-dir data/backtests/runs/BTCUSDT_1h_smoke_candidate \
+  --output-json data/backtests/runs/BTCUSDT_1h_comparison.json
+```
+
+The comparison reads `summary.json`, `trades.csv`, and `equity_curve.csv` from each run directory. Missing optional metrics are reported as unavailable. This helper is local-only and file-based; it does not fetch market data, place orders, invoke the bot runner, write database rows, or create runtime paper/live audit records.
+
 Safety behavior:
 
 - pure local simulation over CSV data
