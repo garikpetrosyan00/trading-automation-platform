@@ -13,4 +13,6 @@ dist/
 .vscode/
 .coverage
 htmlcov/
+data/backtests/raw/
+data/backtests/datasets/
 data/backtests/runs/

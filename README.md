@@ -390,6 +390,55 @@ Generated files:
 - `trades.csv`: one row per simulated buy/sell
 - `equity_curve.csv`: one row per candle with equity and drawdown
 
+## Prepare CSV backtest datasets
+
+Put downloaded or exported raw OHLCV CSV files under `data/backtests/raw/`. Generated prepared datasets belong under `data/backtests/datasets/`; both directories are ignored by git so large local history files do not get committed.
+
+Prepare one canonical dataset from one or more raw files:
+
+```bash
+.venv/bin/python -m app.cli.prepare_backtest_dataset \
+  --symbol BTCUSDT \
+  --timeframe 1h \
+  --input data/backtests/raw/BTCUSDT_1h_2025.csv \
+  --input data/backtests/raw/BTCUSDT_1h_2026.csv \
+  --output data/backtests/datasets/BTCUSDT_1h_prepared.csv \
+  --summary-json data/backtests/datasets/BTCUSDT_1h_prepared.summary.json
+```
+
+Optional date filters use start-inclusive and end-exclusive UTC boundaries:
+
+```bash
+--start 2025-01-01 --end 2026-01-01
+```
+
+The prepared CSV uses the same format as the backtest CLI:
+
+```csv
+timestamp,open,high,low,close,volume
+2025-01-01T00:00:00Z,95000,96000,94000,95500,123.45
+```
+
+The preparation tool accepts common timestamp column names such as `timestamp`, `open_time`, `time`, and `date`, validates OHLCV values, sorts candles chronologically, reports duplicate timestamps and missing intervals, and refuses to overwrite output unless `--overwrite` is passed. If duplicate timestamps are expected, use `--dedupe keep-first` or `--dedupe keep-last`.
+
+Run a backtest on the prepared dataset:
+
+```bash
+.venv/bin/python -m app.cli.run_backtest \
+  --symbol BTCUSDT \
+  --timeframe 1h \
+  --csv data/backtests/datasets/BTCUSDT_1h_prepared.csv \
+  --initial-balance 10000 \
+  --fee-rate 0.001 \
+  --strategy-type price_threshold \
+  --entry-below 95000 \
+  --exit-above 105000 \
+  --order-quantity 0.01 \
+  --summary-only
+```
+
+This is local historical simulation only. It does not fetch Binance data, place orders, or write runtime paper/live execution records.
+
 Safety behavior:
 
 - pure local simulation over CSV data
