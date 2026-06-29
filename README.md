@@ -265,6 +265,63 @@ Example paused output:
 
 Use this CLI for controlled one-shot runner checks. Do not use the long-running runner for manual smoke verification unless explicitly testing runner lifecycle. For paper runtime smoke, set local market price through the existing local price API first if a strategy trigger is needed.
 
+## Local paper demo smoke CLI
+
+Use this operator CLI for a one-command local paper/demo BUY and SELL smoke:
+
+```bash
+.venv/bin/python -m app.cli.run_local_paper_demo_smoke
+```
+
+In the Docker Compose runtime, run it inside the API container so it uses the same database/network context as the app:
+
+```bash
+docker-compose exec -T api python -m app.cli.run_local_paper_demo_smoke
+```
+
+Safety behavior:
+
+- local paper/demo mode only
+- creates a fresh paper strategy, paper bot, and execution profile by default
+- resets the selected bot's Draft Balance to USDT `10000` and BTC `0`
+- uses local in-memory prices only: BUY at `95`, SELL at `115`
+- forces live execution, Binance testnet broker, and Binance testnet order submission off inside the smoke runner
+- does not start the long-running bot runner loop
+- does not start the reconciliation worker
+- pauses the smoke bot at the end, including failure cleanup
+
+Example output:
+
+```json
+{
+  "bot_id": 1,
+  "buy_execution_attempt_id": 1,
+  "buy_fill_id": 1,
+  "buy_order_id": 1,
+  "equity_snapshots_count": 2,
+  "final_balance": "10001.968501",
+  "final_bot_status": "paused",
+  "final_position_quantity": "0",
+  "initial_balance": "10000",
+  "initial_position_quantity": "0",
+  "mode": "local_paper_demo_only",
+  "realized_pnl": "1.968501",
+  "reconciliation_jobs_count": 0,
+  "result": "PASS",
+  "sell_execution_attempt_id": 2,
+  "sell_fill_id": 2,
+  "sell_order_id": 2
+}
+```
+
+To use an existing paper bot instead of creating a fresh one:
+
+```bash
+.venv/bin/python -m app.cli.run_local_paper_demo_smoke --bot-id <paper_bot_id>
+```
+
+The selected bot must be paper mode and must not have an open paper position at the start of the smoke.
+
 ## Safe paper demo checklist
 
 Use this checklist before presenting the dashboard or paper runtime flow:
