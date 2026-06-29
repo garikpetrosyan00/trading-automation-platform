@@ -592,6 +592,62 @@ Export Markdown:
 
 The report includes run metadata, strategy/config fields when available, key performance metrics, artifact row counts, optional comparison deltas, and a local-simulation safety note. This exporter is local-only and file-based; it does not fetch market data, place orders, invoke the bot runner, write database rows, or create runtime paper/live audit records.
 
+## Export a backtest demo bundle
+
+Package a saved run, optional comparison, and optional Markdown report into a clean review folder:
+
+```bash
+.venv/bin/python -m app.cli.run_prepared_backtest_smoke \
+  --symbol BTCUSDT \
+  --timeframe 1h \
+  --csv data/backtests/datasets/BTCUSDT_1h_prepared.csv \
+  --initial-balance 10000 \
+  --fee-rate 0.001 \
+  --strategy-type price_threshold \
+  --entry-below 95000 \
+  --exit-above 105000 \
+  --order-quantity 0.01 \
+  --output-dir data/backtests/runs/BTCUSDT_1h_smoke_base
+
+.venv/bin/python -m app.cli.run_prepared_backtest_smoke \
+  --symbol BTCUSDT \
+  --timeframe 1h \
+  --csv data/backtests/datasets/BTCUSDT_1h_prepared.csv \
+  --initial-balance 10000 \
+  --fee-rate 0.001 \
+  --strategy-type price_threshold \
+  --entry-below 96000 \
+  --exit-above 104000 \
+  --order-quantity 0.01 \
+  --output-dir data/backtests/runs/BTCUSDT_1h_smoke_candidate
+
+.venv/bin/python -m app.cli.compare_backtest_runs \
+  --base-run-dir data/backtests/runs/BTCUSDT_1h_smoke_base \
+  --candidate-run-dir data/backtests/runs/BTCUSDT_1h_smoke_candidate \
+  --output-json data/backtests/runs/BTCUSDT_1h_comparison.json
+
+.venv/bin/python -m app.cli.export_backtest_report \
+  --run-dir data/backtests/runs/BTCUSDT_1h_smoke_candidate \
+  --comparison-json data/backtests/runs/BTCUSDT_1h_comparison.json \
+  --output-md data/backtests/runs/BTCUSDT_1h_report.md \
+  --title "BTCUSDT 1h Backtest Report"
+```
+
+Export the demo bundle:
+
+```bash
+.venv/bin/python -m app.cli.export_backtest_demo_bundle \
+  --run-dir data/backtests/runs/BTCUSDT_1h_smoke_candidate \
+  --comparison-json data/backtests/runs/BTCUSDT_1h_comparison.json \
+  --report-md data/backtests/runs/BTCUSDT_1h_report.md \
+  --output-dir data/backtests/runs/BTCUSDT_1h_demo_bundle \
+  --title "BTCUSDT 1h Demo Bundle"
+```
+
+The bundle contains `summary.json`, optional `trades.csv`, optional `equity_curve.csv`, optional `comparison.json`, optional `report.md`, `manifest.json`, and `README.md`. The manifest records the source run directory, included files, optional unavailable files, CSV row counts, and SHA256 checksums for included deliverable files. Existing non-empty bundle directories are refused unless `--overwrite` is passed.
+
+This exporter is local-only and file-based. It does not include raw datasets by default, fetch market data, place orders, invoke the bot runner, write database rows, or create runtime paper/live audit records.
+
 Safety behavior:
 
 - pure local simulation over CSV data
