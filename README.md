@@ -439,6 +439,62 @@ Run a backtest on the prepared dataset:
 
 This is local historical simulation only. It does not fetch Binance data, place orders, or write runtime paper/live execution records.
 
+## Prepared backtest smoke
+
+Use this local smoke flow after preparing a canonical CSV dataset. It proves the path from prepared CSV to saved backtest output, and can optionally compare the new summary with a previous saved run.
+
+Prepare a dataset:
+
+```bash
+.venv/bin/python -m app.cli.prepare_backtest_dataset \
+  --symbol BTCUSDT \
+  --timeframe 1h \
+  --input data/backtests/raw/BTCUSDT_1h_2025.csv \
+  --output data/backtests/datasets/BTCUSDT_1h_prepared.csv \
+  --summary-json data/backtests/datasets/BTCUSDT_1h_prepared.summary.json
+```
+
+Run the prepared dataset smoke:
+
+```bash
+.venv/bin/python -m app.cli.run_prepared_backtest_smoke \
+  --symbol BTCUSDT \
+  --timeframe 1h \
+  --csv data/backtests/datasets/BTCUSDT_1h_prepared.csv \
+  --initial-balance 10000 \
+  --fee-rate 0.001 \
+  --strategy-type price_threshold \
+  --entry-below 95000 \
+  --exit-above 105000 \
+  --order-quantity 0.01 \
+  --output-dir data/backtests/runs/BTCUSDT_1h_smoke_001
+```
+
+Compare with a previous run summary:
+
+```bash
+.venv/bin/python -m app.cli.run_prepared_backtest_smoke \
+  --symbol BTCUSDT \
+  --timeframe 1h \
+  --csv data/backtests/datasets/BTCUSDT_1h_prepared.csv \
+  --initial-balance 10000 \
+  --fee-rate 0.001 \
+  --strategy-type price_threshold \
+  --entry-below 95000 \
+  --exit-above 105000 \
+  --order-quantity 0.01 \
+  --output-dir data/backtests/runs/BTCUSDT_1h_smoke_002 \
+  --compare-summary data/backtests/runs/BTCUSDT_1h_smoke_001/summary.json
+```
+
+Outputs are saved under the chosen `data/backtests/runs/...` directory:
+
+- `summary.json`: compact smoke summary and optional comparison deltas
+- `trades.csv`: simulated trade rows
+- `equity_curve.csv`: simulated equity and drawdown per candle
+
+This smoke is local-only. It does not fetch Binance data, place live/testnet orders, invoke the bot runner, or create runtime paper/live audit records.
+
 Safety behavior:
 
 - pure local simulation over CSV data
