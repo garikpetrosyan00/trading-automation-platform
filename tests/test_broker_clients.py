@@ -2287,5 +2287,11 @@ def test_execution_config_defaults_are_safe() -> None:
     assert Settings.model_fields["execution_max_daily_loss"].default is None
     assert Settings.model_fields["binance_testnet_broker_enabled"].default is False
     assert Settings.model_fields["binance_testnet_order_submission_enabled"].default is False
-    assert Settings.model_fields["binance_testnet_dry_run_enabled"].default is False
+    assert Settings.model_fields["binance_testnet_dry_run_enabled"].default is True
     assert Settings.model_fields["binance_testnet_exchange_info_ttl_seconds"].default == 300.0
+
+    settings = Settings(_env_file=None)
+    assert settings.execution_live_enabled is False
+    assert settings.binance_testnet_broker_enabled is False
+    assert settings.binance_testnet_order_submission_enabled is False
+    assert settings.binance_testnet_dry_run_enabled is True

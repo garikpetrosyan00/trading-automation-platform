@@ -72,7 +72,7 @@ class Settings(BaseSettings):
         validation_alias=AliasChoices("BINANCE_TESTNET_EXCHANGE_INFO_TTL_SECONDS"),
     )
     binance_testnet_dry_run_enabled: bool = Field(
-        default=False,
+        default=True,
         validation_alias=AliasChoices("BINANCE_TESTNET_DRY_RUN_ENABLED"),
     )
     binance_testnet_reconciliation_initial_delay_seconds: int = Field(
