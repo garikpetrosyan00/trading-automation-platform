@@ -1,0 +1,196 @@
+import json
+from datetime import datetime, timezone
+from pathlib import Path
+from typing import Any
+
+
+SAFETY_NOTE = (
+    "Local backtest artifact comparison report only; no live/testnet/Binance calls, "
+    "DB writes, orders, fills, execution attempts, reconciliation jobs, or paper/live execution."
+)
+
+SUMMARY_FIELDS = (
+    "run_name",
+    "strategy_type",
+    "entry_below",
+    "exit_above",
+    "fast_window",
+    "slow_window",
+    "order_quantity",
+    "starting_balance",
+    "ending_balance",
+    "final_balance",
+    "final_equity",
+    "total_return",
+    "total_return_pct",
+    "realized_pnl",
+    "trades_count",
+    "completed_round_trips",
+    "win_count",
+    "loss_count",
+    "win_rate_pct",
+    "max_drawdown_pct",
+)
+
+
+class BacktestComparisonReportError(ValueError):
+    pass
+
+
+def build_backtest_comparison_report(
+    comparison: dict[str, Any],
+    *,
+    generated_at: str | None = None,
+    artifact_root: str | Path | None = None,
+) -> dict[str, Any]:
+    if not isinstance(comparison, dict):
+        raise BacktestComparisonReportError("comparison must be a JSON object")
+    if comparison.get("result") != "PASS":
+        raise BacktestComparisonReportError("comparison result must be PASS")
+    runs = comparison.get("runs")
+    rankings = comparison.get("rankings")
+    if not isinstance(runs, list) or not isinstance(rankings, dict):
+        raise BacktestComparisonReportError("comparison must include multi-run runs and rankings")
+
+    root = Path(artifact_root).resolve() if artifact_root is not None else None
+    return {
+        "result": "PASS",
+        "generated_at": generated_at or datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+        "run_count": len(runs),
+        "ranking_metrics": list(comparison.get("ranking_metrics", [])),
+        "runs": [_report_run(item, artifact_root=root) for item in runs],
+        "rankings": _report_rankings(rankings, artifact_root=root),
+        "safety_note": SAFETY_NOTE,
+    }
+
+
+def build_backtest_comparison_markdown_report(report: dict[str, Any], *, title: str = "Backtest Comparison Report") -> str:
+    rows = [
+        (
+            run.get("run_name"),
+            run.get("run_path"),
+            run.get("summary", {}).get("strategy_type"),
+            run.get("summary", {}).get("total_return"),
+            run.get("summary", {}).get("ending_balance"),
+            run.get("summary", {}).get("max_drawdown_pct"),
+        )
+        for run in report.get("runs", [])
+    ]
+    lines = [
+        f"# {_markdown_text(title)}",
+        "",
+        f"Generated at: `{_markdown_text(report.get('generated_at'))}`",
+        "",
+        f"Safety note: {_markdown_text(report.get('safety_note'))}",
+        "",
+        "## Runs",
+        "",
+        _table(
+            ["Run", "Path", "Strategy", "Total Return", "Ending Balance", "Max Drawdown %"],
+            rows,
+        ),
+        "",
+        "## Rankings",
+        "",
+    ]
+    rankings = report.get("rankings", {})
+    if isinstance(rankings, dict):
+        for metric in sorted(rankings):
+            lines.extend(
+                [
+                    f"### `{_markdown_text(metric)}`",
+                    "",
+                    _table(
+                        ["Rank", "Run", "Path", "Value", "Available"],
+                        [
+                            (
+                                item.get("rank"),
+                                item.get("run_name"),
+                                item.get("run_path"),
+                                item.get("value"),
+                                item.get("available"),
+                            )
+                            for item in rankings.get(metric, [])
+                        ],
+                    ),
+                    "",
+                ]
+            )
+    return "\n".join(lines).rstrip() + "\n"
+
+
+def load_comparison_json(path: str | Path) -> dict[str, Any]:
+    comparison_path = Path(path)
+    if not comparison_path.exists():
+        raise BacktestComparisonReportError(f"comparison JSON does not exist: {comparison_path}")
+    if not comparison_path.is_file():
+        raise BacktestComparisonReportError(f"comparison JSON path is not a file: {comparison_path}")
+    try:
+        payload = json.loads(comparison_path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as exc:
+        raise BacktestComparisonReportError(f"comparison JSON is not valid JSON: {comparison_path}") from exc
+    if not isinstance(payload, dict):
+        raise BacktestComparisonReportError(f"comparison JSON must contain a JSON object: {comparison_path}")
+    return payload
+
+
+def _report_run(item: dict[str, Any], *, artifact_root: Path | None) -> dict[str, Any]:
+    run_dir = item.get("run_dir") or item.get("run_path")
+    summary = item.get("summary") if isinstance(item.get("summary"), dict) else {}
+    payload = {
+        "run_name": item.get("run_name"),
+        "run_path": _safe_run_path(run_dir, artifact_root=artifact_root),
+        "summary": {field: summary.get(field) for field in SUMMARY_FIELDS if field in summary},
+    }
+    artifacts = item.get("artifacts")
+    if isinstance(artifacts, dict):
+        payload["artifacts"] = artifacts
+    return payload
+
+
+def _report_rankings(rankings: dict[str, Any], *, artifact_root: Path | None) -> dict[str, list[dict[str, Any]]]:
+    return {
+        metric: [_report_ranking_item(item, artifact_root=artifact_root) for item in items]
+        for metric, items in rankings.items()
+        if isinstance(items, list)
+    }
+
+
+def _report_ranking_item(item: dict[str, Any], *, artifact_root: Path | None) -> dict[str, Any]:
+    return {
+        "rank": item.get("rank"),
+        "run_name": item.get("run_name"),
+        "run_path": _safe_run_path(item.get("run_dir") or item.get("run_path"), artifact_root=artifact_root),
+        "metric": item.get("metric"),
+        "value": item.get("value"),
+        "available": item.get("available"),
+        **({"reason": item.get("reason")} if item.get("reason") else {}),
+    }
+
+
+def _safe_run_path(value: Any, *, artifact_root: Path | None) -> str | None:
+    if value in (None, ""):
+        return None
+    path = Path(str(value))
+    if artifact_root is None:
+        return path.as_posix()
+    try:
+        return path.resolve().relative_to(artifact_root).as_posix()
+    except (OSError, ValueError):
+        return path.name
+
+
+def _table(headers: list[str], rows: list[tuple[Any, ...]]) -> str:
+    rendered = [
+        "| " + " | ".join(_markdown_text(header) for header in headers) + " |",
+        "| " + " | ".join("---" for _header in headers) + " |",
+    ]
+    for row in rows:
+        rendered.append("| " + " | ".join(_markdown_text(cell) for cell in row) + " |")
+    return "\n".join(rendered)
+
+
+def _markdown_text(value: Any) -> str:
+    if value in (None, ""):
+        return "Unavailable"
+    return str(value).replace("|", "\\|").replace("\n", " ")
