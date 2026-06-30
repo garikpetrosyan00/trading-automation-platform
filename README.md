@@ -144,7 +144,76 @@ curl http://127.0.0.1:8000/api/v1/backtests/local-demo/runs/BTCUSDT_1h_pipeline_
 curl http://127.0.0.1:8000/api/v1/backtests/local-demo/bundles/BTCUSDT_1h_demo_bundle/manifest
 ```
 
-Use the catalog endpoints first when you do not know the generated folder names. They return names, artifact availability, symbol/timeframe when available, and cheap CSV row counts. After choosing a name, read the summary, Markdown report, or bundle manifest with the detail endpoints.
+Compare two or more saved run artifacts with the read-only comparison endpoint:
+
+```bash
+curl -X POST http://127.0.0.1:8000/api/v1/backtests/local-demo/runs/compare \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "runs": [
+      {"name": "BTCUSDT_1h_smoke_base"},
+      {"name": "BTCUSDT_1h_smoke_candidate"}
+    ]
+  }'
+```
+
+Run references can use a safe artifact `name` under `data/backtests/runs/` or a `path` that resolves inside that same runs root. Do not send both fields for one run. The API rejects path traversal and returns sanitized relative `run_path` values rather than absolute server paths.
+
+Example comparison response shape:
+
+```json
+{
+  "result": "PASS",
+  "runs_count": 2,
+  "ranking_metrics": ["total_return", "ending_balance", "max_drawdown_pct"],
+  "runs": [
+    {
+      "run_name": "BTCUSDT_1h_smoke_base",
+      "run_path": "BTCUSDT_1h_smoke_base",
+      "summary": {
+        "run_name": "BTCUSDT_1h_smoke_base",
+        "strategy_type": "price_threshold",
+        "entry_below": "95000",
+        "exit_above": "105000",
+        "starting_balance": "10000",
+        "ending_balance": "10019.8",
+        "total_return": "19.8",
+        "total_return_pct": "0.198",
+        "realized_pnl": "19.8",
+        "trades_count": 2,
+        "completed_round_trips": 1,
+        "win_count": 1,
+        "loss_count": 0,
+        "win_rate_pct": "100",
+        "max_drawdown_pct": "0"
+      },
+      "artifacts": {
+        "summary_json": true,
+        "trades_csv": true,
+        "trades_count": 2,
+        "equity_curve_csv": true,
+        "equity_points_count": 4
+      }
+    }
+  ],
+  "rankings": {
+    "total_return": [
+      {
+        "rank": 1,
+        "run_name": "BTCUSDT_1h_smoke_candidate",
+        "run_path": "BTCUSDT_1h_smoke_candidate",
+        "metric": "total_return",
+        "value": "24.5",
+        "available": true
+      }
+    ],
+    "ending_balance": [],
+    "max_drawdown_pct": []
+  }
+}
+```
+
+Use the catalog endpoints first when you do not know the generated folder names. They return names, artifact availability, symbol/timeframe when available, and cheap CSV row counts. After choosing a name, read the summary, Markdown report, bundle manifest, or saved-run comparison with the detail endpoints.
 
 For pipeline outputs, the same summary and manifest reads work with `run/summary.json` and `bundle/manifest.json` inside the pipeline work directory. The API is read-only and file-based: it does not fetch market data, submit orders, invoke the bot runner, persist backtest rows, or create runtime paper/live audit records.
 
@@ -704,7 +773,9 @@ This smoke is local-only. It does not fetch Binance data, place live/testnet ord
 
 ## Compare saved backtest runs
 
-After saving two local smoke runs, compare their file artifacts without rerunning a strategy:
+After saving local backtest runs, compare their file artifacts without rerunning a strategy. This workflow works with `run_backtest`, `run_prepared_backtest_smoke`, demo pipeline run folders, or parameter sweep `run_*` folders as long as the run directory contains `summary.json` and may contain `trades.csv` and `equity_curve.csv`.
+
+Save a base run:
 
 ```bash
 .venv/bin/python -m app.cli.run_prepared_backtest_smoke \
@@ -718,7 +789,11 @@ After saving two local smoke runs, compare their file artifacts without rerunnin
   --exit-above 105000 \
   --order-quantity 0.01 \
   --output-dir data/backtests/runs/BTCUSDT_1h_smoke_base
+```
 
+Save a candidate run with different parameters:
+
+```bash
 .venv/bin/python -m app.cli.run_prepared_backtest_smoke \
   --symbol BTCUSDT \
   --timeframe 1h \
@@ -732,7 +807,7 @@ After saving two local smoke runs, compare their file artifacts without rerunnin
   --output-dir data/backtests/runs/BTCUSDT_1h_smoke_candidate
 ```
 
-Compare the saved run directories:
+For a quick two-run delta report, keep the legacy base/candidate style:
 
 ```bash
 .venv/bin/python -m app.cli.compare_backtest_runs \
@@ -750,7 +825,56 @@ Write the same JSON report to a file:
   --output-json data/backtests/runs/BTCUSDT_1h_comparison.json
 ```
 
-The comparison reads `summary.json`, `trades.csv`, and `equity_curve.csv` from each run directory. Missing optional metrics are reported as unavailable. This helper is local-only and file-based; it does not fetch market data, place orders, invoke the bot runner, write database rows, or create runtime paper/live audit records.
+For portfolio/demo comparison across two or more saved runs, pass `--run-dir` multiple times. The output is deterministic and JSON-friendly, with rankings by `total_return`, `ending_balance`, and `max_drawdown_pct` when those metrics are available:
+
+```bash
+.venv/bin/python -m app.cli.compare_backtest_runs \
+  --run-dir data/backtests/runs/BTCUSDT_1h_smoke_base \
+  --run-dir data/backtests/runs/BTCUSDT_1h_smoke_candidate \
+  --compact
+```
+
+Add a third saved run the same way:
+
+```bash
+.venv/bin/python -m app.cli.run_prepared_backtest_smoke \
+  --symbol BTCUSDT \
+  --timeframe 1h \
+  --csv data/backtests/datasets/BTCUSDT_1h_prepared.csv \
+  --initial-balance 10000 \
+  --fee-rate 0.001 \
+  --strategy-type price_threshold \
+  --entry-below 94000 \
+  --exit-above 106000 \
+  --order-quantity 0.01 \
+  --output-dir data/backtests/runs/BTCUSDT_1h_smoke_alt
+
+.venv/bin/python -m app.cli.compare_backtest_runs \
+  --run-dir data/backtests/runs/BTCUSDT_1h_smoke_base \
+  --run-dir data/backtests/runs/BTCUSDT_1h_smoke_candidate \
+  --run-dir data/backtests/runs/BTCUSDT_1h_smoke_alt \
+  --output-json data/backtests/runs/BTCUSDT_1h_ranked_comparison.json
+```
+
+The comparison reads `summary.json`, `trades.csv`, and `equity_curve.csv` from each run directory. New summaries include portfolio-friendly metrics such as starting balance, ending balance, total return, realized PnL, trade count, completed round trips, win/loss count, win rate, and max drawdown. Older artifacts are still compared safely: metrics are derived only when the CSV artifacts contain enough information, otherwise they are reported as unavailable.
+
+The same saved-run comparison is available through the read-only local artifact API:
+
+```bash
+curl -X POST http://127.0.0.1:8000/api/v1/backtests/local-demo/runs/compare \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "runs": [
+      {"name": "BTCUSDT_1h_smoke_base"},
+      {"name": "BTCUSDT_1h_smoke_candidate"},
+      {"path": "BTCUSDT_1h_smoke_alt"}
+    ]
+  }'
+```
+
+The API returns the same ranked comparison shape with sanitized `run_path` values, strategy type and strategy params when present, artifact row counts, and summary metrics where available. It validates that at least two runs are provided, rejects unsafe names or paths outside `data/backtests/runs/`, and returns clean API errors for missing artifacts.
+
+This saved-run comparison tooling is local-only and file-based. It does not fetch market data, place live/testnet/Binance orders, invoke paper/live execution, invoke the bot runner, write database rows, or create orders, fills, execution attempts, reconciliation jobs, or other runtime audit records.
 
 ## Export a backtest Markdown report
 
