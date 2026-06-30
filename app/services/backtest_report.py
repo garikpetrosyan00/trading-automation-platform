@@ -44,9 +44,18 @@ METRIC_FIELDS = (
     ("completed_round_trips", "Completed Round Trips"),
     ("win_count", "Wins"),
     ("loss_count", "Losses"),
+    ("breakeven_count", "Breakevens"),
     ("win_rate_pct", "Win Rate %"),
+    ("average_winning_trade_pnl", "Average Winning Trade PnL"),
+    ("average_losing_trade_pnl", "Average Losing Trade PnL"),
+    ("average_trade_pnl", "Average Trade PnL"),
+    ("best_trade_pnl", "Best Trade PnL"),
+    ("worst_trade_pnl", "Worst Trade PnL"),
+    ("profit_factor", "Profit Factor"),
     ("fees_paid", "Fees Paid"),
+    ("max_drawdown_amount", "Max Drawdown Amount"),
     ("max_drawdown_pct", "Max Drawdown %"),
+    ("exposure_pct", "Exposure %"),
     ("buy_and_hold_return_pct", "Buy And Hold Return %"),
 )
 

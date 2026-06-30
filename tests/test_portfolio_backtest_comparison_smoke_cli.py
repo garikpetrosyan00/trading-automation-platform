@@ -66,8 +66,17 @@ def test_portfolio_backtest_comparison_smoke_output_includes_summary_metrics(tmp
     assert base_summary["completed_round_trips"] == 1
     assert base_summary["win_count"] == 1
     assert base_summary["loss_count"] == 0
+    assert base_summary["breakeven_count"] == 0
     assert base_summary["win_rate_pct"] == "100"
+    assert base_summary["average_winning_trade_pnl"] == "113.005"
+    assert base_summary["average_losing_trade_pnl"] is None
+    assert base_summary["average_trade_pnl"] == "113.005"
+    assert base_summary["best_trade_pnl"] == "113.005"
+    assert base_summary["worst_trade_pnl"] == "113.005"
+    assert base_summary["profit_factor"] is None
+    assert "max_drawdown_amount" in base_summary
     assert "max_drawdown_pct" in base_summary
+    assert base_summary["exposure_pct"] == "50"
 
 
 def test_portfolio_backtest_comparison_smoke_refuses_non_empty_output_without_overwrite(tmp_path) -> None:

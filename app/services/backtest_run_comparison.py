@@ -20,8 +20,17 @@ METRICS = (
     "completed_round_trips",
     "win_count",
     "loss_count",
+    "breakeven_count",
     "win_rate_pct",
+    "average_winning_trade_pnl",
+    "average_losing_trade_pnl",
+    "average_trade_pnl",
+    "best_trade_pnl",
+    "worst_trade_pnl",
+    "profit_factor",
+    "max_drawdown_amount",
     "max_drawdown_pct",
+    "exposure_pct",
     "fees_paid",
 )
 
@@ -45,8 +54,17 @@ SUMMARY_FIELDS = (
     "completed_round_trips",
     "win_count",
     "loss_count",
+    "breakeven_count",
     "win_rate_pct",
+    "average_winning_trade_pnl",
+    "average_losing_trade_pnl",
+    "average_trade_pnl",
+    "best_trade_pnl",
+    "worst_trade_pnl",
+    "profit_factor",
+    "max_drawdown_amount",
     "max_drawdown_pct",
+    "exposure_pct",
 )
 
 
@@ -263,14 +281,33 @@ def _enrich_from_trade_rows(summary: dict[str, Any], path: Path) -> None:
     if numeric_realized_values and "realized_pnl" not in summary:
         summary["realized_pnl"] = _decimal_to_string(sum(numeric_realized_values, Decimal("0")))
     if numeric_realized_values:
-        win_count = sum(1 for value in numeric_realized_values if value > 0)
-        loss_count = sum(1 for value in numeric_realized_values if value < 0)
+        winning_values = [value for value in numeric_realized_values if value > 0]
+        losing_values = [value for value in numeric_realized_values if value < 0]
+        win_count = len(winning_values)
+        loss_count = len(losing_values)
+        breakeven_count = sum(1 for value in numeric_realized_values if value == 0)
         if "win_count" not in summary:
             summary["win_count"] = win_count
         if "loss_count" not in summary:
             summary["loss_count"] = loss_count
+        if "breakeven_count" not in summary:
+            summary["breakeven_count"] = breakeven_count
         if "win_rate_pct" not in summary and sell_rows:
             summary["win_rate_pct"] = _decimal_to_string((Decimal(win_count) / Decimal(len(sell_rows))) * Decimal("100"))
+        if "average_winning_trade_pnl" not in summary:
+            summary["average_winning_trade_pnl"] = _average_decimal_string(winning_values)
+        if "average_losing_trade_pnl" not in summary:
+            summary["average_losing_trade_pnl"] = _average_decimal_string(losing_values)
+        if "average_trade_pnl" not in summary:
+            summary["average_trade_pnl"] = _average_decimal_string(numeric_realized_values)
+        if "best_trade_pnl" not in summary:
+            summary["best_trade_pnl"] = _decimal_to_string(max(numeric_realized_values))
+        if "worst_trade_pnl" not in summary:
+            summary["worst_trade_pnl"] = _decimal_to_string(min(numeric_realized_values))
+        if "profit_factor" not in summary:
+            gross_winning_pnl = sum(winning_values, Decimal("0"))
+            gross_losing_pnl = abs(sum(losing_values, Decimal("0")))
+            summary["profit_factor"] = _profit_factor_string(gross_winning_pnl, gross_losing_pnl)
 
 
 def _enrich_from_equity_rows(summary: dict[str, Any], path: Path) -> None:
@@ -293,6 +330,15 @@ def _enrich_from_equity_rows(summary: dict[str, Any], path: Path) -> None:
         max_drawdown = _max_drawdown_pct(equity_values)
         if max_drawdown is not None:
             summary["max_drawdown_pct"] = _decimal_to_string(max_drawdown)
+    if "max_drawdown_amount" not in summary:
+        max_drawdown_amount = _max_drawdown_amount(equity_values)
+        if max_drawdown_amount is not None:
+            summary["max_drawdown_amount"] = _decimal_to_string(max_drawdown_amount)
+    if "exposure_pct" not in summary:
+        position_values = [_optional_decimal(row.get("position_quantity")) for row in rows]
+        if position_values and all(value is not None for value in position_values):
+            exposure_points = sum(1 for value in position_values if value is not None and value > 0)
+            summary["exposure_pct"] = _decimal_to_string((Decimal(exposure_points) / Decimal(len(position_values))) * Decimal("100"))
 
 
 def _comparison_summary(run_name: str, summary: dict[str, Any]) -> dict[str, Any]:
@@ -379,6 +425,32 @@ def _max_drawdown_pct(equity_values: list[Decimal]) -> Decimal | None:
         if drawdown > max_drawdown:
             max_drawdown = drawdown
     return max_drawdown
+
+
+def _max_drawdown_amount(equity_values: list[Decimal]) -> Decimal | None:
+    if not equity_values:
+        return None
+    peak = equity_values[0]
+    max_drawdown = Decimal("0")
+    for value in equity_values:
+        if value > peak:
+            peak = value
+        drawdown = peak - value
+        if drawdown > max_drawdown:
+            max_drawdown = drawdown
+    return max_drawdown
+
+
+def _average_decimal_string(values: list[Decimal]) -> str | None:
+    if not values:
+        return None
+    return _decimal_to_string(sum(values, Decimal("0")) / Decimal(len(values)))
+
+
+def _profit_factor_string(gross_winning_pnl: Decimal, gross_losing_pnl: Decimal) -> str | None:
+    if gross_losing_pnl > 0:
+        return _decimal_to_string(gross_winning_pnl / gross_losing_pnl)
+    return None
 
 
 def _artifact_summary(run_dir: Path) -> dict[str, Any]:

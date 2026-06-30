@@ -82,6 +82,46 @@ def test_csv_backtest_profitable_buy_sell_path_with_fees(tmp_path) -> None:
     assert result.loss_count == 0
     assert result.fees_paid == Decimal("0.200")
     assert result.win_rate_pct == Decimal("100")
+    assert result.breakeven_count == 0
+    assert result.average_winning_trade_pnl == Decimal("19.800")
+    assert result.average_losing_trade_pnl is None
+    assert result.average_trade_pnl == Decimal("19.800")
+    assert result.best_trade_pnl == Decimal("19.800")
+    assert result.worst_trade_pnl == Decimal("19.800")
+    assert result.profit_factor is None
+    assert result.max_drawdown_amount == Decimal("0.090")
+    assert result.exposure_pct == Decimal("50.0")
+
+
+def test_csv_backtest_trade_diagnostics_for_win_loss_and_breakeven_round_trips(tmp_path) -> None:
+    path = write_csv(
+        tmp_path,
+        [
+            "2025-01-01T00:00:00Z,100,101,89,90,1",
+            "2025-01-01T01:00:00Z,90,91,79,80,1",
+            "2025-01-01T02:00:00Z,80,91,79,90,1",
+            "2025-01-01T03:00:00Z,90,111,89,110,1",
+            "2025-01-01T04:00:00Z,110,111,89,90,1",
+            "2025-01-01T05:00:00Z,90,91,89,90,1",
+        ],
+    )
+
+    result = run_price_threshold(path, fee_rate="0", sell_above="75")
+
+    assert result.completed_round_trips == 3
+    assert result.win_count == 1
+    assert result.loss_count == 1
+    assert result.breakeven_count == 1
+    assert result.win_rate_pct == Decimal("33.33333333333333333333333333")
+    assert result.average_winning_trade_pnl == Decimal("20")
+    assert result.average_losing_trade_pnl == Decimal("-10")
+    assert result.average_trade_pnl == Decimal("3.333333333333333333333333333")
+    assert result.best_trade_pnl == Decimal("20")
+    assert result.worst_trade_pnl == Decimal("-10")
+    assert result.profit_factor == Decimal("2")
+    assert result.max_drawdown_amount == Decimal("10")
+    assert result.max_drawdown_pct == Decimal("0.100")
+    assert result.exposure_pct == Decimal("50.0")
 
 
 def test_csv_backtest_no_trade_path(tmp_path) -> None:
@@ -102,6 +142,15 @@ def test_csv_backtest_no_trade_path(tmp_path) -> None:
     assert result.final_equity == Decimal("10000")
     assert result.win_rate_pct is None
     assert result.fees_paid == Decimal("0")
+    assert result.breakeven_count == 0
+    assert result.average_winning_trade_pnl is None
+    assert result.average_losing_trade_pnl is None
+    assert result.average_trade_pnl is None
+    assert result.best_trade_pnl is None
+    assert result.worst_trade_pnl is None
+    assert result.profit_factor is None
+    assert result.max_drawdown_amount == Decimal("0")
+    assert result.exposure_pct == Decimal("0")
 
 
 def test_csv_backtest_moving_average_crossover_buy_sell_path(tmp_path) -> None:
@@ -335,6 +384,14 @@ def test_run_backtest_output_dir_writes_summary_trades_and_equity_curve(tmp_path
     assert summary["completed_round_trips"] == 1
     assert summary["win_count"] == 1
     assert summary["loss_count"] == 0
+    assert summary["breakeven_count"] == 0
+    assert summary["average_winning_trade_pnl"] == "19.8"
+    assert summary["average_trade_pnl"] == "19.8"
+    assert summary["best_trade_pnl"] == "19.8"
+    assert summary["worst_trade_pnl"] == "19.8"
+    assert summary["profit_factor"] is None
+    assert summary["max_drawdown_amount"] == "0.09"
+    assert summary["exposure_pct"] == "50"
     assert "trades" not in summary
     assert "equity_curve" not in summary
     with (output_dir / "trades.csv").open(newline="", encoding="utf-8") as handle:
@@ -344,6 +401,7 @@ def test_run_backtest_output_dir_writes_summary_trades_and_equity_curve(tmp_path
     assert [trade["side"] for trade in trades] == ["buy", "sell"]
     assert trades[0]["fee"] == "0.09"
     assert [point["close_price"] for point in equity_curve] == ["90", "110"]
+    assert [point["drawdown_amount"] for point in equity_curve] == ["0.09", "0"]
 
 
 def test_run_backtest_summary_only_prints_compact_stdout_and_still_writes_files(tmp_path) -> None:

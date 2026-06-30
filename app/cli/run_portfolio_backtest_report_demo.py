@@ -160,6 +160,7 @@ def _payload(
             "report_md": str(report_md_path) if report_md_path is not None else None,
         },
         "rankings": _ranking_summary(report.get("rankings", {})),
+        "diagnostics": _diagnostics_summary(report.get("runs", [])),
         "validation": validation,
         "safety_note": SAFETY_NOTE,
     }
@@ -183,6 +184,35 @@ def _ranking_summary(rankings: Any) -> dict[str, list[dict[str, Any]]]:
         for metric, items in rankings.items()
         if isinstance(items, list)
     }
+
+
+def _diagnostics_summary(runs: Any) -> dict[str, dict[str, Any]]:
+    if not isinstance(runs, list):
+        return {}
+    fields = (
+        "completed_round_trips",
+        "win_count",
+        "loss_count",
+        "breakeven_count",
+        "average_winning_trade_pnl",
+        "average_losing_trade_pnl",
+        "average_trade_pnl",
+        "best_trade_pnl",
+        "worst_trade_pnl",
+        "profit_factor",
+        "max_drawdown_amount",
+        "max_drawdown_pct",
+        "exposure_pct",
+    )
+    payload: dict[str, dict[str, Any]] = {}
+    for run in runs:
+        if not isinstance(run, dict):
+            continue
+        run_name = run.get("run_name")
+        summary = run.get("summary")
+        if isinstance(run_name, str) and isinstance(summary, dict):
+            payload[run_name] = {field: summary.get(field) for field in fields if field in summary}
+    return payload
 
 
 if __name__ == "__main__":

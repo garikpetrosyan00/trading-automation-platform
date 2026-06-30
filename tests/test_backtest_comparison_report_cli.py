@@ -23,7 +23,16 @@ def test_export_backtest_comparison_report_writes_json_from_run_dirs(tmp_path) -
             "starting_balance": "10000",
             "ending_balance": "10050",
             "total_return": "50",
+            "average_winning_trade_pnl": "50",
+            "average_losing_trade_pnl": None,
+            "average_trade_pnl": "50",
+            "best_trade_pnl": "50",
+            "worst_trade_pnl": "50",
+            "profit_factor": None,
+            "breakeven_count": 0,
+            "max_drawdown_amount": "125",
             "max_drawdown_pct": "1.25",
+            "exposure_pct": "50",
         },
     )
     candidate_dir = write_run_dir(
@@ -36,7 +45,16 @@ def test_export_backtest_comparison_report_writes_json_from_run_dirs(tmp_path) -
             "starting_balance": "10000",
             "ending_balance": "10100",
             "total_return": "100",
+            "average_winning_trade_pnl": "100",
+            "average_losing_trade_pnl": None,
+            "average_trade_pnl": "100",
+            "best_trade_pnl": "100",
+            "worst_trade_pnl": "100",
+            "profit_factor": None,
+            "breakeven_count": 0,
+            "max_drawdown_amount": "50",
             "max_drawdown_pct": "0.5",
+            "exposure_pct": "50",
         },
     )
     output_json = tmp_path / "reports" / "comparison_report.json"
@@ -72,6 +90,14 @@ def test_export_backtest_comparison_report_writes_json_from_run_dirs(tmp_path) -
     assert [run["run_path"] for run in report["runs"]] == ["base", "candidate"]
     assert report["runs"][1]["summary"]["strategy_type"] == "moving_average_crossover"
     assert report["runs"][1]["summary"]["fast_window"] == "2"
+    assert report["runs"][1]["summary"]["average_winning_trade_pnl"] == "100"
+    assert report["runs"][1]["summary"]["average_losing_trade_pnl"] is None
+    assert report["runs"][1]["summary"]["average_trade_pnl"] == "100"
+    assert report["runs"][1]["summary"]["best_trade_pnl"] == "100"
+    assert report["runs"][1]["summary"]["worst_trade_pnl"] == "100"
+    assert report["runs"][1]["summary"]["profit_factor"] is None
+    assert report["runs"][1]["summary"]["max_drawdown_amount"] == "50"
+    assert report["runs"][1]["summary"]["exposure_pct"] == "50"
     assert [item["run_name"] for item in report["rankings"]["total_return"]] == ["candidate", "base"]
     assert [item["run_path"] for item in report["rankings"]["ending_balance"]] == ["candidate", "base"]
     assert [item["run_name"] for item in report["rankings"]["max_drawdown_pct"]] == ["candidate", "base"]

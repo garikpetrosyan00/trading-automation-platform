@@ -66,6 +66,12 @@ def test_portfolio_backtest_report_demo_runs_e2e_and_validates_report(tmp_path) 
         "candidate_price_threshold",
     ]
     assert "max_drawdown_pct" in payload["rankings"]
+    assert payload["diagnostics"]["base_price_threshold"]["completed_round_trips"] == 1
+    assert payload["diagnostics"]["base_price_threshold"]["average_winning_trade_pnl"] == "113.005"
+    assert payload["diagnostics"]["base_price_threshold"]["average_losing_trade_pnl"] is None
+    assert payload["diagnostics"]["base_price_threshold"]["profit_factor"] is None
+    assert payload["diagnostics"]["base_price_threshold"]["max_drawdown_amount"] == "0.94"
+    assert payload["diagnostics"]["base_price_threshold"]["exposure_pct"] == "50"
 
 
 def test_portfolio_backtest_report_demo_writes_optional_markdown_report(tmp_path) -> None:

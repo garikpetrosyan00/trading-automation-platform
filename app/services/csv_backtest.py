@@ -58,6 +58,7 @@ class CsvBacktestEquityPoint:
     position_quantity: Decimal
     close_price: Decimal
     equity: Decimal
+    drawdown_amount: Decimal
     drawdown_pct: Decimal
 
 
@@ -83,9 +84,18 @@ class CsvBacktestResult:
     completed_round_trips: int
     win_count: int
     loss_count: int
+    breakeven_count: int
     win_rate_pct: Decimal | None
+    average_winning_trade_pnl: Decimal | None
+    average_losing_trade_pnl: Decimal | None
+    average_trade_pnl: Decimal | None
+    best_trade_pnl: Decimal | None
+    worst_trade_pnl: Decimal | None
+    profit_factor: Decimal | None
     fees_paid: Decimal
+    max_drawdown_amount: Decimal
     max_drawdown_pct: Decimal
+    exposure_pct: Decimal | None
     buy_and_hold_return_pct: Decimal
     started_at: datetime
     ended_at: datetime
@@ -154,7 +164,10 @@ def run_csv_backtest(
     equity_curve: list[CsvBacktestEquityPoint] = []
     winning_sells = 0
     losing_sells = 0
+    breakeven_sells = 0
+    sell_pnls: list[Decimal] = []
     peak_equity = initial_balance
+    max_drawdown_amount = ZERO
     max_drawdown_pct = ZERO
     profile = SimpleNamespace(entry_below=None, exit_above=None, order_quantity=None)
 
@@ -203,10 +216,13 @@ def run_csv_backtest(
             average_entry_price = ZERO
             realized_pnl += trade_pnl
             fees_paid += fee
+            sell_pnls.append(trade_pnl)
             if trade_pnl > ZERO:
                 winning_sells += 1
             elif trade_pnl < ZERO:
                 losing_sells += 1
+            else:
+                breakeven_sells += 1
             trades.append(
                 CsvBacktestTrade(
                     timestamp=candle.timestamp,
@@ -223,7 +239,10 @@ def run_csv_backtest(
         equity = cash_balance + (position_quantity * candle.close)
         if equity > peak_equity:
             peak_equity = equity
-        drawdown_pct = ZERO if peak_equity <= ZERO else ((peak_equity - equity) / peak_equity) * HUNDRED
+        drawdown_amount = peak_equity - equity
+        drawdown_pct = ZERO if peak_equity <= ZERO else (drawdown_amount / peak_equity) * HUNDRED
+        if drawdown_amount > max_drawdown_amount:
+            max_drawdown_amount = drawdown_amount
         if drawdown_pct > max_drawdown_pct:
             max_drawdown_pct = drawdown_pct
         equity_curve.append(
@@ -233,6 +252,7 @@ def run_csv_backtest(
                 position_quantity=position_quantity,
                 close_price=candle.close,
                 equity=equity,
+                drawdown_amount=drawdown_amount,
                 drawdown_pct=drawdown_pct,
             )
         )
@@ -244,13 +264,15 @@ def run_csv_backtest(
         if position_quantity > ZERO
         else ZERO
     )
-    sell_count = winning_sells + losing_sells
-    flat_sells = len([trade for trade in trades if trade.side == "sell"]) - sell_count
-    if flat_sells:
-        sell_count += flat_sells
+    sell_count = winning_sells + losing_sells + breakeven_sells
     win_rate_pct = None if sell_count == 0 else (Decimal(winning_sells) / Decimal(sell_count)) * HUNDRED
+    winning_pnls = [value for value in sell_pnls if value > ZERO]
+    losing_pnls = [value for value in sell_pnls if value < ZERO]
+    gross_winning_pnl = sum(winning_pnls, ZERO)
+    gross_losing_pnl = abs(sum(losing_pnls, ZERO))
     buy_and_hold_return_pct = ((candles[-1].close - candles[0].close) / candles[0].close) * HUNDRED
     total_return = final_equity - initial_balance
+    exposure_points_count = len([point for point in equity_curve if point.position_quantity > ZERO])
 
     return CsvBacktestResult(
         result="PASS",
@@ -273,9 +295,18 @@ def run_csv_backtest(
         completed_round_trips=len([trade for trade in trades if trade.side == "sell"]),
         win_count=winning_sells,
         loss_count=losing_sells,
+        breakeven_count=breakeven_sells,
         win_rate_pct=win_rate_pct,
+        average_winning_trade_pnl=_average_decimal(winning_pnls),
+        average_losing_trade_pnl=_average_decimal(losing_pnls),
+        average_trade_pnl=_average_decimal(sell_pnls),
+        best_trade_pnl=max(sell_pnls) if sell_pnls else None,
+        worst_trade_pnl=min(sell_pnls) if sell_pnls else None,
+        profit_factor=_profit_factor(gross_winning_pnl, gross_losing_pnl),
         fees_paid=fees_paid,
+        max_drawdown_amount=max_drawdown_amount,
         max_drawdown_pct=max_drawdown_pct,
+        exposure_pct=(Decimal(exposure_points_count) / Decimal(len(equity_curve))) * HUNDRED if equity_curve else None,
         buy_and_hold_return_pct=buy_and_hold_return_pct,
         started_at=candles[0].timestamp,
         ended_at=candles[-1].timestamp,
@@ -380,3 +411,15 @@ def _validate_positive(value: Decimal, name: str) -> None:
 def _validate_non_negative(value: Decimal, name: str) -> None:
     if not value.is_finite() or value < ZERO:
         raise BacktestCsvError(f"{name} must not be negative")
+
+
+def _average_decimal(values: list[Decimal]) -> Decimal | None:
+    if not values:
+        return None
+    return sum(values, ZERO) / Decimal(len(values))
+
+
+def _profit_factor(gross_winning_pnl: Decimal, gross_losing_pnl: Decimal) -> Decimal | None:
+    if gross_losing_pnl > ZERO:
+        return gross_winning_pnl / gross_losing_pnl
+    return None

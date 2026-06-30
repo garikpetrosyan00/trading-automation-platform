@@ -248,6 +248,8 @@ def test_compare_backtest_runs_many_derives_metrics_from_older_artifacts(tmp_pat
             ["2025-01-01T01:00:00Z", "sell", "12.5"],
             ["2025-01-01T02:00:00Z", "buy", ""],
             ["2025-01-01T03:00:00Z", "sell", "-2.5"],
+            ["2025-01-01T04:00:00Z", "buy", ""],
+            ["2025-01-01T05:00:00Z", "sell", "0"],
         ],
     )
     write_csv(
@@ -258,6 +260,8 @@ def test_compare_backtest_runs_many_derives_metrics_from_older_artifacts(tmp_pat
             ["2025-01-01T01:00:00Z", "10100"],
             ["2025-01-01T02:00:00Z", "10050"],
             ["2025-01-01T03:00:00Z", "10080"],
+            ["2025-01-01T04:00:00Z", "10080"],
+            ["2025-01-01T05:00:00Z", "10080"],
         ],
     )
     stdout = StringIO()
@@ -269,11 +273,19 @@ def test_compare_backtest_runs_many_derives_metrics_from_older_artifacts(tmp_pat
     candidate = next(item for item in report["runs"] if item["run_name"] == "candidate")
     assert candidate["summary"]["ending_balance"] == "10080"
     assert candidate["summary"]["total_return"] == "80"
-    assert candidate["summary"]["completed_round_trips"] == 2
+    assert candidate["summary"]["completed_round_trips"] == 3
     assert candidate["summary"]["realized_pnl"] == "10"
     assert candidate["summary"]["win_count"] == 1
     assert candidate["summary"]["loss_count"] == 1
-    assert candidate["summary"]["win_rate_pct"] == "50"
+    assert candidate["summary"]["breakeven_count"] == 1
+    assert candidate["summary"]["win_rate_pct"] == "33.33333333333333333333333333"
+    assert candidate["summary"]["average_winning_trade_pnl"] == "12.5"
+    assert candidate["summary"]["average_losing_trade_pnl"] == "-2.5"
+    assert candidate["summary"]["average_trade_pnl"] == "3.333333333333333333333333333"
+    assert candidate["summary"]["best_trade_pnl"] == "12.5"
+    assert candidate["summary"]["worst_trade_pnl"] == "-2.5"
+    assert candidate["summary"]["profit_factor"] == "5"
+    assert candidate["summary"]["max_drawdown_amount"] == "50"
     assert candidate["summary"]["max_drawdown_pct"] == "0.495049504950495049504950495"
 
 

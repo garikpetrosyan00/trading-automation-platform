@@ -204,6 +204,7 @@ def _write_output_dir(
             "position_quantity",
             "close_price",
             "equity",
+            "drawdown_amount",
             "drawdown_pct",
         ],
     )

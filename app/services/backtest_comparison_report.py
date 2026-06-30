@@ -28,8 +28,17 @@ SUMMARY_FIELDS = (
     "completed_round_trips",
     "win_count",
     "loss_count",
+    "breakeven_count",
     "win_rate_pct",
+    "average_winning_trade_pnl",
+    "average_losing_trade_pnl",
+    "average_trade_pnl",
+    "best_trade_pnl",
+    "worst_trade_pnl",
+    "profit_factor",
+    "max_drawdown_amount",
     "max_drawdown_pct",
+    "exposure_pct",
 )
 
 

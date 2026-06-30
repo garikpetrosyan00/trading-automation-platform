@@ -17,8 +17,17 @@ NUMERIC_SUMMARY_FIELDS = (
     "completed_round_trips",
     "win_count",
     "loss_count",
+    "breakeven_count",
     "win_rate_pct",
+    "average_winning_trade_pnl",
+    "average_losing_trade_pnl",
+    "average_trade_pnl",
+    "best_trade_pnl",
+    "worst_trade_pnl",
+    "profit_factor",
+    "max_drawdown_amount",
     "max_drawdown_pct",
+    "exposure_pct",
 )
 
 
@@ -126,7 +135,7 @@ def _check_runs(
             errors.append(f"runs[{index}].summary must be an object")
             continue
         for field in NUMERIC_SUMMARY_FIELDS:
-            if field in summary and not _is_numeric(summary.get(field)):
+            if field in summary and summary.get(field) not in (None, "") and not _is_numeric(summary.get(field)):
                 errors.append(f"runs[{index}].summary.{field} must be numeric")
     return run_names
 
