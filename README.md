@@ -128,6 +128,73 @@ Use this checklist for a stable local backtest demo checkpoint:
 
 Generated local artifacts under `data/backtests/runs/`, `data/backtests/raw/`, and `data/backtests/datasets/` are ignored by git and should not be committed. Do not commit real private datasets, client data, downloaded exchange history, or local demo bundles unless they have been intentionally sanitized for public presentation.
 
+## Local demo commands
+
+Use this compact index when you need the local/demo commands without the full walkthrough. Run commands from the repository root unless a Docker Compose example explicitly says otherwise.
+
+Portfolio backtest comparison smoke:
+
+```bash
+.venv/bin/python -m app.cli.run_portfolio_backtest_comparison_smoke \
+  --output-dir data/backtests/runs/BTCUSDT_1h_portfolio_smoke \
+  --overwrite
+```
+
+Safety: local CSV artifacts only. Uses the bundled `data/backtests/BTCUSDT_1h_sample.csv` by default, writes under `data/backtests/runs/...`, compares saved run files, and does not contact Binance, place orders, invoke paper/live execution, write database rows, or create runtime audit records.
+
+Prepared backtest smoke:
+
+```bash
+.venv/bin/python -m app.cli.run_prepared_backtest_smoke \
+  --symbol BTCUSDT \
+  --timeframe 1h \
+  --csv data/backtests/datasets/BTCUSDT_1h_prepared.csv \
+  --initial-balance 10000 \
+  --fee-rate 0.001 \
+  --strategy-type price_threshold \
+  --entry-below 95000 \
+  --exit-above 105000 \
+  --order-quantity 0.01 \
+  --output-dir data/backtests/runs/BTCUSDT_1h_smoke_001 \
+  --overwrite
+```
+
+Safety: local prepared CSV simulation only. It writes `summary.json`, `trades.csv`, and `equity_curve.csv` under the chosen output directory and does not fetch market data, place live/testnet/paper orders, invoke the bot runner, or create runtime execution/audit records.
+
+Saved-run comparison CLI:
+
+```bash
+.venv/bin/python -m app.cli.compare_backtest_runs \
+  --run-dir data/backtests/runs/BTCUSDT_1h_smoke_base \
+  --run-dir data/backtests/runs/BTCUSDT_1h_smoke_candidate \
+  --compact
+```
+
+Safety: reads existing local `summary.json`, `trades.csv`, and `equity_curve.csv` artifacts only. It does not rerun strategies, fetch data, call Binance, write database rows, place orders, or create orders, fills, execution attempts, reconciliation jobs, or other runtime audit records.
+
+Read-only saved-run comparison API:
+
+```bash
+curl -X POST http://127.0.0.1:8000/api/v1/backtests/local-demo/runs/compare \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "runs": [
+      {"name": "BTCUSDT_1h_smoke_base"},
+      {"name": "BTCUSDT_1h_smoke_candidate"}
+    ]
+  }'
+```
+
+Safety: read-only file API for artifacts under `data/backtests/runs/`. It rejects unsafe names/paths, returns sanitized relative run paths, and does not fetch data, invoke execution, submit orders, write database rows, or create runtime audit records.
+
+One-shot paper runner for paused paper bots:
+
+```bash
+docker-compose exec -T api python -m app.cli.run_bot_runner_once --bot-id <paper_bot_id>
+```
+
+Safety: use only for controlled paper-mode checks with a known paused paper bot. The CLI runs one evaluation and exits, refuses non-paper modes by default, respects the paused-bot guard, does not start the long-running runner or reconciliation worker, and for paused bots creates no orders, fills, or execution attempts. See [One-shot paper runner CLI](#one-shot-paper-runner-cli) for the full guardrail list.
+
 ## Local Backtest Artifact API
 
 Saved local demo artifacts can also be inspected through read-only FastAPI endpoints. These endpoints only read files under `data/backtests/runs/`, reject unsafe artifact names, and return sanitized summary/manifest fields without exposing server filesystem paths.
