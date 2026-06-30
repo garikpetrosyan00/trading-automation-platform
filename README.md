@@ -876,6 +876,120 @@ The API returns the same ranked comparison shape with sanitized `run_path` value
 
 This saved-run comparison tooling is local-only and file-based. It does not fetch market data, place live/testnet/Binance orders, invoke paper/live execution, invoke the bot runner, write database rows, or create orders, fills, execution attempts, reconciliation jobs, or other runtime audit records.
 
+## Portfolio backtest comparison smoke
+
+Use the portfolio comparison smoke CLI when you want a tiny deterministic local demo that creates two saved backtest run artifacts and immediately compares them. It uses the bundled `data/backtests/BTCUSDT_1h_sample.csv` by default, runs two fixed `price_threshold` configurations, writes each run as a normal saved artifact, then prints a JSON-friendly comparison payload suitable for a portfolio demo.
+
+Run it with the bundled BTCUSDT sample CSV:
+
+```bash
+.venv/bin/python -m app.cli.run_portfolio_backtest_comparison_smoke \
+  --output-dir data/backtests/runs/BTCUSDT_1h_portfolio_smoke
+```
+
+Rebuild the same smoke output directory:
+
+```bash
+.venv/bin/python -m app.cli.run_portfolio_backtest_comparison_smoke \
+  --output-dir data/backtests/runs/BTCUSDT_1h_portfolio_smoke \
+  --overwrite
+```
+
+Use another local prepared CSV if needed:
+
+```bash
+.venv/bin/python -m app.cli.run_portfolio_backtest_comparison_smoke \
+  --csv data/backtests/datasets/BTCUSDT_1h_prepared.csv \
+  --output-dir data/backtests/runs/BTCUSDT_1h_portfolio_smoke \
+  --overwrite
+```
+
+Artifacts are written under the chosen output directory:
+
+- `base_price_threshold/summary.json`
+- `base_price_threshold/trades.csv`
+- `base_price_threshold/equity_curve.csv`
+- `candidate_price_threshold/summary.json`
+- `candidate_price_threshold/trades.csv`
+- `candidate_price_threshold/equity_curve.csv`
+
+Example output shape:
+
+```json
+{
+  "result": "PASS",
+  "output_dir": "data/backtests/runs/BTCUSDT_1h_portfolio_smoke",
+  "runs_count": 2,
+  "runs": [
+    {
+      "run_name": "base_price_threshold",
+      "run_dir": "data/backtests/runs/BTCUSDT_1h_portfolio_smoke/base_price_threshold",
+      "summary_path": "data/backtests/runs/BTCUSDT_1h_portfolio_smoke/base_price_threshold/summary.json",
+      "summary": {
+        "strategy_type": "price_threshold",
+        "entry_below": "95000",
+        "exit_above": "105000",
+        "order_quantity": "0.01",
+        "starting_balance": "10000",
+        "ending_balance": "10113.005",
+        "total_return": "113.005",
+        "total_return_pct": "1.13005",
+        "realized_pnl": "113.005",
+        "trades_count": 2,
+        "completed_round_trips": 1,
+        "win_count": 1,
+        "loss_count": 0,
+        "win_rate_pct": "100",
+        "max_drawdown_pct": "0"
+      }
+    }
+  ],
+  "comparison": {
+    "result": "PASS",
+    "runs_count": 2,
+    "ranking_metrics": ["total_return", "ending_balance", "max_drawdown_pct"],
+    "rankings": {
+      "total_return": [
+        {
+          "rank": 1,
+          "run_name": "base_price_threshold",
+          "metric": "total_return",
+          "value": "113.005",
+          "available": true
+        }
+      ],
+      "ending_balance": [],
+      "max_drawdown_pct": []
+    }
+  },
+  "safety_note": "Local CSV artifact comparison only; no live/testnet/Binance calls, DB writes, orders, fills, execution attempts, reconciliation jobs, or paper/live execution."
+}
+```
+
+The generated run directories are ordinary saved-run artifacts. You can compare them again with the saved-run CLI:
+
+```bash
+.venv/bin/python -m app.cli.compare_backtest_runs \
+  --run-dir data/backtests/runs/BTCUSDT_1h_portfolio_smoke/base_price_threshold \
+  --run-dir data/backtests/runs/BTCUSDT_1h_portfolio_smoke/candidate_price_threshold \
+  --compact
+```
+
+You can also compare the same saved runs through the read-only API:
+
+```bash
+curl -X POST http://127.0.0.1:8000/api/v1/backtests/local-demo/runs/compare \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "runs": [
+      {"path": "BTCUSDT_1h_portfolio_smoke/base_price_threshold"},
+      {"path": "BTCUSDT_1h_portfolio_smoke/candidate_price_threshold"}
+    ]
+  }'
+```
+
+This smoke CLI is local-only portfolio/demo tooling. It does not fetch market data, contact Binance, place live/testnet orders, invoke paper/live execution, invoke the bot runner, write database rows, or create orders, fills, execution attempts, reconciliation jobs, or runtime audit records.
+
 ## Export a backtest Markdown report
 
 After saving a prepared dataset smoke run, optionally compare it with another run, then export a human-readable Markdown report:
