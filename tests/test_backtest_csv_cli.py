@@ -71,9 +71,15 @@ def test_csv_backtest_profitable_buy_sell_path_with_fees(tmp_path) -> None:
     assert result.trades[0].fee == Decimal("0.090")
     assert result.trades[1].fee == Decimal("0.110")
     assert result.final_balance == Decimal("10019.800")
+    assert result.starting_balance == Decimal("10000")
+    assert result.ending_balance == Decimal("10019.800")
     assert result.final_equity == Decimal("10019.800")
+    assert result.total_return == Decimal("19.800")
     assert result.realized_pnl == Decimal("19.800")
     assert result.unrealized_pnl == Decimal("0")
+    assert result.completed_round_trips == 1
+    assert result.win_count == 1
+    assert result.loss_count == 0
     assert result.fees_paid == Decimal("0.200")
     assert result.win_rate_pct == Decimal("100")
 
@@ -323,6 +329,12 @@ def test_run_backtest_output_dir_writes_summary_trades_and_equity_curve(tmp_path
     assert exit_code == 0
     summary = json.loads((output_dir / "summary.json").read_text(encoding="utf-8"))
     assert summary["result"] == "PASS"
+    assert summary["starting_balance"] == "10000"
+    assert summary["ending_balance"] == "10019.8"
+    assert summary["total_return"] == "19.8"
+    assert summary["completed_round_trips"] == 1
+    assert summary["win_count"] == 1
+    assert summary["loss_count"] == 0
     assert "trades" not in summary
     assert "equity_curve" not in summary
     with (output_dir / "trades.csv").open(newline="", encoding="utf-8") as handle:

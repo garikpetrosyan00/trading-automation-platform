@@ -67,16 +67,22 @@ class CsvBacktestResult:
     symbol: str
     timeframe: str
     candles_count: int
+    starting_balance: Decimal
     initial_balance: Decimal
+    ending_balance: Decimal
     final_balance: Decimal
     final_position_quantity: Decimal
     final_equity: Decimal
+    total_return: Decimal
     total_return_pct: Decimal
     realized_pnl: Decimal
     unrealized_pnl: Decimal
     trades_count: int
     buy_count: int
     sell_count: int
+    completed_round_trips: int
+    win_count: int
+    loss_count: int
     win_rate_pct: Decimal | None
     fees_paid: Decimal
     max_drawdown_pct: Decimal
@@ -244,22 +250,29 @@ def run_csv_backtest(
         sell_count += flat_sells
     win_rate_pct = None if sell_count == 0 else (Decimal(winning_sells) / Decimal(sell_count)) * HUNDRED
     buy_and_hold_return_pct = ((candles[-1].close - candles[0].close) / candles[0].close) * HUNDRED
+    total_return = final_equity - initial_balance
 
     return CsvBacktestResult(
         result="PASS",
         symbol=symbol.strip().upper(),
         timeframe=timeframe.strip(),
         candles_count=len(candles),
+        starting_balance=initial_balance,
         initial_balance=initial_balance,
+        ending_balance=final_equity,
         final_balance=cash_balance,
         final_position_quantity=position_quantity,
         final_equity=final_equity,
-        total_return_pct=((final_equity - initial_balance) / initial_balance) * HUNDRED,
+        total_return=total_return,
+        total_return_pct=(total_return / initial_balance) * HUNDRED,
         realized_pnl=realized_pnl,
         unrealized_pnl=unrealized_pnl,
         trades_count=len(trades),
         buy_count=len([trade for trade in trades if trade.side == "buy"]),
         sell_count=len([trade for trade in trades if trade.side == "sell"]),
+        completed_round_trips=len([trade for trade in trades if trade.side == "sell"]),
+        win_count=winning_sells,
+        loss_count=losing_sells,
         win_rate_pct=win_rate_pct,
         fees_paid=fees_paid,
         max_drawdown_pct=max_drawdown_pct,

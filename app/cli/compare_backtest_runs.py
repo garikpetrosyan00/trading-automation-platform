@@ -9,6 +9,7 @@ from app.services.backtest_run_comparison import (
     BacktestRunComparisonError,
     compact_backtest_comparison_report,
     compare_backtest_run_dirs,
+    compare_backtest_run_dirs_many,
 )
 
 
@@ -18,7 +19,11 @@ def main(argv: list[str] | None = None, *, stdout: TextIO | None = None, stderr:
     parser = _build_parser()
     try:
         args = parser.parse_args(argv)
-        report = compare_backtest_run_dirs(args.base_run_dir, args.candidate_run_dir)
+        _validate_args(args)
+        if args.run_dir:
+            report = compare_backtest_run_dirs_many(args.run_dir)
+        else:
+            report = compare_backtest_run_dirs(args.base_run_dir, args.candidate_run_dir)
         output_payload = compact_backtest_comparison_report(report) if args.compact else report
         output = json.dumps(output_payload, sort_keys=True)
         if args.output_json is not None:
@@ -41,15 +46,33 @@ def _build_parser() -> argparse.ArgumentParser:
     parser = SafeArgumentParser(
         prog="compare-backtest-runs",
         description=(
-            "Compare two saved local CSV backtest run directories. File-based only; "
+            "Compare saved local CSV backtest run directories. File-based only; "
             "does not contact exchanges or touch runtime execution records."
         ),
     )
-    parser.add_argument("--base-run-dir", required=True, help="baseline run directory containing summary.json")
-    parser.add_argument("--candidate-run-dir", required=True, help="candidate run directory containing summary.json")
+    parser.add_argument("--base-run-dir", help="baseline run directory containing summary.json")
+    parser.add_argument("--candidate-run-dir", help="candidate run directory containing summary.json")
+    parser.add_argument(
+        "--run-dir",
+        action="append",
+        help="run directory to include in a ranked comparison; pass two or more times",
+    )
     parser.add_argument("--output-json", help="optional path to write the JSON comparison report")
     parser.add_argument("--compact", action="store_true", help="print compact metric deltas instead of full details")
     return parser
+
+
+def _validate_args(args: argparse.Namespace) -> None:
+    if args.run_dir:
+        if args.base_run_dir or args.candidate_run_dir:
+            raise CliArgumentError("use either --run-dir entries or --base-run-dir/--candidate-run-dir, not both")
+        if len(args.run_dir) < 2:
+            raise CliArgumentError("--run-dir must be passed at least twice")
+        return
+    if not args.base_run_dir:
+        raise CliArgumentError("--base-run-dir is required unless --run-dir is used")
+    if not args.candidate_run_dir:
+        raise CliArgumentError("--candidate-run-dir is required unless --run-dir is used")
 
 
 if __name__ == "__main__":
