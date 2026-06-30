@@ -330,6 +330,228 @@ def test_local_demo_api_reads_sweep_summary_results_and_report(
     assert str(tmp_path.resolve()) not in report_response.text
 
 
+def test_local_demo_api_compares_two_saved_runs(
+    tmp_path,
+    configure_app_state,
+    stub_market_data_service,
+    noop_bot_runner,
+) -> None:
+    configure_app_state(market_data_service=stub_market_data_service, bot_runner=noop_bot_runner)
+    runs_root = tmp_path / "runs"
+    write_comparison_run(
+        runs_root,
+        "base",
+        {
+            "strategy_type": "price_threshold",
+            "entry_below": "90000",
+            "exit_above": "105000",
+            "starting_balance": "10000",
+            "ending_balance": "10010",
+            "total_return": "10",
+            "max_drawdown_pct": "1.5",
+        },
+    )
+    write_comparison_run(
+        runs_root,
+        "candidate",
+        {
+            "strategy_type": "moving_average_crossover",
+            "fast_window": "2",
+            "slow_window": "3",
+            "starting_balance": "10000",
+            "ending_balance": "10050",
+            "total_return": "50",
+            "max_drawdown_pct": "0.5",
+        },
+    )
+    override_local_artifact_service(runs_root)
+
+    try:
+        with TestClient(app) as client:
+            response = client.post(
+                "/api/v1/backtests/local-demo/runs/compare",
+                json={"runs": [{"name": "base"}, {"path": str((runs_root / "candidate").resolve())}]},
+            )
+    finally:
+        app.dependency_overrides.pop(get_local_backtest_artifact_service, None)
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["result"] == "PASS"
+    assert body["runs_count"] == 2
+    assert body["ranking_metrics"] == ["total_return", "ending_balance", "max_drawdown_pct"]
+    assert [item["run_name"] for item in body["rankings"]["total_return"]] == ["candidate", "base"]
+    assert [item["run_name"] for item in body["rankings"]["ending_balance"]] == ["candidate", "base"]
+    assert [item["run_name"] for item in body["rankings"]["max_drawdown_pct"]] == ["candidate", "base"]
+    candidate = next(item for item in body["runs"] if item["run_name"] == "candidate")
+    assert candidate["run_path"] == "candidate"
+    assert candidate["summary"]["strategy_type"] == "moving_average_crossover"
+    assert candidate["summary"]["fast_window"] == "2"
+    assert str(tmp_path.resolve()) not in response.text
+
+
+def test_local_demo_api_compares_three_runs_with_deterministic_ranking(
+    tmp_path,
+    configure_app_state,
+    stub_market_data_service,
+    noop_bot_runner,
+) -> None:
+    configure_app_state(market_data_service=stub_market_data_service, bot_runner=noop_bot_runner)
+    runs_root = tmp_path / "runs"
+    write_comparison_run(
+        runs_root,
+        "z_run",
+        {"starting_balance": "10000", "ending_balance": "10050", "total_return": "50", "max_drawdown_pct": "1"},
+    )
+    write_comparison_run(
+        runs_root,
+        "a_run",
+        {"starting_balance": "10000", "ending_balance": "10050", "total_return": "50", "max_drawdown_pct": "1"},
+    )
+    write_comparison_run(
+        runs_root,
+        "best_return",
+        {"starting_balance": "10000", "ending_balance": "10100", "total_return": "100", "max_drawdown_pct": "3"},
+    )
+    override_local_artifact_service(runs_root)
+
+    try:
+        with TestClient(app) as client:
+            response = client.post(
+                "/api/v1/backtests/local-demo/runs/compare",
+                json={"runs": [{"name": "z_run"}, {"name": "a_run"}, {"name": "best_return"}]},
+            )
+    finally:
+        app.dependency_overrides.pop(get_local_backtest_artifact_service, None)
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["runs_count"] == 3
+    assert [item["run_name"] for item in body["rankings"]["total_return"]] == ["best_return", "a_run", "z_run"]
+    assert [item["run_name"] for item in body["rankings"]["ending_balance"]] == ["best_return", "a_run", "z_run"]
+    assert [item["run_name"] for item in body["rankings"]["max_drawdown_pct"]] == ["a_run", "z_run", "best_return"]
+
+
+def test_local_demo_api_compare_missing_run_returns_clean_404(
+    tmp_path,
+    configure_app_state,
+    stub_market_data_service,
+    noop_bot_runner,
+) -> None:
+    configure_app_state(market_data_service=stub_market_data_service, bot_runner=noop_bot_runner)
+    runs_root = tmp_path / "runs"
+    write_comparison_run(runs_root, "existing", {"starting_balance": "10000", "ending_balance": "10010"})
+    override_local_artifact_service(runs_root)
+
+    try:
+        with TestClient(app) as client:
+            response = client.post(
+                "/api/v1/backtests/local-demo/runs/compare",
+                json={"runs": [{"name": "existing"}, {"name": "missing"}]},
+            )
+    finally:
+        app.dependency_overrides.pop(get_local_backtest_artifact_service, None)
+
+    assert response.status_code == 404
+    assert response.json() == {"detail": "Local backtest artifact not found", "error_code": "artifact_not_found"}
+    assert str(tmp_path.resolve()) not in response.text
+
+
+def test_local_demo_api_compare_rejects_invalid_path(
+    tmp_path,
+    configure_app_state,
+    stub_market_data_service,
+    noop_bot_runner,
+) -> None:
+    configure_app_state(market_data_service=stub_market_data_service, bot_runner=noop_bot_runner)
+    runs_root = tmp_path / "runs"
+    write_comparison_run(runs_root, "existing", {"starting_balance": "10000", "ending_balance": "10010"})
+    override_local_artifact_service(runs_root)
+
+    try:
+        with TestClient(app) as client:
+            response = client.post(
+                "/api/v1/backtests/local-demo/runs/compare",
+                json={"runs": [{"name": "existing"}, {"path": "../outside"}]},
+            )
+    finally:
+        app.dependency_overrides.pop(get_local_backtest_artifact_service, None)
+
+    assert response.status_code == 422
+    assert response.json() == {"detail": "Invalid local backtest artifact path", "error_code": "invalid_artifact_path"}
+
+
+def test_local_demo_api_compare_rejects_fewer_than_two_runs(
+    tmp_path,
+    configure_app_state,
+    stub_market_data_service,
+    noop_bot_runner,
+) -> None:
+    configure_app_state(market_data_service=stub_market_data_service, bot_runner=noop_bot_runner)
+    override_local_artifact_service(tmp_path / "runs")
+
+    try:
+        with TestClient(app) as client:
+            response = client.post("/api/v1/backtests/local-demo/runs/compare", json={"runs": [{"name": "only"}]})
+    finally:
+        app.dependency_overrides.pop(get_local_backtest_artifact_service, None)
+
+    assert response.status_code == 422
+    assert response.json() == {"detail": "At least two local backtest runs are required", "error_code": "not_enough_runs"}
+
+
+def test_local_demo_api_compare_derives_metrics_from_older_artifacts(
+    tmp_path,
+    configure_app_state,
+    stub_market_data_service,
+    noop_bot_runner,
+) -> None:
+    configure_app_state(market_data_service=stub_market_data_service, bot_runner=noop_bot_runner)
+    runs_root = tmp_path / "runs"
+    write_comparison_run(runs_root, "base", {"initial_balance": "10000"})
+    candidate_dir = write_comparison_run(runs_root, "candidate", {"initial_balance": "10000"})
+    write_csv(
+        candidate_dir / "trades.csv",
+        ["timestamp", "side", "realized_pnl"],
+        [
+            ["2025-01-01T00:00:00Z", "buy", ""],
+            ["2025-01-01T01:00:00Z", "sell", "12.5"],
+            ["2025-01-01T02:00:00Z", "buy", ""],
+            ["2025-01-01T03:00:00Z", "sell", "-2.5"],
+        ],
+    )
+    write_csv(
+        candidate_dir / "equity_curve.csv",
+        ["timestamp", "equity"],
+        [
+            ["2025-01-01T00:00:00Z", "10000"],
+            ["2025-01-01T01:00:00Z", "10100"],
+            ["2025-01-01T02:00:00Z", "10050"],
+            ["2025-01-01T03:00:00Z", "10080"],
+        ],
+    )
+    override_local_artifact_service(runs_root)
+
+    try:
+        with TestClient(app) as client:
+            response = client.post(
+                "/api/v1/backtests/local-demo/runs/compare",
+                json={"runs": [{"name": "base"}, {"path": "candidate"}]},
+            )
+    finally:
+        app.dependency_overrides.pop(get_local_backtest_artifact_service, None)
+
+    assert response.status_code == 200
+    candidate = next(item for item in response.json()["runs"] if item["run_name"] == "candidate")
+    assert candidate["summary"]["ending_balance"] == "10080"
+    assert candidate["summary"]["total_return"] == "80"
+    assert candidate["summary"]["completed_round_trips"] == 2
+    assert candidate["summary"]["realized_pnl"] == "10"
+    assert candidate["summary"]["win_count"] == 1
+    assert candidate["summary"]["loss_count"] == 1
+    assert candidate["summary"]["win_rate_pct"] == "50"
+
+
 def test_local_demo_api_missing_artifact_returns_clean_404(
     tmp_path,
     configure_app_state,
@@ -416,6 +638,7 @@ def test_local_demo_api_does_not_touch_runtime_audit_tables(
     configure_app_state(market_data_service=stub_market_data_service, bot_runner=noop_bot_runner)
     runs_root = tmp_path / "runs"
     write_run_artifacts(runs_root, "demo_001")
+    write_comparison_run(runs_root, "demo_compare", {"initial_balance": "10000", "ending_balance": "10020"})
     write_bundle_artifacts(runs_root, "demo_bundle")
     write_sweep_artifacts(runs_root, "demo_sweep")
     override_local_artifact_service(runs_root)
@@ -431,6 +654,13 @@ def test_local_demo_api_does_not_touch_runtime_audit_tables(
             assert client.get("/api/v1/backtests/local-demo/sweeps/demo_sweep/summary").status_code == 200
             assert client.get("/api/v1/backtests/local-demo/sweeps/demo_sweep/results").status_code == 200
             assert client.get("/api/v1/backtests/local-demo/sweeps/demo_sweep/report").status_code == 200
+            assert (
+                client.post(
+                    "/api/v1/backtests/local-demo/runs/compare",
+                    json={"runs": [{"name": "demo_001"}, {"name": "demo_compare"}]},
+                ).status_code
+                == 200
+            )
     finally:
         app.dependency_overrides.pop(get_local_backtest_artifact_service, None)
 
@@ -470,6 +700,35 @@ def write_run_artifacts(runs_root, run_name: str, *, symbol: str = "BTCUSDT") ->
         ["timestamp", "equity"],
         [["2025-01-01T00:00:00Z", "10000"], ["2025-01-01T01:00:00Z", "10010"]],
     )
+
+
+def write_comparison_run(runs_root, run_name: str, summary: dict):
+    run_dir = runs_root / run_name
+    run_dir.mkdir(parents=True)
+    payload = {
+        "result": "PASS",
+        "symbol": "BTCUSDT",
+        "timeframe": "1h",
+        **summary,
+    }
+    (run_dir / "summary.json").write_text(json.dumps(payload, sort_keys=True) + "\n", encoding="utf-8")
+    write_csv(
+        run_dir / "trades.csv",
+        ["timestamp", "side", "realized_pnl"],
+        [
+            ["2025-01-01T00:00:00Z", "buy", ""],
+            ["2025-01-01T01:00:00Z", "sell", summary.get("realized_pnl", "10")],
+        ],
+    )
+    write_csv(
+        run_dir / "equity_curve.csv",
+        ["timestamp", "equity"],
+        [
+            ["2025-01-01T00:00:00Z", summary.get("starting_balance", summary.get("initial_balance", "10000"))],
+            ["2025-01-01T01:00:00Z", summary.get("ending_balance", summary.get("final_equity", "10010"))],
+        ],
+    )
+    return run_dir
 
 
 def write_bundle_artifacts(runs_root, bundle_name: str, *, symbol: str = "BTCUSDT") -> None:

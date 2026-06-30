@@ -4,6 +4,7 @@ from pathlib import Path
 from typing import Any
 
 from app.core.errors import AppError
+from app.services.backtest_run_comparison import BacktestRunComparisonError, compare_backtest_run_dirs_many
 
 
 RUNS_ROOT = Path("data/backtests/runs")
@@ -83,6 +84,17 @@ class LocalBacktestArtifactService:
             "artifact": "summary",
             "summary": {field: payload.get(field) for field in SUMMARY_FIELDS if field in payload},
         }
+
+    def compare_runs(self, runs: list[dict[str, Any]]) -> dict[str, Any]:
+        if len(runs) < 2:
+            raise AppError("At least two local backtest runs are required", status_code=422, error_code="not_enough_runs")
+
+        run_dirs = [self._safe_run_ref_dir(run_ref) for run_ref in runs]
+        try:
+            comparison = compare_backtest_run_dirs_many(run_dirs)
+        except BacktestRunComparisonError as exc:
+            raise AppError("Local backtest artifact not found", status_code=404, error_code="artifact_not_found") from exc
+        return self._sanitize_comparison_paths(comparison)
 
     def list_runs(self) -> dict[str, Any]:
         items = []
@@ -192,6 +204,32 @@ class LocalBacktestArtifactService:
         candidate = (root / name).resolve()
         if root != candidate and root not in candidate.parents:
             raise AppError("Invalid local backtest artifact name", status_code=422, error_code="invalid_artifact_name")
+        return candidate
+
+    def _safe_run_ref_dir(self, run_ref: dict[str, Any]) -> Path:
+        name = run_ref.get("name")
+        path = run_ref.get("path")
+        if bool(name) == bool(path):
+            raise AppError(
+                "Each local backtest run reference must include exactly one of name or path",
+                status_code=422,
+                error_code="invalid_run_reference",
+            )
+        if name is not None:
+            return self._safe_child_dir(str(name))
+        return self._safe_descendant_dir(str(path))
+
+    def _safe_descendant_dir(self, path: str) -> Path:
+        if not path or "\x00" in path:
+            raise AppError("Invalid local backtest artifact path", status_code=422, error_code="invalid_artifact_path")
+        raw_path = Path(path)
+        candidate = raw_path.resolve() if raw_path.is_absolute() else (self.runs_root / raw_path).resolve()
+        root = self.runs_root.resolve()
+        if root != candidate and root not in candidate.parents:
+            raise AppError("Invalid local backtest artifact path", status_code=422, error_code="invalid_artifact_path")
+        relative_parts = candidate.relative_to(root).parts
+        if not relative_parts or any(part in {"", ".", ".."} for part in relative_parts):
+            raise AppError("Invalid local backtest artifact path", status_code=422, error_code="invalid_artifact_path")
         return candidate
 
     def _is_safe_name(self, name: str) -> bool:
@@ -336,3 +374,32 @@ class LocalBacktestArtifactService:
         for raw, replacement in replacements.items():
             sanitized = sanitized.replace(raw, replacement)
         return sanitized
+
+    def _sanitize_comparison_paths(self, comparison: dict[str, Any]) -> dict[str, Any]:
+        sanitized = dict(comparison)
+        sanitized["runs"] = [self._sanitize_comparison_run(item) for item in comparison.get("runs", [])]
+        rankings = comparison.get("rankings", {})
+        sanitized["rankings"] = {
+            metric: [self._sanitize_comparison_ranking(item) for item in items]
+            for metric, items in rankings.items()
+            if isinstance(items, list)
+        }
+        return sanitized
+
+    def _sanitize_comparison_run(self, item: dict[str, Any]) -> dict[str, Any]:
+        sanitized = dict(item)
+        sanitized["run_path"] = self._relative_artifact_path(Path(str(item.get("run_dir", ""))))
+        sanitized.pop("run_dir", None)
+        return sanitized
+
+    def _sanitize_comparison_ranking(self, item: dict[str, Any]) -> dict[str, Any]:
+        sanitized = dict(item)
+        sanitized["run_path"] = self._relative_artifact_path(Path(str(item.get("run_dir", ""))))
+        sanitized.pop("run_dir", None)
+        return sanitized
+
+    def _relative_artifact_path(self, path: Path) -> str:
+        try:
+            return path.resolve().relative_to(self.runs_root.resolve()).as_posix()
+        except (OSError, ValueError):
+            return path.name

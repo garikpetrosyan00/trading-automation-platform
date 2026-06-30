@@ -34,6 +34,23 @@ class LocalBacktestRunCatalogRead(BaseModel):
     items: list[LocalBacktestCatalogItemRead]
 
 
+class LocalBacktestCompareRunRef(BaseModel):
+    name: str | None = None
+    path: str | None = None
+
+
+class LocalBacktestCompareRequest(BaseModel):
+    runs: list[LocalBacktestCompareRunRef]
+
+
+class LocalBacktestComparisonRead(BaseModel):
+    result: str
+    runs_count: int
+    ranking_metrics: list[str]
+    runs: list[dict[str, Any]]
+    rankings: dict[str, list[dict[str, Any]]]
+
+
 class LocalBacktestManifestFileRead(BaseModel):
     name: str | None = None
     sha256: str | None = None

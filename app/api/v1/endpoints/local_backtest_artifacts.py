@@ -6,6 +6,8 @@ from fastapi.responses import Response
 from app.schemas.local_backtest_artifacts import (
     LocalBacktestBundleCatalogRead,
     LocalBacktestBundleManifestRead,
+    LocalBacktestCompareRequest,
+    LocalBacktestComparisonRead,
     LocalBacktestRunCatalogRead,
     LocalBacktestSummaryRead,
     LocalBacktestSweepCatalogRead,
@@ -45,6 +47,14 @@ async def get_local_backtest_run_summary(
     service: LocalBacktestArtifactServiceDep,
 ) -> dict:
     return service.read_run_summary(run_name)
+
+
+@router.post("/runs/compare", response_model=LocalBacktestComparisonRead)
+async def compare_local_backtest_runs(
+    request: LocalBacktestCompareRequest,
+    service: LocalBacktestArtifactServiceDep,
+) -> dict:
+    return service.compare_runs([run.model_dump() for run in request.runs])
 
 
 @router.get("/runs/{run_name}/report", response_class=Response)
