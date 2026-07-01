@@ -280,6 +280,36 @@ def _recommendation_markdown(recommendation: Any) -> str:
             [(warning,) for warning in recommendation.get("recommendation_warnings", [])]
             if isinstance(recommendation.get("recommendation_warnings"), list) else [],
         ),
+        "",
+        f"Acceptance status: `{_markdown_text(recommendation.get('acceptance_status'))}`",
+        "",
+        _table(
+            ["Gate", "Passed", "Actual", "Threshold", "Severity", "Reason"],
+            [
+                (
+                    gate.get("name"),
+                    gate.get("passed"),
+                    gate.get("actual"),
+                    gate.get("threshold"),
+                    gate.get("severity"),
+                    gate.get("reason"),
+                )
+                for gate in recommendation.get("acceptance_gates", [])
+                if isinstance(gate, dict)
+            ] if isinstance(recommendation.get("acceptance_gates"), list) else [],
+        ),
+        "",
+        _table(
+            ["Acceptance Failures"],
+            [(failure,) for failure in recommendation.get("acceptance_failures", [])]
+            if isinstance(recommendation.get("acceptance_failures"), list) else [],
+        ),
+        "",
+        _table(
+            ["Acceptance Warnings"],
+            [(warning,) for warning in recommendation.get("acceptance_warnings", [])]
+            if isinstance(recommendation.get("acceptance_warnings"), list) else [],
+        ),
     ]
     return "\n".join(lines)
 

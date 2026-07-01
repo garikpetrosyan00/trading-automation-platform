@@ -564,6 +564,17 @@ def test_compare_backtest_runs_many_recommends_strong_best_run(tmp_path) -> None
     assert exit_code == 0
     recommendation = json.loads(stdout.getvalue())["recommendation"]
     assert recommendation["recommendation_status"] == "recommended"
+    assert recommendation["acceptance_status"] == "accepted"
+    assert recommendation["acceptance_failures"] == []
+    assert recommendation["acceptance_warnings"] == []
+    assert {gate["name"] for gate in recommendation["acceptance_gates"]} >= {
+        "minimum_overall_score",
+        "minimum_trade_count",
+        "minimum_total_return_pct",
+        "maximum_drawdown_pct",
+        "minimum_profit_factor",
+        "recommendation_status",
+    }
     assert recommendation["recommended_run"] == {
         "strategy": "moving_average_crossover",
         "run_name": "strong",
@@ -593,9 +604,9 @@ def test_compare_backtest_runs_many_weak_recommendation_for_too_few_trades_best(
         "few",
         {
             "starting_balance": "10000",
-            "ending_balance": "12000",
-            "total_return": "2000",
-            "total_return_pct": "20",
+            "ending_balance": "14000",
+            "total_return": "4000",
+            "total_return_pct": "40",
             "completed_round_trips": 2,
             "win_rate_pct": "100",
             "profit_factor": "3",
@@ -624,6 +635,9 @@ def test_compare_backtest_runs_many_weak_recommendation_for_too_few_trades_best(
     recommendation = json.loads(stdout.getvalue())["recommendation"]
     assert recommendation["recommended_run"]["run_name"] == "few"
     assert recommendation["recommendation_status"] == "weak_recommendation"
+    assert recommendation["acceptance_status"] == "rejected"
+    assert "too_few_trades" in recommendation["acceptance_failures"]
+    assert "weak_recommendation_only" in recommendation["acceptance_warnings"]
     assert "best_run_has_too_few_trades" in recommendation["recommendation_warnings"]
     assert "too_few_trades" in recommendation["recommended_run"]["score_warnings"]
 
@@ -664,6 +678,8 @@ def test_compare_backtest_runs_many_not_recommended_for_no_trade_best(tmp_path) 
     recommendation = json.loads(stdout.getvalue())["recommendation"]
     assert recommendation["recommended_run"]["run_name"] == "idle"
     assert recommendation["recommendation_status"] == "not_recommended"
+    assert recommendation["acceptance_status"] == "rejected"
+    assert "recommendation_not_strong_enough" in recommendation["acceptance_failures"]
     assert "best_run_has_no_trades" in recommendation["recommendation_warnings"]
     assert "all_runs_weak" in recommendation["recommendation_warnings"]
 
@@ -680,7 +696,7 @@ def test_compare_backtest_runs_many_not_recommended_for_negative_high_drawdown_b
             "completed_round_trips": 10,
             "win_rate_pct": "80",
             "profit_factor": "3",
-            "max_drawdown_pct": "25",
+            "max_drawdown_pct": "30",
         },
     )
     worse_dir = write_run_dir(
@@ -705,8 +721,137 @@ def test_compare_backtest_runs_many_not_recommended_for_negative_high_drawdown_b
     recommendation = json.loads(stdout.getvalue())["recommendation"]
     assert recommendation["recommended_run"]["run_name"] == "risky"
     assert recommendation["recommendation_status"] == "not_recommended"
+    assert recommendation["acceptance_status"] == "rejected"
+    assert "non_positive_return" in recommendation["acceptance_failures"]
+    assert "drawdown_too_high" in recommendation["acceptance_failures"]
     assert "best_run_has_negative_return" in recommendation["recommendation_warnings"]
     assert "best_run_has_high_drawdown" in recommendation["recommendation_warnings"]
+
+
+def test_compare_backtest_runs_many_accepts_weak_no_clear_winner_with_warnings(tmp_path) -> None:
+    first_dir = write_run_dir(
+        tmp_path,
+        "a_first",
+        {
+            "starting_balance": "10000",
+            "ending_balance": "14000",
+            "total_return": "4000",
+            "total_return_pct": "40",
+            "completed_round_trips": 12,
+            "win_rate_pct": "80",
+            "profit_factor": "3",
+            "max_drawdown_pct": "1",
+        },
+    )
+    second_dir = write_run_dir(
+        tmp_path,
+        "b_second",
+        {
+            "starting_balance": "10000",
+            "ending_balance": "14000",
+            "total_return": "4000",
+            "total_return_pct": "40",
+            "completed_round_trips": 12,
+            "win_rate_pct": "80",
+            "profit_factor": "3",
+            "max_drawdown_pct": "1",
+        },
+    )
+
+    stdout = StringIO()
+    exit_code = cli.main(["--run-dir", str(second_dir), "--run-dir", str(first_dir)], stdout=stdout)
+
+    assert exit_code == 0
+    recommendation = json.loads(stdout.getvalue())["recommendation"]
+    assert recommendation["recommended_run"]["run_name"] == "a_first"
+    assert recommendation["recommendation_status"] == "weak_recommendation"
+    assert recommendation["acceptance_status"] == "accepted_with_warnings"
+    assert recommendation["acceptance_failures"] == []
+    assert "weak_recommendation_only" in recommendation["acceptance_warnings"]
+    assert "no_clear_winner" in recommendation["acceptance_warnings"]
+
+
+def test_compare_backtest_runs_many_rejects_low_score_best(tmp_path) -> None:
+    low_dir = write_run_dir(
+        tmp_path,
+        "low",
+        {
+            "starting_balance": "10000",
+            "ending_balance": "10010",
+            "total_return": "10",
+            "total_return_pct": "0.1",
+            "completed_round_trips": 10,
+            "win_rate_pct": "35",
+            "profit_factor": "0.8",
+            "max_drawdown_pct": "10",
+        },
+    )
+    worse_dir = write_run_dir(
+        tmp_path,
+        "worse",
+        {
+            "starting_balance": "10000",
+            "ending_balance": "9900",
+            "total_return": "-100",
+            "total_return_pct": "-1",
+            "completed_round_trips": 10,
+            "win_rate_pct": "30",
+            "profit_factor": "0.5",
+            "max_drawdown_pct": "20",
+        },
+    )
+
+    stdout = StringIO()
+    exit_code = cli.main(["--run-dir", str(low_dir), "--run-dir", str(worse_dir)], stdout=stdout)
+
+    assert exit_code == 0
+    recommendation = json.loads(stdout.getvalue())["recommendation"]
+    assert recommendation["recommended_run"]["run_name"] == "low"
+    assert recommendation["acceptance_status"] == "rejected"
+    assert "score_below_minimum" in recommendation["acceptance_failures"]
+    assert "profit_factor_below_minimum" in recommendation["acceptance_failures"]
+
+
+def test_compare_backtest_runs_many_missing_optional_acceptance_metrics_warn_without_crash(tmp_path) -> None:
+    missing_dir = write_run_dir(
+        tmp_path,
+        "missing_optional",
+        {
+            "starting_balance": "10000",
+            "ending_balance": "14000",
+            "total_return": "4000",
+            "total_return_pct": "40",
+            "completed_round_trips": 12,
+            "win_rate_pct": "80",
+        },
+    )
+    (missing_dir / "trades.csv").unlink()
+    (missing_dir / "equity_curve.csv").unlink()
+    lower_dir = write_run_dir(
+        tmp_path,
+        "lower",
+        {
+            "starting_balance": "10000",
+            "ending_balance": "10010",
+            "total_return": "10",
+            "total_return_pct": "0.1",
+            "completed_round_trips": 10,
+            "win_rate_pct": "45",
+            "profit_factor": "1",
+            "max_drawdown_pct": "10",
+        },
+    )
+
+    stdout = StringIO()
+    exit_code = cli.main(["--run-dir", str(missing_dir), "--run-dir", str(lower_dir)], stdout=stdout)
+
+    assert exit_code == 0
+    recommendation = json.loads(stdout.getvalue())["recommendation"]
+    assert recommendation["recommended_run"]["run_name"] == "missing_optional"
+    assert recommendation["acceptance_status"] == "accepted_with_warnings"
+    assert recommendation["acceptance_failures"] == []
+    assert "missing_drawdown_metric" in recommendation["acceptance_warnings"]
+    assert "missing_profit_factor" in recommendation["acceptance_warnings"]
 
 
 def test_backtest_recommendation_summary_empty_comparison_has_no_valid_runs() -> None:
@@ -723,6 +868,10 @@ def test_backtest_recommendation_summary_empty_comparison_has_no_valid_runs() ->
         },
         "recommendation_warnings": ["all_runs_weak"],
         "runner_up_runs": [],
+        "acceptance_status": "not_evaluated",
+        "acceptance_gates": [],
+        "acceptance_failures": ["no_valid_recommended_run"],
+        "acceptance_warnings": [],
     }
 
 

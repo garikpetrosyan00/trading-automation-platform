@@ -395,6 +395,8 @@ def test_local_demo_api_compares_two_saved_runs(
     assert body["recommendation"]["recommended_run"]["run_path"] == "candidate"
     assert "run_dir" not in body["recommendation"]["recommended_run"]
     assert body["recommendation"]["recommendation_status"] in {"weak_recommendation", "not_recommended"}
+    assert body["recommendation"]["acceptance_status"] in {"rejected", "accepted_with_warnings"}
+    assert "acceptance_gates" in body["recommendation"]
     assert str(tmp_path.resolve()) not in response.text
 
 

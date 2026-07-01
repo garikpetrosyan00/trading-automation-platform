@@ -364,7 +364,7 @@ def build_backtest_recommendation_summary(run_items: list[dict[str, Any]]) -> di
         if _optional_decimal(item.get("overall_score") or item.get("summary", {}).get("overall_score")) is not None
     ]
     if not comparable:
-        return {
+        recommendation = {
             "recommended_run": None,
             "recommendation_status": "no_valid_runs",
             "recommendation_reason": {
@@ -378,6 +378,8 @@ def build_backtest_recommendation_summary(run_items: list[dict[str, Any]]) -> di
             "recommendation_warnings": ["all_runs_weak"],
             "runner_up_runs": [],
         }
+        recommendation.update(build_backtest_acceptance_evaluation(recommendation))
+        return recommendation
 
     ranked = sorted(comparable, key=_overall_score_sort_key)
     best = ranked[0]
@@ -414,7 +416,12 @@ def build_backtest_recommendation_summary(run_items: list[dict[str, Any]]) -> di
     if all_runs_weak:
         recommendation_warnings.append("all_runs_weak")
 
-    if best_score >= Decimal("70") and not has_severe_warning and "too_few_trades" not in selected_warnings:
+    if (
+        best_score >= Decimal("70")
+        and not has_severe_warning
+        and "too_few_trades" not in selected_warnings
+        and "no_clear_winner" not in recommendation_warnings
+    ):
         status = "recommended"
     elif best_score >= Decimal("50") and not has_severe_warning:
         status = "weak_recommendation"
@@ -430,13 +437,291 @@ def build_backtest_recommendation_summary(run_items: list[dict[str, Any]]) -> di
         "score_gap_to_runner_up": _decimal_to_string(score_gap) if score_gap is not None else None,
     }
 
-    return {
+    recommendation = {
         "recommended_run": _recommendation_run(best),
         "recommendation_status": status,
         "recommendation_reason": reason,
         "recommendation_warnings": sorted(set(recommendation_warnings)),
         "runner_up_runs": [_recommendation_run(item) for item in runner_ups],
     }
+    recommendation.update(build_backtest_acceptance_evaluation(recommendation))
+    return recommendation
+
+
+def build_backtest_acceptance_evaluation(recommendation: dict[str, Any]) -> dict[str, Any]:
+    recommended_run = recommendation.get("recommended_run")
+    if not isinstance(recommended_run, dict):
+        return {
+            "acceptance_status": "not_evaluated",
+            "acceptance_gates": [],
+            "acceptance_failures": ["no_valid_recommended_run"],
+            "acceptance_warnings": [],
+        }
+
+    gates: list[dict[str, Any]] = []
+    failures: list[str] = []
+    warnings: list[str] = []
+    recommendation_status = recommendation.get("recommendation_status")
+    recommendation_warnings = _string_list(recommendation.get("recommendation_warnings"))
+    score_warnings = _string_list(recommended_run.get("score_warnings"))
+
+    _add_gate(
+        gates,
+        failures=failures,
+        warnings=warnings,
+        name="recommendation_status",
+        passed=recommendation_status in {"recommended", "weak_recommendation"},
+        actual=recommendation_status,
+        threshold="recommended_or_weak_recommendation",
+        severity="failure",
+        code="recommendation_not_strong_enough",
+        reason="recommendation_status must be recommended or weak_recommendation",
+    )
+    if recommendation_status == "weak_recommendation":
+        _add_gate(
+            gates,
+            failures=failures,
+            warnings=warnings,
+            name="weak_recommendation_only",
+            passed=True,
+            actual=recommendation_status,
+            threshold="recommended",
+            severity="warning",
+            code="weak_recommendation_only",
+            reason="best run is only weakly recommended",
+        )
+
+    overall_score = _optional_decimal(recommended_run.get("overall_score"))
+    _add_numeric_min_gate(
+        gates,
+        failures=failures,
+        warnings=warnings,
+        name="minimum_overall_score",
+        actual=overall_score,
+        threshold=Decimal("70"),
+        code="score_below_minimum",
+        reason="overall_score must be at least 70",
+    )
+    trade_count = _optional_decimal(recommended_run.get("trade_count"))
+    _add_numeric_min_gate(
+        gates,
+        failures=failures,
+        warnings=warnings,
+        name="minimum_trade_count",
+        actual=trade_count,
+        threshold=Decimal("5"),
+        code="too_few_trades",
+        reason="trade_count must be at least 5",
+    )
+    if trade_count is not None and trade_count < Decimal("10"):
+        _add_gate(
+            gates,
+            failures=failures,
+            warnings=warnings,
+            name="trade_confidence",
+            passed=True,
+            actual=_decimal_to_string(trade_count),
+            threshold="10",
+            severity="warning",
+            code="low_trade_confidence",
+            reason="trade_count is acceptable but still low-confidence",
+        )
+
+    total_return_pct = _optional_decimal(recommended_run.get("total_return_pct"))
+    _add_gate(
+        gates,
+        failures=failures,
+        warnings=warnings,
+        name="minimum_total_return_pct",
+        passed=total_return_pct is not None and total_return_pct > 0,
+        actual=_decimal_to_string(total_return_pct) if total_return_pct is not None else None,
+        threshold=">0",
+        severity="failure",
+        code="non_positive_return",
+        reason="total_return_pct must be positive",
+    )
+
+    max_drawdown_pct = _optional_decimal(recommended_run.get("max_drawdown_pct"))
+    if max_drawdown_pct is None:
+        _add_gate(
+            gates,
+            failures=failures,
+            warnings=warnings,
+            name="maximum_drawdown_pct",
+            passed=True,
+            actual=None,
+            threshold="25",
+            severity="warning",
+            code="missing_drawdown_metric",
+            reason="max_drawdown_pct is unavailable",
+        )
+    else:
+        _add_gate(
+            gates,
+            failures=failures,
+            warnings=warnings,
+            name="maximum_drawdown_pct",
+            passed=max_drawdown_pct <= Decimal("25"),
+            actual=_decimal_to_string(max_drawdown_pct),
+            threshold="25",
+            severity="failure",
+            code="drawdown_too_high",
+            reason="max_drawdown_pct must be at most 25",
+        )
+
+    profit_factor = _optional_decimal(recommended_run.get("profit_factor"))
+    if profit_factor is None:
+        _add_gate(
+            gates,
+            failures=failures,
+            warnings=warnings,
+            name="minimum_profit_factor",
+            passed=True,
+            actual=None,
+            threshold="1.1",
+            severity="warning",
+            code="missing_profit_factor",
+            reason="profit_factor is unavailable",
+        )
+    else:
+        _add_gate(
+            gates,
+            failures=failures,
+            warnings=warnings,
+            name="minimum_profit_factor",
+            passed=profit_factor >= Decimal("1.1"),
+            actual=_decimal_to_string(profit_factor),
+            threshold="1.1",
+            severity="failure",
+            code="profit_factor_below_minimum",
+            reason="profit_factor must be at least 1.1",
+        )
+
+    severe_recommendation_warnings = {
+        "best_run_has_low_score",
+        "best_run_has_high_drawdown",
+        "best_run_has_negative_return",
+        "best_run_has_no_trades",
+    }
+    severe_present = sorted(set(recommendation_warnings).intersection(severe_recommendation_warnings))
+    _add_gate(
+        gates,
+        failures=failures,
+        warnings=warnings,
+        name="no_severe_recommendation_warnings",
+        passed=not severe_present,
+        actual=severe_present,
+        threshold=[],
+        severity="failure",
+        code="severe_recommendation_warning",
+        reason="recommendation must not include severe warnings",
+    )
+    _add_gate(
+        gates,
+        failures=failures,
+        warnings=warnings,
+        name="no_no_trades_warning",
+        passed="no_trades" not in score_warnings and "best_run_has_no_trades" not in recommendation_warnings,
+        actual=score_warnings,
+        threshold="no no_trades warning",
+        severity="failure",
+        code="too_few_trades",
+        reason="recommended run must not have no_trades warning",
+    )
+    _add_gate(
+        gates,
+        failures=failures,
+        warnings=warnings,
+        name="no_negative_return_warning",
+        passed="negative_return" not in score_warnings and "best_run_has_negative_return" not in recommendation_warnings,
+        actual=score_warnings,
+        threshold="no negative_return warning",
+        severity="failure",
+        code="negative_return",
+        reason="recommended run must not have negative_return warning",
+    )
+    if "no_clear_winner" in recommendation_warnings:
+        _add_gate(
+            gates,
+            failures=failures,
+            warnings=warnings,
+            name="clear_winner",
+            passed=True,
+            actual="no_clear_winner",
+            threshold="score_gap_to_runner_up >= 5",
+            severity="warning",
+            code="no_clear_winner",
+            reason="top runs are close in overall_score",
+        )
+
+    unique_failures = sorted(set(failures))
+    unique_warnings = sorted(set(warnings))
+    if unique_failures:
+        status = "rejected"
+    elif unique_warnings:
+        status = "accepted_with_warnings"
+    else:
+        status = "accepted"
+    return {
+        "acceptance_status": status,
+        "acceptance_gates": gates,
+        "acceptance_failures": unique_failures,
+        "acceptance_warnings": unique_warnings,
+    }
+
+
+def _add_numeric_min_gate(
+    gates: list[dict[str, Any]],
+    *,
+    failures: list[str],
+    warnings: list[str],
+    name: str,
+    actual: Decimal | None,
+    threshold: Decimal,
+    code: str,
+    reason: str,
+) -> None:
+    _add_gate(
+        gates,
+        failures=failures,
+        warnings=warnings,
+        name=name,
+        passed=actual is not None and actual >= threshold,
+        actual=_decimal_to_string(actual) if actual is not None else None,
+        threshold=_decimal_to_string(threshold),
+        severity="failure",
+        code=code,
+        reason=reason,
+    )
+
+
+def _add_gate(
+    gates: list[dict[str, Any]],
+    *,
+    failures: list[str],
+    warnings: list[str],
+    name: str,
+    passed: bool,
+    actual: Any,
+    threshold: Any,
+    severity: str,
+    code: str,
+    reason: str,
+) -> None:
+    gates.append(
+        {
+            "name": name,
+            "passed": passed,
+            "actual": _json_value(actual),
+            "threshold": _json_value(threshold),
+            "severity": severity,
+            "reason": reason,
+        }
+    )
+    if not passed and severity == "failure":
+        failures.append(code)
+    elif severity == "warning":
+        warnings.append(code)
 
 
 def _recommendation_run(item: dict[str, Any]) -> dict[str, Any]:

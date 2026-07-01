@@ -50,6 +50,8 @@ NUMERIC_RECOMMENDATION_RUN_FIELDS = (
     "exposure_pct",
 )
 RECOMMENDATION_STATUSES = {"recommended", "weak_recommendation", "not_recommended", "no_valid_runs"}
+ACCEPTANCE_STATUSES = {"accepted", "accepted_with_warnings", "rejected", "not_evaluated"}
+ACCEPTANCE_GATE_SEVERITIES = {"failure", "warning"}
 
 
 class BacktestComparisonReportValidationError(ValueError):
@@ -261,6 +263,7 @@ def _check_recommendation(
         label="recommendation.recommendation_warnings",
         errors=errors,
     )
+    _check_acceptance(recommendation, errors=errors)
     runner_up_runs = recommendation.get("runner_up_runs")
     if runner_up_runs is not None:
         if not isinstance(runner_up_runs, list):
@@ -302,6 +305,43 @@ def _check_recommendation_run(
     _check_string_list(item.get("score_warnings"), label=f"{label}.score_warnings", errors=errors)
 
 
+def _check_acceptance(recommendation: dict[str, Any], *, errors: list[str]) -> None:
+    if not any(field in recommendation for field in ("acceptance_status", "acceptance_gates", "acceptance_failures", "acceptance_warnings")):
+        return
+    if recommendation.get("acceptance_status") not in ACCEPTANCE_STATUSES:
+        errors.append("recommendation.acceptance_status is invalid")
+    gates = recommendation.get("acceptance_gates")
+    if not isinstance(gates, list):
+        errors.append("recommendation.acceptance_gates must be a list")
+    else:
+        for index, gate in enumerate(gates):
+            if not isinstance(gate, dict):
+                errors.append(f"recommendation.acceptance_gates[{index}] must be an object")
+                continue
+            if not isinstance(gate.get("name"), str) or not gate.get("name"):
+                errors.append(f"recommendation.acceptance_gates[{index}].name must be a non-empty string")
+            if not isinstance(gate.get("passed"), bool):
+                errors.append(f"recommendation.acceptance_gates[{index}].passed must be boolean")
+            if gate.get("severity") not in ACCEPTANCE_GATE_SEVERITIES:
+                errors.append(f"recommendation.acceptance_gates[{index}].severity is invalid")
+            if not isinstance(gate.get("reason"), str) or not gate.get("reason"):
+                errors.append(f"recommendation.acceptance_gates[{index}].reason must be a non-empty string")
+            if _contains_non_finite_number(gate.get("actual")):
+                errors.append(f"recommendation.acceptance_gates[{index}].actual must be finite")
+            if _contains_non_finite_number(gate.get("threshold")):
+                errors.append(f"recommendation.acceptance_gates[{index}].threshold must be finite")
+    _check_string_list(
+        recommendation.get("acceptance_failures"),
+        label="recommendation.acceptance_failures",
+        errors=errors,
+    )
+    _check_string_list(
+        recommendation.get("acceptance_warnings"),
+        label="recommendation.acceptance_warnings",
+        errors=errors,
+    )
+
+
 def _check_string_list(value: Any, *, label: str, errors: list[str]) -> None:
     if value is not None and (not isinstance(value, list) or any(not isinstance(item, str) for item in value)):
         errors.append(f"{label} must be a list of strings")
@@ -339,3 +379,19 @@ def _is_numeric(value: Any) -> bool:
     except (InvalidOperation, ValueError):
         return False
     return parsed.is_finite()
+
+
+def _contains_non_finite_number(value: Any) -> bool:
+    if isinstance(value, bool) or value is None:
+        return False
+    if isinstance(value, (int, float)):
+        try:
+            parsed = Decimal(str(value))
+        except (InvalidOperation, ValueError):
+            return True
+        return not parsed.is_finite()
+    if isinstance(value, list):
+        return any(_contains_non_finite_number(item) for item in value)
+    if isinstance(value, dict):
+        return any(_contains_non_finite_number(item) for item in value.values())
+    return False

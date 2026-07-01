@@ -105,6 +105,8 @@ def test_export_backtest_comparison_report_writes_json_from_run_dirs(tmp_path) -
     assert report["recommendation"]["recommended_run"]["run_name"] == "candidate"
     assert report["recommendation"]["recommended_run"]["run_path"] == "candidate"
     assert report["recommendation"]["recommendation_status"] == "weak_recommendation"
+    assert report["recommendation"]["acceptance_status"] == "rejected"
+    assert "too_few_trades" in report["recommendation"]["acceptance_failures"]
     assert "best_run_has_too_few_trades" in report["recommendation"]["recommendation_warnings"]
     assert [item["run_name"] for item in report["rankings"]["overall_score"]] == ["candidate", "base"]
     assert [item["run_name"] for item in report["rankings"]["total_return"]] == ["candidate", "base"]
@@ -148,6 +150,9 @@ def test_export_backtest_comparison_report_writes_markdown(tmp_path) -> None:
     assert "Score Warnings" in markdown
     assert "## Recommendation" in markdown
     assert "Status: `weak_recommendation`" in markdown
+    assert "Acceptance status: `rejected`" in markdown
+    assert "Acceptance Failures" in markdown
+    assert "Acceptance Warnings" in markdown
     assert "Recommendation Warnings" in markdown
     assert "### `overall_score`" in markdown
     assert "### `total_return`" in markdown
@@ -226,6 +231,7 @@ def test_export_backtest_comparison_report_reads_existing_comparison_json(tmp_pa
     assert [run["run_path"] for run in report["runs"]] == ["base", "candidate"]
     assert report["rankings"]["total_return"][0]["run_path"] == "candidate"
     assert report["recommendation"]["recommended_run"]["run_path"] == "candidate"
+    assert "acceptance_status" in report["recommendation"]
 
 
 def test_export_backtest_comparison_report_tolerates_older_comparison_without_scores_or_recommendation(tmp_path) -> None:
@@ -267,6 +273,7 @@ def test_export_backtest_comparison_report_tolerates_older_comparison_without_sc
     report = json.loads(output_json.read_text(encoding="utf-8"))
     assert report["recommendation"]["recommendation_status"] == "no_valid_runs"
     assert report["recommendation"]["recommended_run"] is None
+    assert report["recommendation"]["acceptance_status"] == "not_evaluated"
 
 
 def test_export_backtest_comparison_report_refuses_existing_output_without_overwrite(tmp_path) -> None:

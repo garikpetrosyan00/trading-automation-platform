@@ -142,9 +142,42 @@ def test_validate_backtest_comparison_report_rejects_invalid_recommendation_fiel
     assert "recommendation.recommendation_warnings must be a list of strings" in result["errors"]
 
 
+def test_validate_backtest_comparison_report_rejects_invalid_acceptance_fields(tmp_path) -> None:
+    report = valid_report()
+    report["recommendation"]["acceptance_status"] = "maybe"
+    report["recommendation"]["acceptance_gates"][0]["passed"] = "yes"
+    report["recommendation"]["acceptance_gates"][0]["severity"] = "note"
+    report["recommendation"]["acceptance_gates"][0]["actual"] = float("nan")
+    report["recommendation"]["acceptance_failures"] = ["too_few_trades", 123]
+    report_path = write_report(tmp_path, report)
+
+    exit_code, result = run_validator(report_path)
+
+    assert exit_code == 1
+    assert "recommendation.acceptance_status is invalid" in result["errors"]
+    assert "recommendation.acceptance_gates[0].passed must be boolean" in result["errors"]
+    assert "recommendation.acceptance_gates[0].severity is invalid" in result["errors"]
+    assert "recommendation.acceptance_gates[0].actual must be finite" in result["errors"]
+    assert "recommendation.acceptance_failures must be a list of strings" in result["errors"]
+
+
 def test_validate_backtest_comparison_report_accepts_older_report_without_recommendation(tmp_path) -> None:
     report = valid_report()
     report.pop("recommendation")
+    report_path = write_report(tmp_path, report)
+
+    exit_code, result = run_validator(report_path)
+
+    assert exit_code == 0
+    assert result["valid"] is True
+
+
+def test_validate_backtest_comparison_report_accepts_recommendation_without_acceptance_fields(tmp_path) -> None:
+    report = valid_report()
+    report["recommendation"].pop("acceptance_status")
+    report["recommendation"].pop("acceptance_gates")
+    report["recommendation"].pop("acceptance_failures")
+    report["recommendation"].pop("acceptance_warnings")
     report_path = write_report(tmp_path, report)
 
     exit_code, result = run_validator(report_path)
@@ -335,6 +368,27 @@ def valid_report() -> dict:
                 "infinite_or_unavailable_profit_factor",
                 "too_few_trades",
             ],
+            "acceptance_status": "rejected",
+            "acceptance_gates": [
+                {
+                    "name": "minimum_overall_score",
+                    "passed": False,
+                    "actual": "61",
+                    "threshold": "70",
+                    "severity": "failure",
+                    "reason": "overall_score must be at least 70",
+                },
+                {
+                    "name": "weak_recommendation_only",
+                    "passed": True,
+                    "actual": "weak_recommendation",
+                    "threshold": "recommended",
+                    "severity": "warning",
+                    "reason": "best run is only weakly recommended",
+                },
+            ],
+            "acceptance_failures": ["score_below_minimum", "too_few_trades"],
+            "acceptance_warnings": ["weak_recommendation_only"],
             "runner_up_runs": [
                 {
                     "strategy": "price_threshold",
