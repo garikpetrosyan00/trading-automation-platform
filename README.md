@@ -187,6 +187,16 @@ curl -X POST http://127.0.0.1:8000/api/v1/backtests/local-demo/runs/compare \
 
 Safety: read-only file API for artifacts under `data/backtests/runs/`. It rejects unsafe names/paths, returns sanitized relative run paths, and does not fetch data, invoke execution, submit orders, write database rows, or create runtime audit records.
 
+Local artifact catalog:
+
+```bash
+.venv/bin/python -m app.cli.list_backtest_artifacts \
+  --artifact-root data/backtests/runs \
+  --json
+```
+
+Safety: reads local backtest artifact files only and emits relative artifact paths. It indexes saved runs, comparison reports, parameter sweeps, JSON/Markdown reports, and validation outputs without fetching data, invoking execution, writing database rows, or creating runtime audit records.
+
 One-shot paper runner for paused paper bots:
 
 ```bash
