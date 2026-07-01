@@ -36,6 +36,76 @@ For the local backtest/demo workflow:
 
 These guarantees apply to the local CSV backtest demo pipeline and reporting/export helpers. Separate paper-mode and Binance Spot testnet sections below have their own explicit operator checklists.
 
+## Local Backtest Decision Engine v1
+
+The local backtest decision engine is v1-capable for offline CSV strategy analysis and portfolio demonstration. It supports deterministic CSV backtests, saved run artifacts, diagnostics, comparison scoring, recommendation summaries, acceptance gates, executive summaries, export manifests, parameter sweep scoring, sweep validation, and local artifact cataloging.
+
+V1 artifacts are file-based and JSON-safe where possible. Older or partial artifacts are tolerated conservatively: unavailable metrics remain unavailable instead of being guessed, malformed optional artifacts are surfaced as warnings, and generated catalog/report paths are kept relative to the configured artifact root.
+
+Demo commands:
+
+```bash
+# Run one local CSV backtest.
+.venv/bin/python -m app.cli.run_backtest \
+  --symbol BTCUSDT \
+  --timeframe 1h \
+  --csv data/backtests/BTCUSDT_1h_sample.csv \
+  --initial-balance 10000 \
+  --fee-rate 0.001 \
+  --strategy-type price_threshold \
+  --entry-below 95000 \
+  --exit-above 105000 \
+  --order-quantity 0.01 \
+  --output-dir data/backtests/runs/BTCUSDT_1h_v1_base \
+  --overwrite
+
+# Compare saved runs and export a JSON/Markdown comparison report.
+.venv/bin/python -m app.cli.compare_backtest_runs \
+  --run-dir data/backtests/runs/BTCUSDT_1h_v1_base \
+  --run-dir data/backtests/runs/BTCUSDT_1h_smoke_candidate \
+  --output-json data/backtests/runs/BTCUSDT_1h_v1_comparison.json
+
+.venv/bin/python -m app.cli.export_backtest_comparison_report \
+  --comparison-json data/backtests/runs/BTCUSDT_1h_v1_comparison.json \
+  --output-json data/backtests/runs/BTCUSDT_1h_v1_report.json \
+  --output-md data/backtests/runs/BTCUSDT_1h_v1_report.md \
+  --title "BTCUSDT 1h Local Decision Report" \
+  --overwrite
+
+# Run and validate a local parameter sweep.
+.venv/bin/python -m app.cli.run_backtest_parameter_sweep \
+  --symbol BTCUSDT \
+  --timeframe 1h \
+  --csv data/backtests/BTCUSDT_1h_sample.csv \
+  --initial-balance 10000 \
+  --fee-rate 0.001 \
+  --strategy-type price_threshold \
+  --entry-below-values 90000,95000,100000 \
+  --exit-above-values 105000,110000 \
+  --order-quantity 0.01 \
+  --output-dir data/backtests/runs/BTCUSDT_1h_v1_sweep \
+  --overwrite
+
+.venv/bin/python -m app.cli.validate_backtest_parameter_sweep \
+  --sweep-dir data/backtests/runs/BTCUSDT_1h_v1_sweep
+
+# List local artifacts.
+.venv/bin/python -m app.cli.list_backtest_artifacts \
+  --artifact-root data/backtests/runs \
+  --json
+```
+
+Safety boundary: v1 is local-only. It does not place live trades, does not submit Binance/testnet/live orders, does not invoke broker execution, and does not create paper execution side effects. It is intended for offline CSV analysis, deterministic report generation, and reviewable artifact indexing.
+
+Next roadmap:
+
+- Paper trading hardening with clearer operator gates and safer paused-bot workflows.
+- Risk limits around sizing, exposure, drawdown, and per-bot loss controls.
+- Reconciliation flows for unresolved execution attempts and delayed confirmations.
+- Kill switch controls for stopping automated execution paths.
+- Testnet-only exchange safety reviews before any exchange-connected workflow is broadened.
+- Small live spot pilot only after stable paper and testnet operation with explicit operator approval.
+
 ## Local Backtest Demo Pipeline
 
 The fastest portfolio/demo path is the one-command local pipeline. It prepares a dataset, runs a CSV backtest, optionally compares against a prior run, exports a Markdown report, and packages a clean demo bundle:
