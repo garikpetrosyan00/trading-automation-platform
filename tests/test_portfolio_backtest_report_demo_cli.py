@@ -65,6 +65,11 @@ def test_portfolio_backtest_report_demo_runs_e2e_and_validates_report(tmp_path) 
         "rejected",
         "accepted_with_warnings",
     }
+    assert report["executive_summary"]["decision"] in {
+        "reject_candidate",
+        "accept_with_warnings",
+    }
+    assert "summary_text" in report["executive_summary"]
     assert [run["run_path"] for run in report["runs"]] == [
         "base_price_threshold",
         "candidate_price_threshold",
@@ -113,6 +118,7 @@ def test_portfolio_backtest_report_demo_writes_optional_markdown_report(tmp_path
     assert "# Backtest Comparison Report" in markdown
     assert "Generated at: `2026-07-01T00:00:00Z`" in markdown
     assert "Local backtest artifact comparison report only" in markdown
+    assert "## Executive Summary" in markdown
     assert "## Recommendation" in markdown
     assert "Acceptance status:" in markdown
     assert "### `total_return`" in markdown

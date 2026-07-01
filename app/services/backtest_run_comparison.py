@@ -113,6 +113,7 @@ def compare_backtest_run_dirs_many(run_dirs: list[str | Path]) -> dict[str, Any]
         )
     run_items.sort(key=_overall_score_sort_key)
 
+    recommendation = build_backtest_recommendation_summary(run_items)
     return {
         "result": "PASS",
         "runs_count": len(run_items),
@@ -124,7 +125,8 @@ def compare_backtest_run_dirs_many(run_dirs: list[str | Path]) -> dict[str, Any]
             "ending_balance": _rank_run_items(run_items, metric="ending_balance", higher_is_better=True),
             "max_drawdown_pct": _rank_run_items(run_items, metric="max_drawdown_pct", higher_is_better=False),
         },
-        "recommendation": build_backtest_recommendation_summary(run_items),
+        "recommendation": recommendation,
+        "executive_summary": build_backtest_executive_summary(recommendation),
     }
 
 
@@ -157,6 +159,7 @@ def compact_backtest_comparison_report(report: dict[str, Any]) -> dict[str, Any]
             "ranking_metrics": report["ranking_metrics"],
             "rankings": report["rankings"],
             "recommendation": report.get("recommendation"),
+            "executive_summary": report.get("executive_summary"),
         }
     compact = {
         "result": report["result"],
@@ -668,6 +671,112 @@ def build_backtest_acceptance_evaluation(recommendation: dict[str, Any]) -> dict
         "acceptance_failures": unique_failures,
         "acceptance_warnings": unique_warnings,
     }
+
+
+def build_backtest_executive_summary(recommendation: dict[str, Any]) -> dict[str, Any]:
+    recommended_run = recommendation.get("recommended_run") if isinstance(recommendation, dict) else None
+    recommended_run = recommended_run if isinstance(recommended_run, dict) else {}
+    acceptance_status = recommendation.get("acceptance_status") if isinstance(recommendation, dict) else None
+    recommendation_status = recommendation.get("recommendation_status") if isinstance(recommendation, dict) else None
+    decision = _executive_decision(acceptance_status)
+    key_strengths = _executive_key_strengths(recommendation, recommended_run)
+    key_risks = _executive_key_risks(recommendation)
+    next_action = _executive_next_action(decision, key_risks)
+    best_run_label = recommended_run.get("run_name") or recommended_run.get("run_path")
+    best_strategy = recommended_run.get("strategy")
+    overall_score = recommended_run.get("overall_score")
+    return {
+        "title": "Local Backtest Comparison Executive Summary",
+        "decision": decision,
+        "best_strategy": best_strategy,
+        "best_run_label": best_run_label,
+        "acceptance_status": acceptance_status or "not_evaluated",
+        "recommendation_status": recommendation_status or "no_valid_runs",
+        "overall_score": overall_score,
+        "key_strengths": key_strengths,
+        "key_risks": key_risks,
+        "next_action": next_action,
+        "summary_text": _executive_summary_text(
+            decision=decision,
+            best_run_label=best_run_label,
+            acceptance_status=acceptance_status or "not_evaluated",
+            recommendation_status=recommendation_status or "no_valid_runs",
+            next_action=next_action,
+        ),
+    }
+
+
+def _executive_decision(acceptance_status: Any) -> str:
+    return {
+        "accepted": "accept_candidate",
+        "accepted_with_warnings": "accept_with_warnings",
+        "rejected": "reject_candidate",
+        "not_evaluated": "no_decision",
+    }.get(str(acceptance_status), "no_decision")
+
+
+def _executive_key_strengths(recommendation: dict[str, Any], recommended_run: dict[str, Any]) -> list[str]:
+    reason = recommendation.get("recommendation_reason") if isinstance(recommendation.get("recommendation_reason"), dict) else {}
+    strengths = []
+    ordered_reason_fields = (
+        ("highest_overall_score", "highest_overall_score"),
+        ("positive_return", "positive_return"),
+        ("acceptable_drawdown", "acceptable_drawdown"),
+        ("sufficient_trades", "sufficient_trade_count"),
+        ("better_risk_adjusted_profile", "better_risk_adjusted_profile"),
+    )
+    for field, strength in ordered_reason_fields:
+        if reason.get(field) is True:
+            strengths.append(strength)
+    profit_factor = _optional_decimal(recommended_run.get("profit_factor"))
+    if profit_factor is not None and profit_factor >= Decimal("1.1"):
+        strengths.append("acceptable_profit_factor")
+    return strengths
+
+
+def _executive_key_risks(recommendation: dict[str, Any]) -> list[str]:
+    codes = set(_string_list(recommendation.get("acceptance_failures")))
+    codes.update(_string_list(recommendation.get("acceptance_warnings")))
+    codes.update(_string_list(recommendation.get("recommendation_warnings")))
+    risk_rules = (
+        ("too_few_trades", {"too_few_trades", "best_run_has_too_few_trades", "low_trade_confidence"}),
+        ("high_drawdown", {"drawdown_too_high", "best_run_has_high_drawdown", "high_drawdown"}),
+        ("negative_return", {"negative_return", "non_positive_return", "best_run_has_negative_return"}),
+        ("low_score", {"score_below_minimum", "best_run_has_low_score"}),
+        ("missing_profit_factor", {"missing_profit_factor", "infinite_or_unavailable_profit_factor"}),
+        ("missing_drawdown_metric", {"missing_drawdown_metric"}),
+        ("no_clear_winner", {"no_clear_winner"}),
+        ("weak_recommendation_only", {"weak_recommendation_only"}),
+    )
+    return [risk for risk, matching_codes in risk_rules if codes.intersection(matching_codes)]
+
+
+def _executive_next_action(decision: str, key_risks: list[str]) -> str:
+    if decision == "accept_candidate":
+        return "promote_to_further_local_testing"
+    if decision == "accept_with_warnings":
+        data_risks = {"too_few_trades", "missing_profit_factor", "missing_drawdown_metric"}
+        if data_risks.intersection(key_risks):
+            return "add_more_data_and_rerun"
+        return "review_with_caution"
+    if decision == "reject_candidate":
+        return "reject_or_adjust_strategy"
+    return "no_action_available"
+
+
+def _executive_summary_text(
+    *,
+    decision: str,
+    best_run_label: Any,
+    acceptance_status: str,
+    recommendation_status: str,
+    next_action: str,
+) -> str:
+    run_label = str(best_run_label) if best_run_label not in (None, "") else "no comparable run"
+    return (
+        f"Decision {decision} for {run_label}; acceptance_status={acceptance_status}; "
+        f"recommendation_status={recommendation_status}; next_action={next_action}."
+    )
 
 
 def _add_numeric_min_gate(

@@ -50,6 +50,11 @@ def test_portfolio_backtest_comparison_smoke_writes_runs_and_comparison(tmp_path
         "accepted_with_warnings",
     }
     assert "acceptance_gates" in comparison["recommendation"]
+    assert comparison["executive_summary"]["decision"] in {
+        "reject_candidate",
+        "accept_with_warnings",
+    }
+    assert "summary_text" in comparison["executive_summary"]
     assert [item["run_name"] for item in comparison["rankings"]["total_return"]] == [
         "base_price_threshold",
         "candidate_price_threshold",

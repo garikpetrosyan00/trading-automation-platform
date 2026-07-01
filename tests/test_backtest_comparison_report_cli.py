@@ -108,6 +108,11 @@ def test_export_backtest_comparison_report_writes_json_from_run_dirs(tmp_path) -
     assert report["recommendation"]["acceptance_status"] == "rejected"
     assert "too_few_trades" in report["recommendation"]["acceptance_failures"]
     assert "best_run_has_too_few_trades" in report["recommendation"]["recommendation_warnings"]
+    assert report["executive_summary"]["decision"] == "reject_candidate"
+    assert report["executive_summary"]["best_run_label"] == "candidate"
+    assert report["executive_summary"]["acceptance_status"] == "rejected"
+    assert report["executive_summary"]["recommendation_status"] == "weak_recommendation"
+    assert "too_few_trades" in report["executive_summary"]["key_risks"]
     assert [item["run_name"] for item in report["rankings"]["overall_score"]] == ["candidate", "base"]
     assert [item["run_name"] for item in report["rankings"]["total_return"]] == ["candidate", "base"]
     assert [item["run_path"] for item in report["rankings"]["ending_balance"]] == ["candidate", "base"]
@@ -145,6 +150,8 @@ def test_export_backtest_comparison_report_writes_markdown(tmp_path) -> None:
     assert "# Backtest Comparison Report" in markdown
     assert "Generated at: `2026-07-01T00:00:00Z`" in markdown
     assert "Local backtest artifact comparison report only" in markdown
+    assert "## Executive Summary" in markdown
+    assert "| Decision | reject_candidate |" in markdown
     assert "| candidate | candidate |" in markdown
     assert "Overall Score" in markdown
     assert "Score Warnings" in markdown
@@ -232,6 +239,7 @@ def test_export_backtest_comparison_report_reads_existing_comparison_json(tmp_pa
     assert report["rankings"]["total_return"][0]["run_path"] == "candidate"
     assert report["recommendation"]["recommended_run"]["run_path"] == "candidate"
     assert "acceptance_status" in report["recommendation"]
+    assert report["executive_summary"]["decision"] == "reject_candidate"
 
 
 def test_export_backtest_comparison_report_tolerates_older_comparison_without_scores_or_recommendation(tmp_path) -> None:
@@ -274,6 +282,7 @@ def test_export_backtest_comparison_report_tolerates_older_comparison_without_sc
     assert report["recommendation"]["recommendation_status"] == "no_valid_runs"
     assert report["recommendation"]["recommended_run"] is None
     assert report["recommendation"]["acceptance_status"] == "not_evaluated"
+    assert report["executive_summary"]["decision"] == "no_decision"
 
 
 def test_export_backtest_comparison_report_refuses_existing_output_without_overwrite(tmp_path) -> None:

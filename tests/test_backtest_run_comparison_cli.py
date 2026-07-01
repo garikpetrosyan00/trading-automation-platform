@@ -7,7 +7,7 @@ from app.repositories.execution_attempt import ExecutionAttemptRepository
 from app.repositories.execution_reconciliation_job import ExecutionReconciliationJobRepository
 from app.repositories.portfolio import PortfolioRepository
 from app.repositories.run_event import RunEventRepository
-from app.services.backtest_run_comparison import build_backtest_recommendation_summary
+from app.services.backtest_run_comparison import build_backtest_executive_summary, build_backtest_recommendation_summary
 
 
 def test_compare_backtest_runs_reports_metric_deltas(tmp_path) -> None:
@@ -596,6 +596,30 @@ def test_compare_backtest_runs_many_recommends_strong_best_run(tmp_path) -> None
     assert recommendation["recommendation_reason"]["acceptable_drawdown"] is True
     assert recommendation["recommendation_reason"]["sufficient_trades"] is True
     assert recommendation["recommendation_reason"]["better_risk_adjusted_profile"] is True
+    executive_summary = json.loads(stdout.getvalue())["executive_summary"]
+    assert executive_summary == {
+        "title": "Local Backtest Comparison Executive Summary",
+        "decision": "accept_candidate",
+        "best_strategy": "moving_average_crossover",
+        "best_run_label": "strong",
+        "acceptance_status": "accepted",
+        "recommendation_status": "recommended",
+        "overall_score": recommendation["recommended_run"]["overall_score"],
+        "key_strengths": [
+            "highest_overall_score",
+            "positive_return",
+            "acceptable_drawdown",
+            "sufficient_trade_count",
+            "better_risk_adjusted_profile",
+            "acceptable_profit_factor",
+        ],
+        "key_risks": [],
+        "next_action": "promote_to_further_local_testing",
+        "summary_text": (
+            "Decision accept_candidate for strong; acceptance_status=accepted; "
+            "recommendation_status=recommended; next_action=promote_to_further_local_testing."
+        ),
+    }
 
 
 def test_compare_backtest_runs_many_weak_recommendation_for_too_few_trades_best(tmp_path) -> None:
@@ -769,6 +793,21 @@ def test_compare_backtest_runs_many_accepts_weak_no_clear_winner_with_warnings(t
     assert recommendation["acceptance_failures"] == []
     assert "weak_recommendation_only" in recommendation["acceptance_warnings"]
     assert "no_clear_winner" in recommendation["acceptance_warnings"]
+    executive_summary = json.loads(stdout.getvalue())["executive_summary"]
+    assert executive_summary["decision"] == "accept_with_warnings"
+    assert executive_summary["next_action"] == "review_with_caution"
+    assert executive_summary["key_strengths"] == [
+        "highest_overall_score",
+        "positive_return",
+        "acceptable_drawdown",
+        "sufficient_trade_count",
+        "acceptable_profit_factor",
+    ]
+    assert executive_summary["key_risks"] == ["no_clear_winner", "weak_recommendation_only"]
+    assert executive_summary["summary_text"] == (
+        "Decision accept_with_warnings for a_first; acceptance_status=accepted_with_warnings; "
+        "recommendation_status=weak_recommendation; next_action=review_with_caution."
+    )
 
 
 def test_compare_backtest_runs_many_rejects_low_score_best(tmp_path) -> None:
@@ -810,6 +849,10 @@ def test_compare_backtest_runs_many_rejects_low_score_best(tmp_path) -> None:
     assert recommendation["acceptance_status"] == "rejected"
     assert "score_below_minimum" in recommendation["acceptance_failures"]
     assert "profit_factor_below_minimum" in recommendation["acceptance_failures"]
+    executive_summary = json.loads(stdout.getvalue())["executive_summary"]
+    assert executive_summary["decision"] == "reject_candidate"
+    assert executive_summary["next_action"] == "reject_or_adjust_strategy"
+    assert executive_summary["key_risks"] == ["low_score", "weak_recommendation_only"]
 
 
 def test_compare_backtest_runs_many_missing_optional_acceptance_metrics_warn_without_crash(tmp_path) -> None:
@@ -852,10 +895,15 @@ def test_compare_backtest_runs_many_missing_optional_acceptance_metrics_warn_wit
     assert recommendation["acceptance_failures"] == []
     assert "missing_drawdown_metric" in recommendation["acceptance_warnings"]
     assert "missing_profit_factor" in recommendation["acceptance_warnings"]
+    executive_summary = json.loads(stdout.getvalue())["executive_summary"]
+    assert executive_summary["decision"] == "accept_with_warnings"
+    assert executive_summary["next_action"] == "add_more_data_and_rerun"
+    assert executive_summary["key_risks"] == ["missing_profit_factor", "missing_drawdown_metric"]
 
 
 def test_backtest_recommendation_summary_empty_comparison_has_no_valid_runs() -> None:
-    assert build_backtest_recommendation_summary([]) == {
+    recommendation = build_backtest_recommendation_summary([])
+    assert recommendation == {
         "recommended_run": None,
         "recommendation_status": "no_valid_runs",
         "recommendation_reason": {
@@ -872,6 +920,22 @@ def test_backtest_recommendation_summary_empty_comparison_has_no_valid_runs() ->
         "acceptance_gates": [],
         "acceptance_failures": ["no_valid_recommended_run"],
         "acceptance_warnings": [],
+    }
+    assert build_backtest_executive_summary(recommendation) == {
+        "title": "Local Backtest Comparison Executive Summary",
+        "decision": "no_decision",
+        "best_strategy": None,
+        "best_run_label": None,
+        "acceptance_status": "not_evaluated",
+        "recommendation_status": "no_valid_runs",
+        "overall_score": None,
+        "key_strengths": [],
+        "key_risks": [],
+        "next_action": "no_action_available",
+        "summary_text": (
+            "Decision no_decision for no comparable run; acceptance_status=not_evaluated; "
+            "recommendation_status=no_valid_runs; next_action=no_action_available."
+        ),
     }
 
 

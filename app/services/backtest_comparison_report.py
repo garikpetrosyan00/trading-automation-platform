@@ -3,7 +3,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from app.services.backtest_run_comparison import build_backtest_recommendation_summary
+from app.services.backtest_run_comparison import build_backtest_executive_summary, build_backtest_recommendation_summary
 
 
 SAFETY_NOTE = (
@@ -69,6 +69,9 @@ def build_backtest_comparison_report(
     recommendation = comparison.get("recommendation")
     if not isinstance(recommendation, dict):
         recommendation = build_backtest_recommendation_summary(_runs_with_overall_scores_from_rankings(runs, rankings))
+    executive_summary = comparison.get("executive_summary")
+    if not isinstance(executive_summary, dict):
+        executive_summary = build_backtest_executive_summary(recommendation)
     return {
         "result": "PASS",
         "generated_at": generated_at or datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
@@ -77,6 +80,7 @@ def build_backtest_comparison_report(
         "runs": report_runs,
         "rankings": _report_rankings(rankings, artifact_root=root),
         "recommendation": _report_recommendation(recommendation, artifact_root=root),
+        "executive_summary": executive_summary,
         "safety_note": SAFETY_NOTE,
     }
 
@@ -101,6 +105,10 @@ def build_backtest_comparison_markdown_report(report: dict[str, Any], *, title: 
         f"Generated at: `{_markdown_text(report.get('generated_at'))}`",
         "",
         f"Safety note: {_markdown_text(report.get('safety_note'))}",
+        "",
+        "## Executive Summary",
+        "",
+        _executive_summary_markdown(report.get("executive_summary")),
         "",
         "## Runs",
         "",
@@ -312,6 +320,27 @@ def _recommendation_markdown(recommendation: Any) -> str:
         ),
     ]
     return "\n".join(lines)
+
+
+def _executive_summary_markdown(executive_summary: Any) -> str:
+    if not isinstance(executive_summary, dict):
+        return "Unavailable"
+    return _table(
+        ["Field", "Value"],
+        [
+            ("Title", executive_summary.get("title")),
+            ("Decision", executive_summary.get("decision")),
+            ("Best Strategy", executive_summary.get("best_strategy")),
+            ("Best Run", executive_summary.get("best_run_label")),
+            ("Acceptance Status", executive_summary.get("acceptance_status")),
+            ("Recommendation Status", executive_summary.get("recommendation_status")),
+            ("Overall Score", executive_summary.get("overall_score")),
+            ("Key Strengths", ", ".join(executive_summary.get("key_strengths", [])) if isinstance(executive_summary.get("key_strengths"), list) else None),
+            ("Key Risks", ", ".join(executive_summary.get("key_risks", [])) if isinstance(executive_summary.get("key_risks"), list) else None),
+            ("Next Action", executive_summary.get("next_action")),
+            ("Summary", executive_summary.get("summary_text")),
+        ],
+    )
 
 
 def _safe_run_path(value: Any, *, artifact_root: Path | None) -> str | None:

@@ -23,6 +23,7 @@ def test_validate_backtest_comparison_report_accepts_valid_report(tmp_path) -> N
     assert "run_summaries" in result["checked_fields"]
     assert "ranking_references" in result["checked_fields"]
     assert "recommendation" in result["checked_fields"]
+    assert "executive_summary" in result["checked_fields"]
 
 
 def test_validate_backtest_comparison_report_reports_missing_required_fields(tmp_path) -> None:
@@ -161,9 +162,41 @@ def test_validate_backtest_comparison_report_rejects_invalid_acceptance_fields(t
     assert "recommendation.acceptance_failures must be a list of strings" in result["errors"]
 
 
+def test_validate_backtest_comparison_report_rejects_invalid_executive_summary_fields(tmp_path) -> None:
+    report = valid_report()
+    report["executive_summary"]["decision"] = "maybe"
+    report["executive_summary"]["acceptance_status"] = "maybe"
+    report["executive_summary"]["recommendation_status"] = "maybe"
+    report["executive_summary"]["next_action"] = "maybe"
+    report["executive_summary"]["overall_score"] = "not-a-number"
+    report["executive_summary"]["key_strengths"] = ["positive_return", 123]
+    report_path = write_report(tmp_path, report)
+
+    exit_code, result = run_validator(report_path)
+
+    assert exit_code == 1
+    assert "executive_summary.decision is invalid" in result["errors"]
+    assert "executive_summary.acceptance_status is invalid" in result["errors"]
+    assert "executive_summary.recommendation_status is invalid" in result["errors"]
+    assert "executive_summary.next_action is invalid" in result["errors"]
+    assert "executive_summary.overall_score must be numeric" in result["errors"]
+    assert "executive_summary.key_strengths must be a list of strings" in result["errors"]
+
+
 def test_validate_backtest_comparison_report_accepts_older_report_without_recommendation(tmp_path) -> None:
     report = valid_report()
     report.pop("recommendation")
+    report_path = write_report(tmp_path, report)
+
+    exit_code, result = run_validator(report_path)
+
+    assert exit_code == 0
+    assert result["valid"] is True
+
+
+def test_validate_backtest_comparison_report_accepts_older_report_without_executive_summary(tmp_path) -> None:
+    report = valid_report()
+    report.pop("executive_summary")
     report_path = write_report(tmp_path, report)
 
     exit_code, result = run_validator(report_path)
@@ -405,6 +438,22 @@ def valid_report() -> dict:
                     "score_warnings": ["too_few_trades", "infinite_or_unavailable_profit_factor"],
                 }
             ],
+        },
+        "executive_summary": {
+            "title": "Local Backtest Comparison Executive Summary",
+            "decision": "reject_candidate",
+            "best_strategy": "moving_average_crossover",
+            "best_run_label": "candidate",
+            "acceptance_status": "rejected",
+            "recommendation_status": "weak_recommendation",
+            "overall_score": "61",
+            "key_strengths": ["highest_overall_score", "positive_return", "acceptable_drawdown"],
+            "key_risks": ["too_few_trades", "low_score", "weak_recommendation_only"],
+            "next_action": "reject_or_adjust_strategy",
+            "summary_text": (
+                "Decision reject_candidate for candidate; acceptance_status=rejected; "
+                "recommendation_status=weak_recommendation; next_action=reject_or_adjust_strategy."
+            ),
         },
         "safety_note": (
             "Local backtest artifact comparison report only; no live/testnet/Binance calls, "

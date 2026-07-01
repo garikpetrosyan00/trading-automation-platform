@@ -52,6 +52,14 @@ NUMERIC_RECOMMENDATION_RUN_FIELDS = (
 RECOMMENDATION_STATUSES = {"recommended", "weak_recommendation", "not_recommended", "no_valid_runs"}
 ACCEPTANCE_STATUSES = {"accepted", "accepted_with_warnings", "rejected", "not_evaluated"}
 ACCEPTANCE_GATE_SEVERITIES = {"failure", "warning"}
+EXECUTIVE_DECISIONS = {"accept_candidate", "accept_with_warnings", "reject_candidate", "no_decision"}
+EXECUTIVE_NEXT_ACTIONS = {
+    "promote_to_further_local_testing",
+    "review_with_caution",
+    "reject_or_adjust_strategy",
+    "add_more_data_and_rerun",
+    "no_action_available",
+}
 
 
 class BacktestComparisonReportValidationError(ValueError):
@@ -115,6 +123,7 @@ def validate_backtest_comparison_report(
         checked_fields=checked_fields,
         allow_absolute_paths=allow_absolute_paths,
     )
+    _check_executive_summary(report.get("executive_summary"), errors=errors, checked_fields=checked_fields)
     _check_safety_note(report.get("safety_note"), errors=errors, checked_fields=checked_fields)
 
     return {
@@ -340,6 +349,35 @@ def _check_acceptance(recommendation: dict[str, Any], *, errors: list[str]) -> N
         label="recommendation.acceptance_warnings",
         errors=errors,
     )
+
+
+def _check_executive_summary(executive_summary: Any, *, errors: list[str], checked_fields: list[str]) -> None:
+    checked_fields.append("executive_summary")
+    if executive_summary is None:
+        return
+    if not isinstance(executive_summary, dict):
+        errors.append("executive_summary must be an object when present")
+        return
+    for field in ("title", "decision", "acceptance_status", "recommendation_status", "next_action", "summary_text"):
+        if not isinstance(executive_summary.get(field), str) or not executive_summary.get(field):
+            errors.append(f"executive_summary.{field} must be a non-empty string")
+    if executive_summary.get("decision") not in EXECUTIVE_DECISIONS:
+        errors.append("executive_summary.decision is invalid")
+    if executive_summary.get("acceptance_status") not in ACCEPTANCE_STATUSES:
+        errors.append("executive_summary.acceptance_status is invalid")
+    if executive_summary.get("recommendation_status") not in RECOMMENDATION_STATUSES:
+        errors.append("executive_summary.recommendation_status is invalid")
+    if executive_summary.get("next_action") not in EXECUTIVE_NEXT_ACTIONS:
+        errors.append("executive_summary.next_action is invalid")
+    for field in ("best_strategy", "best_run_label"):
+        if executive_summary.get(field) is not None and not isinstance(executive_summary.get(field), str):
+            errors.append(f"executive_summary.{field} must be a string")
+    if executive_summary.get("overall_score") not in (None, "") and not _is_numeric(executive_summary.get("overall_score")):
+        errors.append("executive_summary.overall_score must be numeric")
+    _check_string_list(executive_summary.get("key_strengths"), label="executive_summary.key_strengths", errors=errors)
+    _check_string_list(executive_summary.get("key_risks"), label="executive_summary.key_risks", errors=errors)
+    if _contains_non_finite_number(executive_summary):
+        errors.append("executive_summary values must be finite")
 
 
 def _check_string_list(value: Any, *, label: str, errors: list[str]) -> None:

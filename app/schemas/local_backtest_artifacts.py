@@ -50,6 +50,7 @@ class LocalBacktestComparisonRead(BaseModel):
     runs: list[dict[str, Any]]
     rankings: dict[str, list[dict[str, Any]]]
     recommendation: dict[str, Any] | None = None
+    executive_summary: dict[str, Any] | None = None
 
 
 class LocalBacktestManifestFileRead(BaseModel):
