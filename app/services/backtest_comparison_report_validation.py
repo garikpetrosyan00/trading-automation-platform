@@ -60,6 +60,7 @@ EXECUTIVE_NEXT_ACTIONS = {
     "add_more_data_and_rerun",
     "no_action_available",
 }
+EXPORT_MANIFEST_VALIDATION_STATUSES = {"passed", "passed_with_warnings", "failed", "not_validated"}
 
 
 class BacktestComparisonReportValidationError(ValueError):
@@ -124,6 +125,13 @@ def validate_backtest_comparison_report(
         allow_absolute_paths=allow_absolute_paths,
     )
     _check_executive_summary(report.get("executive_summary"), errors=errors, checked_fields=checked_fields)
+    _check_export_manifest(
+        report.get("export_manifest"),
+        run_count=len(runs),
+        errors=errors,
+        checked_fields=checked_fields,
+        allow_absolute_paths=allow_absolute_paths,
+    )
     _check_safety_note(report.get("safety_note"), errors=errors, checked_fields=checked_fields)
 
     return {
@@ -378,6 +386,85 @@ def _check_executive_summary(executive_summary: Any, *, errors: list[str], check
     _check_string_list(executive_summary.get("key_risks"), label="executive_summary.key_risks", errors=errors)
     if _contains_non_finite_number(executive_summary):
         errors.append("executive_summary values must be finite")
+
+
+def _check_export_manifest(
+    export_manifest: Any,
+    *,
+    run_count: int,
+    errors: list[str],
+    checked_fields: list[str],
+    allow_absolute_paths: bool,
+) -> None:
+    checked_fields.append("export_manifest")
+    if export_manifest is None:
+        return
+    if not isinstance(export_manifest, dict):
+        errors.append("export_manifest must be an object when present")
+        return
+    for field in ("schema_version", "artifact_type", "generated_by", "validation_status"):
+        if not isinstance(export_manifest.get(field), str) or not export_manifest.get(field):
+            errors.append(f"export_manifest.{field} must be a non-empty string")
+    if export_manifest.get("validation_status") not in EXPORT_MANIFEST_VALIDATION_STATUSES:
+        errors.append("export_manifest.validation_status is invalid")
+    if export_manifest.get("comparison_row_count") != run_count:
+        errors.append("export_manifest.comparison_row_count must match run_count")
+    for field in ("has_recommendation", "has_acceptance_gates", "has_executive_summary"):
+        if not isinstance(export_manifest.get(field), bool):
+            errors.append(f"export_manifest.{field} must be boolean")
+    _check_manifest_input_artifacts(
+        export_manifest.get("input_artifacts"),
+        errors=errors,
+        allow_absolute_paths=allow_absolute_paths,
+    )
+    _check_manifest_output_artifacts(
+        export_manifest.get("output_artifacts"),
+        errors=errors,
+        allow_absolute_paths=allow_absolute_paths,
+    )
+    _check_string_list(export_manifest.get("validation_warnings"), label="export_manifest.validation_warnings", errors=errors)
+    _check_string_list(export_manifest.get("validation_errors"), label="export_manifest.validation_errors", errors=errors)
+    if _contains_non_finite_number(export_manifest):
+        errors.append("export_manifest values must be finite")
+
+
+def _check_manifest_input_artifacts(value: Any, *, errors: list[str], allow_absolute_paths: bool) -> None:
+    if not isinstance(value, list):
+        errors.append("export_manifest.input_artifacts must be a list")
+        return
+    for index, item in enumerate(value):
+        if not isinstance(item, dict):
+            errors.append(f"export_manifest.input_artifacts[{index}] must be an object")
+            continue
+        if item.get("label") is not None and not isinstance(item.get("label"), str):
+            errors.append(f"export_manifest.input_artifacts[{index}].label must be a string")
+        if item.get("run_id") is not None and not isinstance(item.get("run_id"), str):
+            errors.append(f"export_manifest.input_artifacts[{index}].run_id must be a string")
+        if item.get("strategy") is not None and not isinstance(item.get("strategy"), str):
+            errors.append(f"export_manifest.input_artifacts[{index}].strategy must be a string")
+        if not isinstance(item.get("artifact_exists"), bool):
+            errors.append(f"export_manifest.input_artifacts[{index}].artifact_exists must be boolean")
+        for field in ("summary_path", "trades_path", "equity_curve_path"):
+            _check_safe_path(
+                item.get(field),
+                label=f"export_manifest.input_artifacts[{index}].{field}",
+                errors=errors,
+                allow_absolute_paths=allow_absolute_paths,
+            )
+
+
+def _check_manifest_output_artifacts(value: Any, *, errors: list[str], allow_absolute_paths: bool) -> None:
+    if not isinstance(value, dict):
+        errors.append("export_manifest.output_artifacts must be an object")
+        return
+    for field in ("json_report_path", "markdown_report_path", "compact_output_path"):
+        if field in value:
+            _check_safe_path(
+                value.get(field),
+                label=f"export_manifest.output_artifacts.{field}",
+                errors=errors,
+                allow_absolute_paths=allow_absolute_paths,
+            )
 
 
 def _check_string_list(value: Any, *, label: str, errors: list[str]) -> None:

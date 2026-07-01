@@ -24,23 +24,25 @@ def main(argv: list[str] | None = None, *, stdout: TextIO | None = None, stderr:
         _validate_args(args)
         comparison = _comparison_from_args(args)
         artifact_root = args.artifact_root or _default_artifact_root(args.run_dir)
+        output_json = Path(args.output_json)
+        output_md = Path(args.output_md) if args.output_md is not None else None
         report = build_backtest_comparison_report(
             comparison,
             generated_at=args.generated_at,
             artifact_root=artifact_root,
+            output_json_path=output_json,
+            output_md_path=output_md,
         )
-        output_json = Path(args.output_json)
         _write_text(output_json, json.dumps(report, sort_keys=True) + "\n", overwrite=args.overwrite)
 
-        output_md = None
-        if args.output_md is not None:
-            output_md = Path(args.output_md)
+        if output_md is not None:
             markdown = build_backtest_comparison_markdown_report(report, title=args.title)
             _write_text(output_md, markdown, overwrite=args.overwrite)
 
         print(
             json.dumps(
                 {
+                    "export_manifest": report["export_manifest"],
                     "result": "PASS",
                     "output_json": str(output_json),
                     "output_md": str(output_md) if output_md is not None else None,

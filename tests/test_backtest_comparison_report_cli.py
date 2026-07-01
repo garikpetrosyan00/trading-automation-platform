@@ -75,12 +75,13 @@ def test_export_backtest_comparison_report_writes_json_from_run_dirs(tmp_path) -
     )
 
     assert exit_code == 0
-    assert json.loads(stdout.getvalue()) == {
-        "output_json": str(output_json),
-        "output_md": None,
-        "result": "PASS",
-        "run_count": 2,
-    }
+    stdout_payload = json.loads(stdout.getvalue())
+    assert stdout_payload["output_json"] == str(output_json)
+    assert stdout_payload["output_md"] is None
+    assert stdout_payload["result"] == "PASS"
+    assert stdout_payload["run_count"] == 2
+    assert stdout_payload["export_manifest"]["comparison_row_count"] == 2
+    assert stdout_payload["export_manifest"]["validation_status"] == "passed"
     report = json.loads(output_json.read_text(encoding="utf-8"))
     assert report["result"] == "PASS"
     assert report["generated_at"] == GENERATED_AT
@@ -113,6 +114,28 @@ def test_export_backtest_comparison_report_writes_json_from_run_dirs(tmp_path) -
     assert report["executive_summary"]["acceptance_status"] == "rejected"
     assert report["executive_summary"]["recommendation_status"] == "weak_recommendation"
     assert "too_few_trades" in report["executive_summary"]["key_risks"]
+    manifest = report["export_manifest"]
+    assert manifest["schema_version"] == "1"
+    assert manifest["artifact_type"] == "backtest_comparison_report"
+    assert manifest["generated_by"] == "export_backtest_comparison_report"
+    assert manifest["comparison_row_count"] == 2
+    assert manifest["has_recommendation"] is True
+    assert manifest["has_acceptance_gates"] is True
+    assert manifest["has_executive_summary"] is True
+    assert manifest["validation_status"] == "passed"
+    assert manifest["validation_warnings"] == []
+    assert manifest["validation_errors"] == []
+    assert manifest["output_artifacts"] == {"json_report_path": "reports/comparison_report.json"}
+    assert manifest["input_artifacts"][0] == {
+        "label": "candidate",
+        "run_id": "candidate",
+        "summary_path": "candidate/summary.json",
+        "trades_path": "candidate/trades.csv",
+        "equity_curve_path": "candidate/equity_curve.csv",
+        "strategy": "moving_average_crossover",
+        "artifact_exists": True,
+    }
+    assert str(tmp_path.resolve()) not in json.dumps(manifest, sort_keys=True)
     assert [item["run_name"] for item in report["rankings"]["overall_score"]] == ["candidate", "base"]
     assert [item["run_name"] for item in report["rankings"]["total_return"]] == ["candidate", "base"]
     assert [item["run_path"] for item in report["rankings"]["ending_balance"]] == ["candidate", "base"]
@@ -161,8 +184,15 @@ def test_export_backtest_comparison_report_writes_markdown(tmp_path) -> None:
     assert "Acceptance Failures" in markdown
     assert "Acceptance Warnings" in markdown
     assert "Recommendation Warnings" in markdown
+    assert "## Export Manifest" in markdown
+    assert "| Validation Status | passed |" in markdown
     assert "### `overall_score`" in markdown
     assert "### `total_return`" in markdown
+    report = json.loads(output_json.read_text(encoding="utf-8"))
+    assert report["export_manifest"]["output_artifacts"] == {
+        "json_report_path": "comparison_report.json",
+        "markdown_report_path": "comparison_report.md",
+    }
 
 
 def test_export_backtest_comparison_report_reads_existing_comparison_json(tmp_path) -> None:
@@ -240,6 +270,7 @@ def test_export_backtest_comparison_report_reads_existing_comparison_json(tmp_pa
     assert report["recommendation"]["recommended_run"]["run_path"] == "candidate"
     assert "acceptance_status" in report["recommendation"]
     assert report["executive_summary"]["decision"] == "reject_candidate"
+    assert report["export_manifest"]["output_artifacts"] == {"json_report_path": "report.json"}
 
 
 def test_export_backtest_comparison_report_tolerates_older_comparison_without_scores_or_recommendation(tmp_path) -> None:
@@ -283,6 +314,7 @@ def test_export_backtest_comparison_report_tolerates_older_comparison_without_sc
     assert report["recommendation"]["recommended_run"] is None
     assert report["recommendation"]["acceptance_status"] == "not_evaluated"
     assert report["executive_summary"]["decision"] == "no_decision"
+    assert report["export_manifest"]["comparison_row_count"] == 2
 
 
 def test_export_backtest_comparison_report_refuses_existing_output_without_overwrite(tmp_path) -> None:

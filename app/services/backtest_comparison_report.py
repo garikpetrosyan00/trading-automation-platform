@@ -54,6 +54,9 @@ def build_backtest_comparison_report(
     *,
     generated_at: str | None = None,
     artifact_root: str | Path | None = None,
+    output_json_path: str | Path | None = None,
+    output_md_path: str | Path | None = None,
+    compact_output_path: str | Path | None = None,
 ) -> dict[str, Any]:
     if not isinstance(comparison, dict):
         raise BacktestComparisonReportError("comparison must be a JSON object")
@@ -72,7 +75,7 @@ def build_backtest_comparison_report(
     executive_summary = comparison.get("executive_summary")
     if not isinstance(executive_summary, dict):
         executive_summary = build_backtest_executive_summary(recommendation)
-    return {
+    report = {
         "result": "PASS",
         "generated_at": generated_at or datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
         "run_count": len(runs),
@@ -83,6 +86,14 @@ def build_backtest_comparison_report(
         "executive_summary": executive_summary,
         "safety_note": SAFETY_NOTE,
     }
+    report["export_manifest"] = build_backtest_export_manifest(
+        report,
+        output_json_path=output_json_path,
+        output_md_path=output_md_path,
+        compact_output_path=compact_output_path,
+        artifact_root=root,
+    )
+    return report
 
 
 def build_backtest_comparison_markdown_report(report: dict[str, Any], *, title: str = "Backtest Comparison Report") -> str:
@@ -147,7 +158,75 @@ def build_backtest_comparison_markdown_report(report: dict[str, Any], *, title: 
                     "",
                 ]
             )
+    lines.extend(
+        [
+            "## Export Manifest",
+            "",
+            _export_manifest_markdown(report.get("export_manifest")),
+            "",
+        ]
+    )
     return "\n".join(lines).rstrip() + "\n"
+
+
+def build_backtest_export_manifest(
+    report: dict[str, Any],
+    *,
+    output_json_path: str | Path | None = None,
+    output_md_path: str | Path | None = None,
+    compact_output_path: str | Path | None = None,
+    artifact_root: Path | None = None,
+    validation_status: str = "passed",
+    validation_warnings: list[str] | None = None,
+    validation_errors: list[str] | None = None,
+) -> dict[str, Any]:
+    recommendation = report.get("recommendation") if isinstance(report.get("recommendation"), dict) else {}
+    return {
+        "schema_version": "1",
+        "artifact_type": "backtest_comparison_report",
+        "generated_by": "export_backtest_comparison_report",
+        "input_artifacts": [_manifest_input_artifact(run) for run in report.get("runs", []) if isinstance(run, dict)],
+        "output_artifacts": {
+            key: value
+            for key, value in {
+                "json_report_path": _safe_manifest_path(output_json_path, artifact_root=artifact_root),
+                "markdown_report_path": _safe_manifest_path(output_md_path, artifact_root=artifact_root),
+                "compact_output_path": _safe_manifest_path(compact_output_path, artifact_root=artifact_root),
+            }.items()
+            if value is not None
+        },
+        "comparison_row_count": len(report.get("runs", [])) if isinstance(report.get("runs"), list) else 0,
+        "has_recommendation": isinstance(report.get("recommendation"), dict),
+        "has_acceptance_gates": isinstance(recommendation.get("acceptance_gates"), list),
+        "has_executive_summary": isinstance(report.get("executive_summary"), dict),
+        "validation_status": validation_status,
+        "validation_warnings": validation_warnings or [],
+        "validation_errors": validation_errors or [],
+    }
+
+
+def _manifest_input_artifact(run: dict[str, Any]) -> dict[str, Any]:
+    run_path = run.get("run_path")
+    artifacts = run.get("artifacts") if isinstance(run.get("artifacts"), dict) else {}
+    summary = run.get("summary") if isinstance(run.get("summary"), dict) else {}
+    summary_exists = bool(artifacts.get("summary_json", True))
+    trades_exists = bool(artifacts.get("trades_csv", False))
+    equity_exists = bool(artifacts.get("equity_curve_csv", False))
+    return {
+        "label": run.get("run_name"),
+        "run_id": run.get("run_name"),
+        "summary_path": _child_artifact_path(run_path, "summary.json") if summary_exists else None,
+        "trades_path": _child_artifact_path(run_path, "trades.csv") if trades_exists else None,
+        "equity_curve_path": _child_artifact_path(run_path, "equity_curve.csv") if equity_exists else None,
+        "strategy": summary.get("strategy_type"),
+        "artifact_exists": summary_exists,
+    }
+
+
+def _child_artifact_path(run_path: Any, filename: str) -> str | None:
+    if run_path in (None, ""):
+        return None
+    return (Path(str(run_path)) / filename).as_posix()
 
 
 def load_comparison_json(path: str | Path) -> dict[str, Any]:
@@ -341,6 +420,38 @@ def _executive_summary_markdown(executive_summary: Any) -> str:
             ("Summary", executive_summary.get("summary_text")),
         ],
     )
+
+
+def _export_manifest_markdown(export_manifest: Any) -> str:
+    if not isinstance(export_manifest, dict):
+        return "Unavailable"
+    return _table(
+        ["Field", "Value"],
+        [
+            ("Schema Version", export_manifest.get("schema_version")),
+            ("Artifact Type", export_manifest.get("artifact_type")),
+            ("Generated By", export_manifest.get("generated_by")),
+            ("Comparison Rows", export_manifest.get("comparison_row_count")),
+            ("Has Recommendation", export_manifest.get("has_recommendation")),
+            ("Has Acceptance Gates", export_manifest.get("has_acceptance_gates")),
+            ("Has Executive Summary", export_manifest.get("has_executive_summary")),
+            ("Validation Status", export_manifest.get("validation_status")),
+            ("Validation Warnings", ", ".join(export_manifest.get("validation_warnings", [])) if isinstance(export_manifest.get("validation_warnings"), list) else None),
+            ("Validation Errors", ", ".join(export_manifest.get("validation_errors", [])) if isinstance(export_manifest.get("validation_errors"), list) else None),
+        ],
+    )
+
+
+def _safe_manifest_path(value: str | Path | None, *, artifact_root: Path | None) -> str | None:
+    if value in (None, ""):
+        return None
+    path = Path(str(value))
+    if artifact_root is not None:
+        try:
+            return path.resolve().relative_to(artifact_root).as_posix()
+        except (OSError, ValueError):
+            return path.name
+    return path.name if path.is_absolute() else path.as_posix()
 
 
 def _safe_run_path(value: Any, *, artifact_root: Path | None) -> str | None:

@@ -70,6 +70,13 @@ def test_portfolio_backtest_report_demo_runs_e2e_and_validates_report(tmp_path) 
         "accept_with_warnings",
     }
     assert "summary_text" in report["executive_summary"]
+    assert report["export_manifest"]["comparison_row_count"] == 2
+    assert report["export_manifest"]["has_recommendation"] is True
+    assert report["export_manifest"]["has_acceptance_gates"] is True
+    assert report["export_manifest"]["has_executive_summary"] is True
+    assert report["export_manifest"]["validation_status"] == "passed"
+    assert report["export_manifest"]["output_artifacts"] == {"json_report_path": "comparison_report.json"}
+    assert str(tmp_path.resolve()) not in json.dumps(report["export_manifest"], sort_keys=True)
     assert [run["run_path"] for run in report["runs"]] == [
         "base_price_threshold",
         "candidate_price_threshold",
@@ -121,6 +128,7 @@ def test_portfolio_backtest_report_demo_writes_optional_markdown_report(tmp_path
     assert "## Executive Summary" in markdown
     assert "## Recommendation" in markdown
     assert "Acceptance status:" in markdown
+    assert "## Export Manifest" in markdown
     assert "### `total_return`" in markdown
 
 

@@ -24,6 +24,7 @@ def test_validate_backtest_comparison_report_accepts_valid_report(tmp_path) -> N
     assert "ranking_references" in result["checked_fields"]
     assert "recommendation" in result["checked_fields"]
     assert "executive_summary" in result["checked_fields"]
+    assert "export_manifest" in result["checked_fields"]
 
 
 def test_validate_backtest_comparison_report_reports_missing_required_fields(tmp_path) -> None:
@@ -183,6 +184,25 @@ def test_validate_backtest_comparison_report_rejects_invalid_executive_summary_f
     assert "executive_summary.key_strengths must be a list of strings" in result["errors"]
 
 
+def test_validate_backtest_comparison_report_rejects_invalid_export_manifest_fields(tmp_path) -> None:
+    report = valid_report()
+    report["export_manifest"]["validation_status"] = "maybe"
+    report["export_manifest"]["comparison_row_count"] = 99
+    report["export_manifest"]["has_recommendation"] = "yes"
+    report["export_manifest"]["input_artifacts"][0]["summary_path"] = "../summary.json"
+    report["export_manifest"]["validation_warnings"] = ["ok", 123]
+    report_path = write_report(tmp_path, report)
+
+    exit_code, result = run_validator(report_path)
+
+    assert exit_code == 1
+    assert "export_manifest.validation_status is invalid" in result["errors"]
+    assert "export_manifest.comparison_row_count must match run_count" in result["errors"]
+    assert "export_manifest.has_recommendation must be boolean" in result["errors"]
+    assert "export_manifest.input_artifacts[0].summary_path must not contain path traversal" in result["errors"]
+    assert "export_manifest.validation_warnings must be a list of strings" in result["errors"]
+
+
 def test_validate_backtest_comparison_report_accepts_older_report_without_recommendation(tmp_path) -> None:
     report = valid_report()
     report.pop("recommendation")
@@ -197,6 +217,17 @@ def test_validate_backtest_comparison_report_accepts_older_report_without_recomm
 def test_validate_backtest_comparison_report_accepts_older_report_without_executive_summary(tmp_path) -> None:
     report = valid_report()
     report.pop("executive_summary")
+    report_path = write_report(tmp_path, report)
+
+    exit_code, result = run_validator(report_path)
+
+    assert exit_code == 0
+    assert result["valid"] is True
+
+
+def test_validate_backtest_comparison_report_accepts_older_report_without_export_manifest(tmp_path) -> None:
+    report = valid_report()
+    report.pop("export_manifest")
     report_path = write_report(tmp_path, report)
 
     exit_code, result = run_validator(report_path)
@@ -454,6 +485,39 @@ def valid_report() -> dict:
                 "Decision reject_candidate for candidate; acceptance_status=rejected; "
                 "recommendation_status=weak_recommendation; next_action=reject_or_adjust_strategy."
             ),
+        },
+        "export_manifest": {
+            "schema_version": "1",
+            "artifact_type": "backtest_comparison_report",
+            "generated_by": "export_backtest_comparison_report",
+            "input_artifacts": [
+                {
+                    "label": "candidate",
+                    "run_id": "candidate",
+                    "summary_path": "candidate/summary.json",
+                    "trades_path": "candidate/trades.csv",
+                    "equity_curve_path": "candidate/equity_curve.csv",
+                    "strategy": "moving_average_crossover",
+                    "artifact_exists": True,
+                },
+                {
+                    "label": "base",
+                    "run_id": "base",
+                    "summary_path": "base/summary.json",
+                    "trades_path": "base/trades.csv",
+                    "equity_curve_path": "base/equity_curve.csv",
+                    "strategy": "price_threshold",
+                    "artifact_exists": True,
+                },
+            ],
+            "output_artifacts": {"json_report_path": "comparison_report.json"},
+            "comparison_row_count": 2,
+            "has_recommendation": True,
+            "has_acceptance_gates": True,
+            "has_executive_summary": True,
+            "validation_status": "passed",
+            "validation_warnings": [],
+            "validation_errors": [],
         },
         "safety_note": (
             "Local backtest artifact comparison report only; no live/testnet/Binance calls, "

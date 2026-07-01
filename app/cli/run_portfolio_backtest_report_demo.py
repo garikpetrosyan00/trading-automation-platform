@@ -50,17 +50,18 @@ def main(argv: list[str] | None = None, *, stdout: TextIO | None = None, stderr:
         comparison_path = output_dir / "comparison.json"
         _write_json(comparison_path, comparison, overwrite=True)
 
+        report_json_path = output_dir / "comparison_report.json"
+        report_md_path = Path(args.output_md) if args.output_md is not None else None
         report = build_backtest_comparison_report(
             comparison,
             generated_at=args.generated_at,
             artifact_root=output_dir,
+            output_json_path=report_json_path,
+            output_md_path=report_md_path,
         )
-        report_json_path = output_dir / "comparison_report.json"
         _write_json(report_json_path, report, overwrite=True)
 
-        report_md_path = None
-        if args.output_md is not None:
-            report_md_path = Path(args.output_md)
+        if report_md_path is not None:
             _write_text(
                 report_md_path,
                 build_backtest_comparison_markdown_report(report),
