@@ -20,7 +20,7 @@ Production-grade live trading, production scheduler deployment, authentication, 
 - Deterministic local CSV backtesting that uses only current/past candle data at each step.
 - CSV dataset normalization for raw OHLCV inputs, timestamp validation, sorting, dedupe handling, and gap summaries.
 - Saved backtest run artifacts: `summary.json`, `trades.csv`, and `equity_curve.csv`.
-- Local comparison, Markdown report, and demo bundle export for portfolio/client review.
+- Local comparison, deterministic scoring, recommendation summaries, acceptance gates, Markdown/JSON reports, and demo bundle export for portfolio/client review.
 - Broad pytest coverage for backtest flows, paper execution safety, API behavior, and regression boundaries.
 
 ## Safety Guarantees
@@ -924,6 +924,89 @@ Add a third saved run the same way:
 ```
 
 The comparison reads `summary.json`, `trades.csv`, and `equity_curve.csv` from each run directory. New summaries include portfolio-friendly metrics such as starting balance, ending balance, total return, realized PnL, trade count, completed round trips, win/loss count, win rate, and max drawdown. Older artifacts are still compared safely: metrics are derived only when the CSV artifacts contain enough information, otherwise they are reported as unavailable.
+
+## Local Backtest Decision Pipeline
+
+The local decision pipeline turns saved CSV backtest artifacts into a deterministic comparison report for offline strategy review:
+
+1. CSV backtest input: `run_backtest`, prepared-smoke, sweep, and demo-pipeline commands read local OHLCV CSV files and save `summary.json`, `trades.csv`, and `equity_curve.csv`.
+2. Diagnostics: saved summaries and CSV artifacts expose return, realized PnL, trade count, win rate, drawdown, exposure, profit factor when available, and artifact row counts. Missing older-artifact fields are left unavailable instead of guessed.
+3. Strategy comparison: `compare_backtest_runs` reads existing run directories only, ranks comparable rows by `overall_score` descending, and uses deterministic tie-breakers from return, drawdown, run label, and path.
+4. Scoring: each row includes `overall_score`, `score_components`, and `score_warnings`. Components normalize return, drawdown, profit factor, win rate, trade-count confidence, and exposure/risk signals into a JSON-safe score.
+5. Recommendation summary: the highest-scored run is summarized as `recommended_run` with allowlisted metrics, `recommendation_status`, machine-readable reasons, and recommendation-level warnings.
+6. Acceptance gates: the selected run is checked against local thresholds for score, trade count, positive return, drawdown, profit factor, severe warnings, no-trade warnings, and negative-return warnings.
+7. Executive summary: the report exposes `executive_summary` with a stable decision, best strategy/run label, score, strengths, risks, next action, and short factual summary text.
+8. Export manifest: generated comparison reports include `export_manifest` with schema metadata, input/output artifact references, row counts, feature flags, and validation status/errors/warnings.
+
+Concise command flow:
+
+```bash
+.venv/bin/python -m app.cli.run_backtest \
+  --symbol BTCUSDT \
+  --timeframe 1h \
+  --csv data/backtests/BTCUSDT_1h_sample.csv \
+  --initial-balance 10000 \
+  --fee-rate 0.001 \
+  --strategy-type price_threshold \
+  --entry-below 95000 \
+  --exit-above 105000 \
+  --order-quantity 0.01 \
+  --output-dir data/backtests/runs/BTCUSDT_1h_score_base \
+  --overwrite
+
+.venv/bin/python -m app.cli.run_backtest \
+  --symbol BTCUSDT \
+  --timeframe 1h \
+  --csv data/backtests/BTCUSDT_1h_sample.csv \
+  --initial-balance 10000 \
+  --fee-rate 0.001 \
+  --strategy-type price_threshold \
+  --entry-below 96000 \
+  --exit-above 104000 \
+  --order-quantity 0.01 \
+  --output-dir data/backtests/runs/BTCUSDT_1h_score_candidate \
+  --overwrite
+
+.venv/bin/python -m app.cli.compare_backtest_runs \
+  --run-dir data/backtests/runs/BTCUSDT_1h_score_base \
+  --run-dir data/backtests/runs/BTCUSDT_1h_score_candidate \
+  --output-json data/backtests/runs/BTCUSDT_1h_decision_comparison.json
+
+.venv/bin/python -m app.cli.export_backtest_comparison_report \
+  --comparison-json data/backtests/runs/BTCUSDT_1h_decision_comparison.json \
+  --output-json data/backtests/runs/BTCUSDT_1h_decision_report.json \
+  --output-md data/backtests/runs/BTCUSDT_1h_decision_report.md \
+  --title "BTCUSDT 1h Strategy Decision Report" \
+  --overwrite
+
+.venv/bin/python -m app.cli.validate_backtest_comparison_report \
+  --report-json data/backtests/runs/BTCUSDT_1h_decision_report.json
+```
+
+Example decision fields from a generated report:
+
+```json
+{
+  "executive_summary": {
+    "decision": "accept_with_warnings",
+    "overall_score": 74.25,
+    "key_risks": ["weak_recommendation_only", "low_trade_confidence"],
+    "next_action": "review_with_caution"
+  },
+  "recommendation_status": "weak_recommendation",
+  "acceptance_status": "accepted_with_warnings",
+  "comparison_rows": [
+    {
+      "strategy": "price_threshold",
+      "overall_score": 74.25
+    }
+  ]
+}
+```
+
+Safety note: this pipeline is local CSV backtesting and report generation only. It does not fetch Binance data, submit live/testnet/Binance orders, invoke paper execution, start bot runner or scheduler loops, write runtime trading database rows, or create orders, fills, execution attempts, reconciliation jobs, or paper/live audit records. It is intended for offline strategy analysis and portfolio presentation, not as a live-trading approval mechanism or profitability guarantee.
+
+Portfolio note: this workflow demonstrates backend engineering skills around deterministic scoring, report generation, artifact validation, backward-compatible schema evolution, JSON-safe outputs, explicit safety boundaries, and test-driven development. The same saved artifacts can be inspected through CLI output, JSON exports, Markdown reports, and read-only local artifact APIs without changing runtime trading behavior.
 
 The same saved-run comparison is available through the read-only local artifact API:
 
