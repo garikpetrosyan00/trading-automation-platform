@@ -51,6 +51,15 @@ def test_portfolio_backtest_report_demo_runs_e2e_and_validates_report(tmp_path) 
     assert (output_dir / "comparison_report.json").exists()
 
     report = json.loads((output_dir / "comparison_report.json").read_text(encoding="utf-8"))
+    assert payload["decision_pipeline"] == {
+        "acceptance_status": report["recommendation"]["acceptance_status"],
+        "executive_summary_decision": report["executive_summary"]["decision"],
+        "export_manifest_validation_status": "passed",
+        "json_report_exists": True,
+        "markdown_report_exists": False,
+        "overall_score_exists": True,
+        "recommendation_status": report["recommendation"]["recommendation_status"],
+    }
     assert report["generated_at"] == GENERATED_AT
     assert report["run_count"] == 2
     assert report["recommendation"]["recommended_run"]["run_name"] in {
@@ -121,6 +130,22 @@ def test_portfolio_backtest_report_demo_writes_optional_markdown_report(tmp_path
     assert exit_code == 0
     payload = json.loads(stdout.getvalue())
     assert payload["artifacts"]["report_md"] == str(output_md)
+    assert payload["decision_pipeline"]["overall_score_exists"] is True
+    assert payload["decision_pipeline"]["recommendation_status"] in {
+        "weak_recommendation",
+        "not_recommended",
+    }
+    assert payload["decision_pipeline"]["acceptance_status"] in {
+        "rejected",
+        "accepted_with_warnings",
+    }
+    assert payload["decision_pipeline"]["executive_summary_decision"] in {
+        "reject_candidate",
+        "accept_with_warnings",
+    }
+    assert payload["decision_pipeline"]["export_manifest_validation_status"] == "passed"
+    assert payload["decision_pipeline"]["json_report_exists"] is True
+    assert payload["decision_pipeline"]["markdown_report_exists"] is True
     markdown = output_md.read_text(encoding="utf-8")
     assert "# Backtest Comparison Report" in markdown
     assert "Generated at: `2026-07-01T00:00:00Z`" in markdown

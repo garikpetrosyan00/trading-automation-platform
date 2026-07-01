@@ -162,6 +162,11 @@ def _payload(
         },
         "rankings": _ranking_summary(report.get("rankings", {})),
         "diagnostics": _diagnostics_summary(report.get("runs", [])),
+        "decision_pipeline": _decision_pipeline_summary(
+            report=report,
+            report_json_path=report_json_path,
+            report_md_path=report_md_path,
+        ),
         "validation": validation,
         "safety_note": SAFETY_NOTE,
     }
@@ -214,6 +219,39 @@ def _diagnostics_summary(runs: Any) -> dict[str, dict[str, Any]]:
         if isinstance(run_name, str) and isinstance(summary, dict):
             payload[run_name] = {field: summary.get(field) for field in fields if field in summary}
     return payload
+
+
+def _decision_pipeline_summary(
+    *,
+    report: dict[str, Any],
+    report_json_path: Path,
+    report_md_path: Path | None,
+) -> dict[str, Any]:
+    recommendation = report.get("recommendation")
+    executive_summary = report.get("executive_summary")
+    export_manifest = report.get("export_manifest")
+
+    return {
+        "overall_score_exists": _has_overall_score(report.get("runs")),
+        "recommendation_status": (
+            recommendation.get("recommendation_status") if isinstance(recommendation, dict) else None
+        ),
+        "acceptance_status": recommendation.get("acceptance_status") if isinstance(recommendation, dict) else None,
+        "executive_summary_decision": (
+            executive_summary.get("decision") if isinstance(executive_summary, dict) else None
+        ),
+        "export_manifest_validation_status": (
+            export_manifest.get("validation_status") if isinstance(export_manifest, dict) else None
+        ),
+        "json_report_exists": report_json_path.exists(),
+        "markdown_report_exists": report_md_path.exists() if report_md_path is not None else False,
+    }
+
+
+def _has_overall_score(runs: Any) -> bool:
+    if not isinstance(runs, list):
+        return False
+    return any(isinstance(run, dict) and run.get("overall_score") is not None for run in runs)
 
 
 if __name__ == "__main__":
