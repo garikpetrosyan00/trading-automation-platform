@@ -304,12 +304,12 @@ Use the parameter sweep CLI to compare multiple `price_threshold` parameter comb
 
 Generated sweep artifacts:
 
-- `sweep_summary.json`: ranked JSON summary and best result
-- `sweep_results.csv`: one row per parameter combination
-- `sweep_report.md`: human-readable sweep table
+- `sweep_summary.json`: ranked JSON summary, best result, and `sweep_summary` decision fields for the best parameter set, score, recommendation, acceptance, executive decision, accepted/rejected counts, warnings, and top parameter sets
+- `sweep_results.csv`: one row per parameter combination, including local comparison score, acceptance status, and score warnings
+- `sweep_report.md`: human-readable sweep table with a local sweep summary section
 - `run_*/summary.json`, `run_*/trades.csv`, `run_*/equity_curve.csv`: per-combination backtest artifacts
 
-Results are ranked deterministically by final equity with stable tie-breakers. This is local historical simulation only, does not fetch market data or place orders, and is not a profitability guarantee.
+Results are ranked deterministically by final equity with stable tie-breakers, while the `sweep_summary` reuses the local backtest comparison scoring, recommendation, acceptance-gate, and executive-summary logic. This is local historical simulation only, does not fetch market data or place orders, and is not a profitability guarantee.
 
 Sweep artifacts can also be reviewed through the read-only local-demo API:
 
