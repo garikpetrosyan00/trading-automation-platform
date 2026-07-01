@@ -311,6 +311,13 @@ Generated sweep artifacts:
 
 Results are ranked deterministically by final equity with stable tie-breakers, while the `sweep_summary` reuses the local backtest comparison scoring, recommendation, acceptance-gate, and executive-summary logic. This is local historical simulation only, does not fetch market data or place orders, and is not a profitability guarantee.
 
+Validate generated sweep artifacts with the local file validator:
+
+```bash
+.venv/bin/python -m app.cli.validate_backtest_parameter_sweep \
+  --sweep-dir data/backtests/runs/BTCUSDT_1h_sweep_demo
+```
+
 Sweep artifacts can also be reviewed through the read-only local-demo API:
 
 ```bash
