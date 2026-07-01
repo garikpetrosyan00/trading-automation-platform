@@ -135,6 +135,7 @@ def compact_sweep_summary(summary: dict[str, Any]) -> dict[str, Any]:
         "ranking_metric": summary["ranking_metric"],
         "best_result": summary["best_result"],
         "sweep_summary": summary.get("sweep_summary"),
+        "lifecycle_closeout": summary.get("lifecycle_closeout"),
     }
 
 

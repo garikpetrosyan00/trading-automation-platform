@@ -1,7 +1,8 @@
 import json
 import sys
 from decimal import Decimal
-from typing import TextIO
+from pathlib import Path
+from typing import Any, TextIO
 
 from app.cli.run_backtest import CliArgumentError, SafeArgumentParser, _decimal_arg, _positive_decimal_arg
 from app.services.backtest_parameter_sweep import (
@@ -9,6 +10,7 @@ from app.services.backtest_parameter_sweep import (
     compact_sweep_summary,
     run_backtest_parameter_sweep,
 )
+from app.services.backtest_parameter_sweep_validation import validate_backtest_parameter_sweep_output
 from app.services.csv_backtest import BacktestCsvError, load_candles_from_csv
 
 
@@ -31,9 +33,15 @@ def main(argv: list[str] | None = None, *, stdout: TextIO | None = None, stderr:
             output_dir=args.output_dir,
             overwrite=args.overwrite,
         )
+        validation = validate_backtest_parameter_sweep_output(args.output_dir)
+        summary["lifecycle_closeout"] = _lifecycle_closeout(
+            output_dir=Path(args.output_dir),
+            summary=summary,
+            validation=validation,
+        )
         payload = compact_sweep_summary(summary) if args.compact else summary
         print(json.dumps(payload, sort_keys=True), file=stdout)
-        return 0
+        return 0 if validation["validation_status"] in {"passed", "passed_with_warnings"} else 1
     except CliArgumentError as exc:
         print(f"error: {exc}", file=stderr)
         return 2
@@ -75,6 +83,21 @@ def _decimal_list_arg(value: str, name: str) -> list[Decimal]:
     if any(item <= 0 for item in parsed):
         raise ValueError(f"{name} values must be positive")
     return parsed
+
+
+def _lifecycle_closeout(*, output_dir: Path, summary: dict[str, Any], validation: dict[str, Any]) -> dict[str, Any]:
+    sweep_summary = summary.get("sweep_summary") if isinstance(summary.get("sweep_summary"), dict) else {}
+    return {
+        "sweep_results_exists": (output_dir / "sweep_results.csv").is_file(),
+        "sweep_summary_exists": (output_dir / "sweep_summary.json").is_file(),
+        "sweep_report_exists": (output_dir / "sweep_report.md").is_file(),
+        "tested_parameter_count": sweep_summary.get("tested_parameter_count"),
+        "best_overall_score_exists": sweep_summary.get("best_overall_score") is not None,
+        "recommendation_status": sweep_summary.get("recommendation_status"),
+        "acceptance_status": sweep_summary.get("acceptance_status"),
+        "executive_decision": sweep_summary.get("executive_decision"),
+        "validation_status": validation.get("validation_status"),
+    }
 
 
 if __name__ == "__main__":

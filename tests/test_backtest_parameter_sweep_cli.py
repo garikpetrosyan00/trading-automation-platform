@@ -44,6 +44,17 @@ def test_backtest_parameter_sweep_writes_outputs_and_per_run_artifacts(tmp_path)
         "best_parameter_set_has_warnings",
         "no_accepted_parameter_sets",
     ]
+    assert payload["lifecycle_closeout"] == {
+        "acceptance_status": "rejected",
+        "best_overall_score_exists": True,
+        "executive_decision": "reject_candidate",
+        "recommendation_status": "weak_recommendation",
+        "sweep_report_exists": True,
+        "sweep_results_exists": True,
+        "sweep_summary_exists": True,
+        "tested_parameter_count": 4,
+        "validation_status": "passed",
+    }
     assert [item["parameters"] for item in payload["sweep_summary"]["top_parameter_sets"]] == [
         {"entry_below": "95", "exit_above": "107", "order_quantity": "1"},
         {"entry_below": "95", "exit_above": "105", "order_quantity": "1"},
@@ -171,6 +182,17 @@ def test_backtest_parameter_sweep_results_csv_and_compact_stdout(tmp_path) -> No
     assert printed["sweep_summary"]["best_overall_score"] == "60"
     assert printed["sweep_summary"]["accepted_count"] == 0
     assert printed["sweep_summary"]["rejected_count"] == 4
+    assert printed["lifecycle_closeout"] == {
+        "acceptance_status": "rejected",
+        "best_overall_score_exists": True,
+        "executive_decision": "reject_candidate",
+        "recommendation_status": "weak_recommendation",
+        "sweep_report_exists": True,
+        "sweep_results_exists": True,
+        "sweep_summary_exists": True,
+        "tested_parameter_count": 4,
+        "validation_status": "passed",
+    }
     with (output_dir / "sweep_results.csv").open(newline="", encoding="utf-8") as handle:
         rows = list(csv.DictReader(handle))
     assert rows[0]["rank"] == "1"
@@ -178,6 +200,7 @@ def test_backtest_parameter_sweep_results_csv_and_compact_stdout(tmp_path) -> No
     assert rows[0]["final_equity"] == "10017"
     assert rows[0]["overall_score"] == "60"
     assert rows[0]["acceptance_status"] == "rejected"
+    assert rows[0]["score_warnings"] == "infinite_or_unavailable_profit_factor,too_few_trades"
 
 
 def test_sweep_scoring_summary_selects_best_by_overall_score_and_counts_acceptance() -> None:
