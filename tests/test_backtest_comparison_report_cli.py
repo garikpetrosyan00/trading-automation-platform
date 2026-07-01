@@ -85,19 +85,24 @@ def test_export_backtest_comparison_report_writes_json_from_run_dirs(tmp_path) -
     assert report["result"] == "PASS"
     assert report["generated_at"] == GENERATED_AT
     assert report["run_count"] == 2
-    assert report["ranking_metrics"] == ["total_return", "ending_balance", "max_drawdown_pct"]
+    assert report["ranking_metrics"] == ["overall_score", "total_return", "ending_balance", "max_drawdown_pct"]
     assert "Local backtest artifact comparison report only" in report["safety_note"]
-    assert [run["run_path"] for run in report["runs"]] == ["base", "candidate"]
-    assert report["runs"][1]["summary"]["strategy_type"] == "moving_average_crossover"
-    assert report["runs"][1]["summary"]["fast_window"] == "2"
-    assert report["runs"][1]["summary"]["average_winning_trade_pnl"] == "100"
-    assert report["runs"][1]["summary"]["average_losing_trade_pnl"] is None
-    assert report["runs"][1]["summary"]["average_trade_pnl"] == "100"
-    assert report["runs"][1]["summary"]["best_trade_pnl"] == "100"
-    assert report["runs"][1]["summary"]["worst_trade_pnl"] == "100"
-    assert report["runs"][1]["summary"]["profit_factor"] is None
-    assert report["runs"][1]["summary"]["max_drawdown_amount"] == "50"
-    assert report["runs"][1]["summary"]["exposure_pct"] == "50"
+    assert [run["run_path"] for run in report["runs"]] == ["candidate", "base"]
+    candidate = report["runs"][0]
+    assert candidate["summary"]["strategy_type"] == "moving_average_crossover"
+    assert candidate["summary"]["fast_window"] == "2"
+    assert candidate["summary"]["average_winning_trade_pnl"] == "100"
+    assert candidate["summary"]["average_losing_trade_pnl"] is None
+    assert candidate["summary"]["average_trade_pnl"] == "100"
+    assert candidate["summary"]["best_trade_pnl"] == "100"
+    assert candidate["summary"]["worst_trade_pnl"] == "100"
+    assert candidate["summary"]["profit_factor"] is None
+    assert candidate["summary"]["max_drawdown_amount"] == "50"
+    assert candidate["summary"]["exposure_pct"] == "50"
+    assert candidate["overall_score"] == candidate["summary"]["overall_score"]
+    assert candidate["score_components"]["final_normalized_score"] == candidate["overall_score"]
+    assert "infinite_or_unavailable_profit_factor" in candidate["score_warnings"]
+    assert [item["run_name"] for item in report["rankings"]["overall_score"]] == ["candidate", "base"]
     assert [item["run_name"] for item in report["rankings"]["total_return"]] == ["candidate", "base"]
     assert [item["run_path"] for item in report["rankings"]["ending_balance"]] == ["candidate", "base"]
     assert [item["run_name"] for item in report["rankings"]["max_drawdown_pct"]] == ["candidate", "base"]
@@ -135,6 +140,9 @@ def test_export_backtest_comparison_report_writes_markdown(tmp_path) -> None:
     assert "Generated at: `2026-07-01T00:00:00Z`" in markdown
     assert "Local backtest artifact comparison report only" in markdown
     assert "| candidate | candidate |" in markdown
+    assert "Overall Score" in markdown
+    assert "Score Warnings" in markdown
+    assert "### `overall_score`" in markdown
     assert "### `total_return`" in markdown
 
 
@@ -145,7 +153,7 @@ def test_export_backtest_comparison_report_reads_existing_comparison_json(tmp_pa
             {
                 "result": "PASS",
                 "runs_count": 2,
-                "ranking_metrics": ["total_return", "ending_balance", "max_drawdown_pct"],
+                "ranking_metrics": ["overall_score", "total_return", "ending_balance", "max_drawdown_pct"],
                 "runs": [
                     {
                         "run_name": "base",
@@ -161,6 +169,16 @@ def test_export_backtest_comparison_report_reads_existing_comparison_json(tmp_pa
                     },
                 ],
                 "rankings": {
+                    "overall_score": [
+                        {
+                            "rank": 1,
+                            "run_name": "candidate",
+                            "run_dir": str(tmp_path / "runs" / "candidate"),
+                            "metric": "overall_score",
+                            "value": "55",
+                            "available": True,
+                        }
+                    ],
                     "total_return": [
                         {
                             "rank": 1,

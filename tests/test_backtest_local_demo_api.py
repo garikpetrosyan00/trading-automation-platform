@@ -379,7 +379,8 @@ def test_local_demo_api_compares_two_saved_runs(
     body = response.json()
     assert body["result"] == "PASS"
     assert body["runs_count"] == 2
-    assert body["ranking_metrics"] == ["total_return", "ending_balance", "max_drawdown_pct"]
+    assert body["ranking_metrics"] == ["overall_score", "total_return", "ending_balance", "max_drawdown_pct"]
+    assert [item["run_name"] for item in body["rankings"]["overall_score"]] == ["candidate", "base"]
     assert [item["run_name"] for item in body["rankings"]["total_return"]] == ["candidate", "base"]
     assert [item["run_name"] for item in body["rankings"]["ending_balance"]] == ["candidate", "base"]
     assert [item["run_name"] for item in body["rankings"]["max_drawdown_pct"]] == ["candidate", "base"]
@@ -387,6 +388,9 @@ def test_local_demo_api_compares_two_saved_runs(
     assert candidate["run_path"] == "candidate"
     assert candidate["summary"]["strategy_type"] == "moving_average_crossover"
     assert candidate["summary"]["fast_window"] == "2"
+    assert candidate["overall_score"] == candidate["summary"]["overall_score"]
+    assert "score_components" in candidate
+    assert "score_warnings" in candidate
     assert str(tmp_path.resolve()) not in response.text
 
 
@@ -427,6 +431,8 @@ def test_local_demo_api_compares_three_runs_with_deterministic_ranking(
     assert response.status_code == 200
     body = response.json()
     assert body["runs_count"] == 3
+    assert [item["run_name"] for item in body["rankings"]["overall_score"]] == ["best_return", "a_run", "z_run"]
+    assert [item["run_name"] for item in body["runs"]] == ["best_return", "a_run", "z_run"]
     assert [item["run_name"] for item in body["rankings"]["total_return"]] == ["best_return", "a_run", "z_run"]
     assert [item["run_name"] for item in body["rankings"]["ending_balance"]] == ["best_return", "a_run", "z_run"]
     assert [item["run_name"] for item in body["rankings"]["max_drawdown_pct"]] == ["a_run", "z_run", "best_return"]

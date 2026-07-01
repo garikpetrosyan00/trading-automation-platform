@@ -65,6 +65,7 @@ SUMMARY_FIELDS = (
     "max_drawdown_amount",
     "max_drawdown_pct",
     "exposure_pct",
+    "overall_score",
 )
 
 
@@ -97,21 +98,28 @@ def compare_backtest_run_dirs_many(run_dirs: list[str | Path]) -> dict[str, Any]
     for run_dir in run_dirs:
         path = Path(run_dir)
         summary = _load_enriched_summary(path)
+        score = _score_summary(summary)
+        summary["overall_score"] = score["overall_score"]
         run_items.append(
             {
                 "run_name": path.name,
                 "run_dir": str(path),
                 "summary": _comparison_summary(path.name, summary),
+                "overall_score": score["overall_score"],
+                "score_components": score["score_components"],
+                "score_warnings": score["score_warnings"],
                 "artifacts": _artifact_summary(path),
             }
         )
+    run_items.sort(key=_overall_score_sort_key)
 
     return {
         "result": "PASS",
         "runs_count": len(run_items),
-        "ranking_metrics": ["total_return", "ending_balance", "max_drawdown_pct"],
+        "ranking_metrics": ["overall_score", "total_return", "ending_balance", "max_drawdown_pct"],
         "runs": run_items,
         "rankings": {
+            "overall_score": _rank_run_items_by_overall_score(run_items),
             "total_return": _rank_run_items(run_items, metric="total_return", higher_is_better=True),
             "ending_balance": _rank_run_items(run_items, metric="ending_balance", higher_is_better=True),
             "max_drawdown_pct": _rank_run_items(run_items, metric="max_drawdown_pct", higher_is_better=False),
@@ -345,6 +353,189 @@ def _comparison_summary(run_name: str, summary: dict[str, Any]) -> dict[str, Any
     payload = {"run_name": run_name}
     payload.update({field: _json_value(summary.get(field)) for field in SUMMARY_FIELDS if field in summary})
     return payload
+
+
+def _score_summary(summary: dict[str, Any]) -> dict[str, Any]:
+    warnings: list[str] = []
+    return_pct = _return_pct(summary, warnings=warnings)
+    drawdown_pct = _drawdown_pct(summary, warnings=warnings)
+    profit_factor = _profit_factor(summary, warnings=warnings)
+    win_rate = _win_rate(summary, warnings=warnings)
+    trade_count = _trade_count(summary, warnings=warnings)
+    exposure_pct = _exposure_pct(summary, warnings=warnings)
+
+    if return_pct is not None and return_pct < 0:
+        warnings.append("negative_return")
+    if drawdown_pct is not None and drawdown_pct >= Decimal("20"):
+        warnings.append("high_drawdown")
+    if trade_count == 0:
+        warnings.append("no_trades")
+    elif trade_count is not None and trade_count < 5:
+        warnings.append("too_few_trades")
+
+    components = {
+        "return_score": _score_return(return_pct),
+        "drawdown_score": _score_drawdown(drawdown_pct),
+        "profit_factor_score": _score_profit_factor(profit_factor),
+        "win_rate_score": _score_win_rate(win_rate),
+        "trade_count_score": _score_trade_count(trade_count),
+        "exposure_score": _score_exposure(exposure_pct),
+    }
+    overall = (
+        components["return_score"] * Decimal("0.30")
+        + components["drawdown_score"] * Decimal("0.25")
+        + components["profit_factor_score"] * Decimal("0.15")
+        + components["win_rate_score"] * Decimal("0.10")
+        + components["trade_count_score"] * Decimal("0.15")
+        + components["exposure_score"] * Decimal("0.05")
+    )
+    if "no_trades" in warnings:
+        overall = min(overall, Decimal("20"))
+    elif "too_few_trades" in warnings:
+        overall = min(overall, Decimal("60"))
+    components["final_normalized_score"] = _bounded_score(overall)
+    return {
+        "overall_score": _score_to_string(components["final_normalized_score"]),
+        "score_components": {
+            key: _score_to_string(value)
+            for key, value in components.items()
+        },
+        "score_warnings": sorted(set(warnings)),
+    }
+
+
+def _return_pct(summary: dict[str, Any], *, warnings: list[str]) -> Decimal | None:
+    value = _optional_decimal(summary.get("total_return_pct"))
+    if value is not None:
+        return value
+    total_return = _optional_decimal(summary.get("total_return"))
+    starting_balance = _optional_decimal(summary.get("starting_balance") or summary.get("initial_balance"))
+    if total_return is not None and starting_balance not in (None, Decimal("0")):
+        return (total_return / starting_balance) * Decimal("100")
+    warnings.append("missing_metric")
+    return None
+
+
+def _drawdown_pct(summary: dict[str, Any], *, warnings: list[str]) -> Decimal | None:
+    value = _optional_decimal(summary.get("max_drawdown_pct"))
+    if value is not None:
+        return abs(value)
+    drawdown_amount = _optional_decimal(summary.get("max_drawdown_amount"))
+    starting_balance = _optional_decimal(summary.get("starting_balance") or summary.get("initial_balance"))
+    if drawdown_amount is not None and starting_balance not in (None, Decimal("0")):
+        return (abs(drawdown_amount) / starting_balance) * Decimal("100")
+    warnings.append("missing_metric")
+    return None
+
+
+def _profit_factor(summary: dict[str, Any], *, warnings: list[str]) -> Decimal | None:
+    value = _optional_decimal(summary.get("profit_factor"))
+    if value is not None:
+        return value
+    if _optional_decimal(summary.get("win_count")) and _optional_decimal(summary.get("loss_count")) == 0:
+        warnings.append("infinite_or_unavailable_profit_factor")
+        return Decimal("4")
+    warnings.append("infinite_or_unavailable_profit_factor")
+    return None
+
+
+def _win_rate(summary: dict[str, Any], *, warnings: list[str]) -> Decimal | None:
+    value = _optional_decimal(summary.get("win_rate_pct"))
+    if value is not None:
+        return value
+    warnings.append("missing_metric")
+    return None
+
+
+def _trade_count(summary: dict[str, Any], *, warnings: list[str]) -> int | None:
+    value = _optional_decimal(summary.get("completed_round_trips"))
+    if value is None:
+        trades_count = _optional_decimal(summary.get("trades_count"))
+        if trades_count is not None:
+            value = trades_count / Decimal("2")
+    if value is None:
+        warnings.append("missing_metric")
+        return None
+    return int(value) if value >= 0 else 0
+
+
+def _exposure_pct(summary: dict[str, Any], *, warnings: list[str]) -> Decimal | None:
+    value = _optional_decimal(summary.get("exposure_pct"))
+    if value is None:
+        warnings.append("missing_metric")
+    return value
+
+
+def _score_return(value: Decimal | None) -> Decimal:
+    if value is None:
+        return Decimal("35")
+    return _bounded_score((value + Decimal("20")) * Decimal("2"))
+
+
+def _score_drawdown(value: Decimal | None) -> Decimal:
+    if value is None:
+        return Decimal("50")
+    return _bounded_score(Decimal("100") - (value * Decimal("3.333333333333333333333333333")))
+
+
+def _score_profit_factor(value: Decimal | None) -> Decimal:
+    if value is None:
+        return Decimal("35")
+    return _bounded_score((value / Decimal("3")) * Decimal("100"))
+
+
+def _score_win_rate(value: Decimal | None) -> Decimal:
+    if value is None:
+        return Decimal("40")
+    return _bounded_score(value)
+
+
+def _score_trade_count(value: int | None) -> Decimal:
+    if value is None:
+        return Decimal("25")
+    return _bounded_score((Decimal(value) / Decimal("10")) * Decimal("100"))
+
+
+def _score_exposure(value: Decimal | None) -> Decimal:
+    if value is None:
+        return Decimal("70")
+    return _bounded_score(Decimal("100") - max(Decimal("0"), value - Decimal("80")) * Decimal("2"))
+
+
+def _bounded_score(value: Decimal) -> Decimal:
+    if value < 0:
+        return Decimal("0")
+    if value > 100:
+        return Decimal("100")
+    return value
+
+
+def _score_to_string(value: Decimal) -> str:
+    return _decimal_to_string(value.quantize(Decimal("0.0001")))
+
+
+def _overall_score_sort_key(item: dict[str, Any]) -> tuple[Any, ...]:
+    score = _optional_decimal(item.get("overall_score")) or Decimal("-1")
+    total_return = _optional_decimal(item.get("summary", {}).get("total_return_pct"))
+    if total_return is None:
+        total_return = _optional_decimal(item.get("summary", {}).get("total_return")) or Decimal("-999999999")
+    drawdown = _optional_decimal(item.get("summary", {}).get("max_drawdown_pct")) or Decimal("999999999")
+    return (-score, -total_return, drawdown, str(item["run_name"]), str(item["run_dir"]))
+
+
+def _rank_run_items_by_overall_score(run_items: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    ranked_items = sorted(run_items, key=_overall_score_sort_key)
+    return [
+        {
+            "rank": index,
+            "run_name": item["run_name"],
+            "run_dir": item["run_dir"],
+            "metric": "overall_score",
+            "value": item["overall_score"],
+            "available": True,
+        }
+        for index, item in enumerate(ranked_items, start=1)
+    ]
 
 
 def _rank_run_items(

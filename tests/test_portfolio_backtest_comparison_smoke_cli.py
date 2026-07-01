@@ -34,7 +34,9 @@ def test_portfolio_backtest_comparison_smoke_writes_runs_and_comparison(tmp_path
     comparison = payload["comparison"]
     assert comparison["result"] == "PASS"
     assert comparison["runs_count"] == 2
-    assert comparison["ranking_metrics"] == ["total_return", "ending_balance", "max_drawdown_pct"]
+    assert comparison["ranking_metrics"] == ["overall_score", "total_return", "ending_balance", "max_drawdown_pct"]
+    assert "overall_score" in comparison["rankings"]
+    assert all("overall_score" in run for run in comparison["runs"])
     assert [item["run_name"] for item in comparison["rankings"]["total_return"]] == [
         "base_price_threshold",
         "candidate_price_threshold",
@@ -77,6 +79,9 @@ def test_portfolio_backtest_comparison_smoke_output_includes_summary_metrics(tmp
     assert "max_drawdown_amount" in base_summary
     assert "max_drawdown_pct" in base_summary
     assert base_summary["exposure_pct"] == "50"
+    scored_base = next(run for run in payload["comparison"]["runs"] if run["run_name"] == "base_price_threshold")
+    assert scored_base["summary"]["overall_score"] == scored_base["overall_score"]
+    assert scored_base["score_components"]["final_normalized_score"] == scored_base["overall_score"]
 
 
 def test_portfolio_backtest_comparison_smoke_refuses_non_empty_output_without_overwrite(tmp_path) -> None:

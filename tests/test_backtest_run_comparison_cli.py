@@ -218,6 +218,17 @@ def test_compare_backtest_runs_many_ranks_saved_artifacts(tmp_path) -> None:
     report = json.loads(stdout.getvalue())
     assert report["result"] == "PASS"
     assert report["runs_count"] == 3
+    assert report["ranking_metrics"] == ["overall_score", "total_return", "ending_balance", "max_drawdown_pct"]
+    assert [item["run_name"] for item in report["runs"]] == [
+        "low_drawdown",
+        "middle",
+        "high_return",
+    ]
+    assert [item["run_name"] for item in report["rankings"]["overall_score"]] == [
+        "low_drawdown",
+        "middle",
+        "high_return",
+    ]
     assert [item["run_name"] for item in report["rankings"]["total_return"]] == [
         "high_return",
         "middle",
@@ -233,8 +244,12 @@ def test_compare_backtest_runs_many_ranks_saved_artifacts(tmp_path) -> None:
         "middle",
         "high_return",
     ]
-    assert report["runs"][0]["summary"]["strategy_type"] == "moving_average_crossover"
-    assert report["runs"][0]["summary"]["fast_window"] == "2"
+    assert "overall_score" in report["runs"][0]
+    assert "score_components" in report["runs"][0]
+    assert "score_warnings" in report["runs"][0]
+    low_drawdown = next(item for item in report["runs"] if item["run_name"] == "low_drawdown")
+    assert low_drawdown["summary"]["strategy_type"] == "moving_average_crossover"
+    assert low_drawdown["summary"]["fast_window"] == "2"
 
 
 def test_compare_backtest_runs_many_derives_metrics_from_older_artifacts(tmp_path) -> None:
@@ -287,6 +302,220 @@ def test_compare_backtest_runs_many_derives_metrics_from_older_artifacts(tmp_pat
     assert candidate["summary"]["profit_factor"] == "5"
     assert candidate["summary"]["max_drawdown_amount"] == "50"
     assert candidate["summary"]["max_drawdown_pct"] == "0.495049504950495049504950495"
+    assert _decimal(candidate["overall_score"]) > 0
+    assert candidate["score_components"]["final_normalized_score"] == candidate["overall_score"]
+
+
+def test_compare_backtest_runs_many_scores_profitable_lower_risk_run_higher(tmp_path) -> None:
+    better_dir = write_run_dir(
+        tmp_path,
+        "better",
+        {
+            "starting_balance": "10000",
+            "ending_balance": "10200",
+            "total_return": "200",
+            "total_return_pct": "2",
+            "completed_round_trips": 12,
+            "win_rate_pct": "70",
+            "profit_factor": "2",
+            "max_drawdown_pct": "1",
+            "exposure_pct": "50",
+        },
+    )
+    worse_dir = write_run_dir(
+        tmp_path,
+        "worse",
+        {
+            "starting_balance": "10000",
+            "ending_balance": "10100",
+            "total_return": "100",
+            "total_return_pct": "1",
+            "completed_round_trips": 12,
+            "win_rate_pct": "55",
+            "profit_factor": "1.2",
+            "max_drawdown_pct": "12",
+            "exposure_pct": "95",
+        },
+    )
+    stdout = StringIO()
+
+    exit_code = cli.main(["--run-dir", str(worse_dir), "--run-dir", str(better_dir)], stdout=stdout)
+
+    assert exit_code == 0
+    report = json.loads(stdout.getvalue())
+    assert [item["run_name"] for item in report["rankings"]["overall_score"]] == ["better", "worse"]
+    better = report["runs"][0]
+    worse = report["runs"][1]
+    assert better["run_name"] == "better"
+    assert _decimal(better["overall_score"]) > _decimal(worse["overall_score"])
+    assert set(better["score_components"]) == {
+        "return_score",
+        "drawdown_score",
+        "profit_factor_score",
+        "win_rate_score",
+        "trade_count_score",
+        "exposure_score",
+        "final_normalized_score",
+    }
+
+
+def test_compare_backtest_runs_many_scores_negative_high_drawdown_run_lower(tmp_path) -> None:
+    steady_dir = write_run_dir(
+        tmp_path,
+        "steady",
+        {
+            "starting_balance": "10000",
+            "ending_balance": "10050",
+            "total_return": "50",
+            "total_return_pct": "0.5",
+            "completed_round_trips": 10,
+            "win_rate_pct": "55",
+            "profit_factor": "1.3",
+            "max_drawdown_pct": "2",
+        },
+    )
+    risky_dir = write_run_dir(
+        tmp_path,
+        "risky",
+        {
+            "starting_balance": "10000",
+            "ending_balance": "9800",
+            "total_return": "-200",
+            "total_return_pct": "-2",
+            "completed_round_trips": 10,
+            "win_rate_pct": "35",
+            "profit_factor": "0.6",
+            "max_drawdown_pct": "25",
+        },
+    )
+
+    stdout = StringIO()
+    exit_code = cli.main(["--run-dir", str(risky_dir), "--run-dir", str(steady_dir)], stdout=stdout)
+
+    assert exit_code == 0
+    report = json.loads(stdout.getvalue())
+    assert [item["run_name"] for item in report["rankings"]["overall_score"]] == ["steady", "risky"]
+    risky = next(item for item in report["runs"] if item["run_name"] == "risky")
+    assert "negative_return" in risky["score_warnings"]
+    assert "high_drawdown" in risky["score_warnings"]
+
+
+def test_compare_backtest_runs_many_scores_no_trade_run_low_with_warning(tmp_path) -> None:
+    active_dir = write_run_dir(
+        tmp_path,
+        "active",
+        {
+            "starting_balance": "10000",
+            "ending_balance": "10020",
+            "total_return": "20",
+            "total_return_pct": "0.2",
+            "completed_round_trips": 6,
+            "win_rate_pct": "60",
+            "profit_factor": "1.5",
+            "max_drawdown_pct": "2",
+        },
+    )
+    idle_dir = write_run_dir(
+        tmp_path,
+        "idle",
+        {
+            "starting_balance": "10000",
+            "ending_balance": "10000",
+            "total_return": "0",
+            "total_return_pct": "0",
+            "trades_count": 0,
+            "max_drawdown_pct": "0",
+        },
+    )
+    (idle_dir / "trades.csv").unlink()
+
+    stdout = StringIO()
+    exit_code = cli.main(["--run-dir", str(idle_dir), "--run-dir", str(active_dir)], stdout=stdout)
+
+    assert exit_code == 0
+    report = json.loads(stdout.getvalue())
+    idle = next(item for item in report["runs"] if item["run_name"] == "idle")
+    assert _decimal(idle["overall_score"]) <= 20
+    assert "no_trades" in idle["score_warnings"]
+    assert report["rankings"]["overall_score"][-1]["run_name"] == "idle"
+
+
+def test_compare_backtest_runs_many_warns_on_too_few_trades(tmp_path) -> None:
+    few_dir = write_run_dir(
+        tmp_path,
+        "few",
+        {
+            "starting_balance": "10000",
+            "ending_balance": "10030",
+            "total_return": "30",
+            "total_return_pct": "0.3",
+            "completed_round_trips": 2,
+            "win_rate_pct": "100",
+            "profit_factor": "3",
+            "max_drawdown_pct": "0.5",
+        },
+    )
+    enough_dir = write_run_dir(
+        tmp_path,
+        "enough",
+        {
+            "starting_balance": "10000",
+            "ending_balance": "10030",
+            "total_return": "30",
+            "total_return_pct": "0.3",
+            "completed_round_trips": 10,
+            "win_rate_pct": "60",
+            "profit_factor": "1.5",
+            "max_drawdown_pct": "0.5",
+        },
+    )
+
+    stdout = StringIO()
+    exit_code = cli.main(["--run-dir", str(few_dir), "--run-dir", str(enough_dir)], stdout=stdout)
+
+    assert exit_code == 0
+    few = next(item for item in json.loads(stdout.getvalue())["runs"] if item["run_name"] == "few")
+    assert "too_few_trades" in few["score_warnings"]
+    assert _decimal(few["overall_score"]) <= 60
+
+
+def test_compare_backtest_runs_many_tie_breaks_overall_score_deterministically(tmp_path) -> None:
+    z_dir = write_run_dir(
+        tmp_path,
+        "z_run",
+        {
+            "starting_balance": "10000",
+            "ending_balance": "10050",
+            "total_return": "50",
+            "total_return_pct": "0.5",
+            "completed_round_trips": 10,
+            "win_rate_pct": "50",
+            "profit_factor": "1",
+            "max_drawdown_pct": "1",
+        },
+    )
+    a_dir = write_run_dir(
+        tmp_path,
+        "a_run",
+        {
+            "starting_balance": "10000",
+            "ending_balance": "10050",
+            "total_return": "50",
+            "total_return_pct": "0.5",
+            "completed_round_trips": 10,
+            "win_rate_pct": "50",
+            "profit_factor": "1",
+            "max_drawdown_pct": "1",
+        },
+    )
+
+    stdout = StringIO()
+    exit_code = cli.main(["--run-dir", str(z_dir), "--run-dir", str(a_dir)], stdout=stdout)
+
+    assert exit_code == 0
+    report = json.loads(stdout.getvalue())
+    assert [item["run_name"] for item in report["rankings"]["overall_score"]] == ["a_run", "z_run"]
+    assert [item["run_name"] for item in report["runs"]] == ["a_run", "z_run"]
 
 
 def test_compare_backtest_runs_does_not_touch_runtime_audit_tables(db_session, tmp_path) -> None:
@@ -320,3 +549,9 @@ def write_csv(path, fieldnames: list[str], rows: list[list[str]]) -> None:
         writer = csv.writer(handle)
         writer.writerow(fieldnames)
         writer.writerows(rows)
+
+
+def _decimal(value):
+    from decimal import Decimal
+
+    return Decimal(str(value))

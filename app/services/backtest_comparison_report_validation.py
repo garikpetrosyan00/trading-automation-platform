@@ -28,6 +28,16 @@ NUMERIC_SUMMARY_FIELDS = (
     "max_drawdown_amount",
     "max_drawdown_pct",
     "exposure_pct",
+    "overall_score",
+)
+NUMERIC_SCORE_COMPONENT_FIELDS = (
+    "return_score",
+    "drawdown_score",
+    "profit_factor_score",
+    "win_rate_score",
+    "trade_count_score",
+    "exposure_score",
+    "final_normalized_score",
 )
 
 
@@ -137,6 +147,21 @@ def _check_runs(
         for field in NUMERIC_SUMMARY_FIELDS:
             if field in summary and summary.get(field) not in (None, "") and not _is_numeric(summary.get(field)):
                 errors.append(f"runs[{index}].summary.{field} must be numeric")
+        if item.get("overall_score") not in (None, "") and not _is_numeric(item.get("overall_score")):
+            errors.append(f"runs[{index}].overall_score must be numeric")
+        score_components = item.get("score_components")
+        if score_components is not None:
+            if not isinstance(score_components, dict):
+                errors.append(f"runs[{index}].score_components must be an object")
+            else:
+                for field in NUMERIC_SCORE_COMPONENT_FIELDS:
+                    if field in score_components and score_components.get(field) not in (None, "") and not _is_numeric(score_components.get(field)):
+                        errors.append(f"runs[{index}].score_components.{field} must be numeric")
+        score_warnings = item.get("score_warnings")
+        if score_warnings is not None and (
+            not isinstance(score_warnings, list) or any(not isinstance(warning, str) for warning in score_warnings)
+        ):
+            errors.append(f"runs[{index}].score_warnings must be a list of strings")
     return run_names
 
 

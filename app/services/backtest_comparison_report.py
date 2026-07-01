@@ -39,6 +39,7 @@ SUMMARY_FIELDS = (
     "max_drawdown_amount",
     "max_drawdown_pct",
     "exposure_pct",
+    "overall_score",
 )
 
 
@@ -82,6 +83,8 @@ def build_backtest_comparison_markdown_report(report: dict[str, Any], *, title: 
             run.get("summary", {}).get("total_return"),
             run.get("summary", {}).get("ending_balance"),
             run.get("summary", {}).get("max_drawdown_pct"),
+            run.get("overall_score") or run.get("summary", {}).get("overall_score"),
+            ", ".join(run.get("score_warnings", [])) if isinstance(run.get("score_warnings"), list) else None,
         )
         for run in report.get("runs", [])
     ]
@@ -95,7 +98,7 @@ def build_backtest_comparison_markdown_report(report: dict[str, Any], *, title: 
         "## Runs",
         "",
         _table(
-            ["Run", "Path", "Strategy", "Total Return", "Ending Balance", "Max Drawdown %"],
+            ["Run", "Path", "Strategy", "Total Return", "Ending Balance", "Max Drawdown %", "Overall Score", "Score Warnings"],
             rows,
         ),
         "",
@@ -150,6 +153,9 @@ def _report_run(item: dict[str, Any], *, artifact_root: Path | None) -> dict[str
         "run_name": item.get("run_name"),
         "run_path": _safe_run_path(run_dir, artifact_root=artifact_root),
         "summary": {field: summary.get(field) for field in SUMMARY_FIELDS if field in summary},
+        "overall_score": item.get("overall_score") or summary.get("overall_score"),
+        "score_components": item.get("score_components") if isinstance(item.get("score_components"), dict) else {},
+        "score_warnings": item.get("score_warnings") if isinstance(item.get("score_warnings"), list) else [],
     }
     artifacts = item.get("artifacts")
     if isinstance(artifacts, dict):

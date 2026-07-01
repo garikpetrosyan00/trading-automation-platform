@@ -107,6 +107,21 @@ def test_validate_backtest_comparison_report_rejects_invalid_ranking_metric_valu
     assert "rankings.total_return[0].value must be numeric when available" in result["errors"]
 
 
+def test_validate_backtest_comparison_report_rejects_invalid_score_fields(tmp_path) -> None:
+    report = valid_report()
+    report["runs"][0]["overall_score"] = "not-a-number"
+    report["runs"][1]["score_components"]["return_score"] = "not-a-number"
+    report["runs"][1]["score_warnings"] = ["too_few_trades", 123]
+    report_path = write_report(tmp_path, report)
+
+    exit_code, result = run_validator(report_path)
+
+    assert exit_code == 1
+    assert "runs[0].overall_score must be numeric" in result["errors"]
+    assert "runs[1].score_components.return_score must be numeric" in result["errors"]
+    assert "runs[1].score_warnings must be a list of strings" in result["errors"]
+
+
 def test_validate_backtest_comparison_report_does_not_touch_runtime_audit_tables(db_session, tmp_path) -> None:
     report_path = write_report(tmp_path, valid_report())
 
@@ -136,11 +151,22 @@ def valid_report() -> dict:
         "result": "PASS",
         "generated_at": "2026-07-01T00:00:00Z",
         "run_count": 2,
-        "ranking_metrics": ["total_return", "ending_balance", "max_drawdown_pct"],
+        "ranking_metrics": ["overall_score", "total_return", "ending_balance", "max_drawdown_pct"],
         "runs": [
             {
                 "run_name": "base",
                 "run_path": "base",
+                "overall_score": "60",
+                "score_components": {
+                    "return_score": "41",
+                    "drawdown_score": "95.8333",
+                    "profit_factor_score": "100",
+                    "win_rate_score": "100",
+                    "trade_count_score": "10",
+                    "exposure_score": "100",
+                    "final_normalized_score": "60",
+                },
+                "score_warnings": ["too_few_trades", "infinite_or_unavailable_profit_factor"],
                 "summary": {
                     "run_name": "base",
                     "strategy_type": "price_threshold",
@@ -164,11 +190,23 @@ def valid_report() -> dict:
                     "max_drawdown_amount": "125",
                     "max_drawdown_pct": "1.25",
                     "exposure_pct": "50",
+                    "overall_score": "60",
                 },
             },
             {
                 "run_name": "candidate",
                 "run_path": "candidate",
+                "overall_score": "61",
+                "score_components": {
+                    "return_score": "42",
+                    "drawdown_score": "98.3333",
+                    "profit_factor_score": "100",
+                    "win_rate_score": "100",
+                    "trade_count_score": "10",
+                    "exposure_score": "100",
+                    "final_normalized_score": "61",
+                },
+                "score_warnings": ["too_few_trades", "infinite_or_unavailable_profit_factor"],
                 "summary": {
                     "run_name": "candidate",
                     "strategy_type": "moving_average_crossover",
@@ -192,10 +230,29 @@ def valid_report() -> dict:
                     "max_drawdown_amount": "50",
                     "max_drawdown_pct": "0.5",
                     "exposure_pct": "50",
+                    "overall_score": "61",
                 },
             },
         ],
         "rankings": {
+            "overall_score": [
+                {
+                    "rank": 1,
+                    "run_name": "candidate",
+                    "run_path": "candidate",
+                    "metric": "overall_score",
+                    "value": "61",
+                    "available": True,
+                },
+                {
+                    "rank": 2,
+                    "run_name": "base",
+                    "run_path": "base",
+                    "metric": "overall_score",
+                    "value": "60",
+                    "available": True,
+                },
+            ],
             "total_return": [
                 {
                     "rank": 1,
