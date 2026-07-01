@@ -124,6 +124,7 @@ def compare_backtest_run_dirs_many(run_dirs: list[str | Path]) -> dict[str, Any]
             "ending_balance": _rank_run_items(run_items, metric="ending_balance", higher_is_better=True),
             "max_drawdown_pct": _rank_run_items(run_items, metric="max_drawdown_pct", higher_is_better=False),
         },
+        "recommendation": build_backtest_recommendation_summary(run_items),
     }
 
 
@@ -155,6 +156,7 @@ def compact_backtest_comparison_report(report: dict[str, Any]) -> dict[str, Any]
             "runs_count": report["runs_count"],
             "ranking_metrics": report["ranking_metrics"],
             "rankings": report["rankings"],
+            "recommendation": report.get("recommendation"),
         }
     compact = {
         "result": report["result"],
@@ -353,6 +355,113 @@ def _comparison_summary(run_name: str, summary: dict[str, Any]) -> dict[str, Any
     payload = {"run_name": run_name}
     payload.update({field: _json_value(summary.get(field)) for field in SUMMARY_FIELDS if field in summary})
     return payload
+
+
+def build_backtest_recommendation_summary(run_items: list[dict[str, Any]]) -> dict[str, Any]:
+    comparable = [
+        item
+        for item in run_items
+        if _optional_decimal(item.get("overall_score") or item.get("summary", {}).get("overall_score")) is not None
+    ]
+    if not comparable:
+        return {
+            "recommended_run": None,
+            "recommendation_status": "no_valid_runs",
+            "recommendation_reason": {
+                "highest_overall_score": False,
+                "positive_return": False,
+                "acceptable_drawdown": False,
+                "sufficient_trades": False,
+                "better_risk_adjusted_profile": False,
+                "score_gap_to_runner_up": None,
+            },
+            "recommendation_warnings": ["all_runs_weak"],
+            "runner_up_runs": [],
+        }
+
+    ranked = sorted(comparable, key=_overall_score_sort_key)
+    best = ranked[0]
+    runner_ups = ranked[1:3]
+    best_score = _optional_decimal(best.get("overall_score") or best.get("summary", {}).get("overall_score")) or Decimal("0")
+    runner_up_score = (
+        _optional_decimal(runner_ups[0].get("overall_score") or runner_ups[0].get("summary", {}).get("overall_score"))
+        if runner_ups
+        else None
+    )
+    score_gap = best_score - runner_up_score if runner_up_score is not None else None
+    summary = best.get("summary", {}) if isinstance(best.get("summary"), dict) else {}
+    selected_warnings = _string_list(best.get("score_warnings"))
+    severe_warnings = {"no_trades", "negative_return", "high_drawdown"}
+    recommendation_warnings = list(selected_warnings)
+    if best_score < Decimal("50"):
+        recommendation_warnings.append("best_run_has_low_score")
+    if "too_few_trades" in selected_warnings:
+        recommendation_warnings.append("best_run_has_too_few_trades")
+    if "high_drawdown" in selected_warnings:
+        recommendation_warnings.append("best_run_has_high_drawdown")
+    if "negative_return" in selected_warnings:
+        recommendation_warnings.append("best_run_has_negative_return")
+    if "no_trades" in selected_warnings:
+        recommendation_warnings.append("best_run_has_no_trades")
+    if len(ranked) > 1 and score_gap is not None and score_gap < Decimal("5"):
+        recommendation_warnings.append("no_clear_winner")
+
+    has_severe_warning = any(warning in selected_warnings for warning in severe_warnings)
+    all_runs_weak = all(
+        (_optional_decimal(item.get("overall_score") or item.get("summary", {}).get("overall_score")) or Decimal("0")) < Decimal("70")
+        for item in ranked
+    )
+    if all_runs_weak:
+        recommendation_warnings.append("all_runs_weak")
+
+    if best_score >= Decimal("70") and not has_severe_warning and "too_few_trades" not in selected_warnings:
+        status = "recommended"
+    elif best_score >= Decimal("50") and not has_severe_warning:
+        status = "weak_recommendation"
+    else:
+        status = "not_recommended"
+
+    reason = {
+        "highest_overall_score": True,
+        "positive_return": (_optional_decimal(summary.get("total_return_pct")) or _optional_decimal(summary.get("total_return")) or Decimal("0")) > 0,
+        "acceptable_drawdown": (_optional_decimal(summary.get("max_drawdown_pct")) or Decimal("0")) < Decimal("20"),
+        "sufficient_trades": (_optional_decimal(summary.get("completed_round_trips")) or Decimal("0")) >= Decimal("5"),
+        "better_risk_adjusted_profile": status in {"recommended", "weak_recommendation"} and "no_clear_winner" not in recommendation_warnings,
+        "score_gap_to_runner_up": _decimal_to_string(score_gap) if score_gap is not None else None,
+    }
+
+    return {
+        "recommended_run": _recommendation_run(best),
+        "recommendation_status": status,
+        "recommendation_reason": reason,
+        "recommendation_warnings": sorted(set(recommendation_warnings)),
+        "runner_up_runs": [_recommendation_run(item) for item in runner_ups],
+    }
+
+
+def _recommendation_run(item: dict[str, Any]) -> dict[str, Any]:
+    summary = item.get("summary", {}) if isinstance(item.get("summary"), dict) else {}
+    return {
+        "strategy": summary.get("strategy_type"),
+        "run_name": item.get("run_name") or summary.get("run_name"),
+        "run_dir": item.get("run_dir"),
+        "run_path": item.get("run_path"),
+        "overall_score": item.get("overall_score") or summary.get("overall_score"),
+        "total_return_pct": summary.get("total_return_pct"),
+        "max_drawdown_pct": summary.get("max_drawdown_pct"),
+        "max_drawdown_amount": summary.get("max_drawdown_amount"),
+        "profit_factor": summary.get("profit_factor"),
+        "win_rate": summary.get("win_rate_pct"),
+        "trade_count": summary.get("completed_round_trips") if summary.get("completed_round_trips") is not None else summary.get("trades_count"),
+        "exposure_pct": summary.get("exposure_pct"),
+        "score_warnings": _string_list(item.get("score_warnings")),
+    }
+
+
+def _string_list(value: Any) -> list[str]:
+    if not isinstance(value, list):
+        return []
+    return [item for item in value if isinstance(item, str)]
 
 
 def _score_summary(summary: dict[str, Any]) -> dict[str, Any]:

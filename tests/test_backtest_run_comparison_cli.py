@@ -7,6 +7,7 @@ from app.repositories.execution_attempt import ExecutionAttemptRepository
 from app.repositories.execution_reconciliation_job import ExecutionReconciliationJobRepository
 from app.repositories.portfolio import PortfolioRepository
 from app.repositories.run_event import RunEventRepository
+from app.services.backtest_run_comparison import build_backtest_recommendation_summary
 
 
 def test_compare_backtest_runs_reports_metric_deltas(tmp_path) -> None:
@@ -247,6 +248,8 @@ def test_compare_backtest_runs_many_ranks_saved_artifacts(tmp_path) -> None:
     assert "overall_score" in report["runs"][0]
     assert "score_components" in report["runs"][0]
     assert "score_warnings" in report["runs"][0]
+    assert report["recommendation"]["recommended_run"]["run_name"] == "low_drawdown"
+    assert report["recommendation"]["recommendation_status"] in {"weak_recommendation", "not_recommended"}
     low_drawdown = next(item for item in report["runs"] if item["run_name"] == "low_drawdown")
     assert low_drawdown["summary"]["strategy_type"] == "moving_average_crossover"
     assert low_drawdown["summary"]["fast_window"] == "2"
@@ -348,6 +351,9 @@ def test_compare_backtest_runs_many_scores_profitable_lower_risk_run_higher(tmp_
     worse = report["runs"][1]
     assert better["run_name"] == "better"
     assert _decimal(better["overall_score"]) > _decimal(worse["overall_score"])
+    assert report["recommendation"]["recommended_run"]["run_name"] == "better"
+    assert report["recommendation"]["recommended_run"]["strategy"] is None
+    assert report["recommendation"]["recommended_run"]["overall_score"] == better["overall_score"]
     assert set(better["score_components"]) == {
         "return_score",
         "drawdown_score",
@@ -516,6 +522,208 @@ def test_compare_backtest_runs_many_tie_breaks_overall_score_deterministically(t
     report = json.loads(stdout.getvalue())
     assert [item["run_name"] for item in report["rankings"]["overall_score"]] == ["a_run", "z_run"]
     assert [item["run_name"] for item in report["runs"]] == ["a_run", "z_run"]
+    assert report["recommendation"]["recommended_run"]["run_name"] == "a_run"
+    assert "no_clear_winner" in report["recommendation"]["recommendation_warnings"]
+
+
+def test_compare_backtest_runs_many_recommends_strong_best_run(tmp_path) -> None:
+    strong_dir = write_run_dir(
+        tmp_path,
+        "strong",
+        {
+            "strategy_type": "moving_average_crossover",
+            "starting_balance": "10000",
+            "ending_balance": "12000",
+            "total_return": "2000",
+            "total_return_pct": "20",
+            "completed_round_trips": 12,
+            "win_rate_pct": "80",
+            "profit_factor": "3",
+            "max_drawdown_pct": "1",
+            "exposure_pct": "50",
+        },
+    )
+    weak_dir = write_run_dir(
+        tmp_path,
+        "weak",
+        {
+            "starting_balance": "10000",
+            "ending_balance": "10020",
+            "total_return": "20",
+            "total_return_pct": "0.2",
+            "completed_round_trips": 8,
+            "win_rate_pct": "50",
+            "profit_factor": "1",
+            "max_drawdown_pct": "6",
+        },
+    )
+
+    stdout = StringIO()
+    exit_code = cli.main(["--run-dir", str(weak_dir), "--run-dir", str(strong_dir)], stdout=stdout)
+
+    assert exit_code == 0
+    recommendation = json.loads(stdout.getvalue())["recommendation"]
+    assert recommendation["recommendation_status"] == "recommended"
+    assert recommendation["recommended_run"] == {
+        "strategy": "moving_average_crossover",
+        "run_name": "strong",
+        "run_dir": str(strong_dir),
+        "run_path": None,
+        "overall_score": recommendation["recommended_run"]["overall_score"],
+        "total_return_pct": "20",
+        "max_drawdown_pct": "1",
+        "max_drawdown_amount": "0",
+        "profit_factor": "3",
+        "win_rate": "80",
+        "trade_count": 12,
+        "exposure_pct": "50",
+        "score_warnings": [],
+    }
+    assert _decimal(recommendation["recommended_run"]["overall_score"]) >= 70
+    assert recommendation["recommendation_reason"]["highest_overall_score"] is True
+    assert recommendation["recommendation_reason"]["positive_return"] is True
+    assert recommendation["recommendation_reason"]["acceptable_drawdown"] is True
+    assert recommendation["recommendation_reason"]["sufficient_trades"] is True
+    assert recommendation["recommendation_reason"]["better_risk_adjusted_profile"] is True
+
+
+def test_compare_backtest_runs_many_weak_recommendation_for_too_few_trades_best(tmp_path) -> None:
+    few_dir = write_run_dir(
+        tmp_path,
+        "few",
+        {
+            "starting_balance": "10000",
+            "ending_balance": "12000",
+            "total_return": "2000",
+            "total_return_pct": "20",
+            "completed_round_trips": 2,
+            "win_rate_pct": "100",
+            "profit_factor": "3",
+            "max_drawdown_pct": "1",
+        },
+    )
+    lower_dir = write_run_dir(
+        tmp_path,
+        "lower",
+        {
+            "starting_balance": "10000",
+            "ending_balance": "10010",
+            "total_return": "10",
+            "total_return_pct": "0.1",
+            "completed_round_trips": 10,
+            "win_rate_pct": "45",
+            "profit_factor": "1",
+            "max_drawdown_pct": "10",
+        },
+    )
+
+    stdout = StringIO()
+    exit_code = cli.main(["--run-dir", str(few_dir), "--run-dir", str(lower_dir)], stdout=stdout)
+
+    assert exit_code == 0
+    recommendation = json.loads(stdout.getvalue())["recommendation"]
+    assert recommendation["recommended_run"]["run_name"] == "few"
+    assert recommendation["recommendation_status"] == "weak_recommendation"
+    assert "best_run_has_too_few_trades" in recommendation["recommendation_warnings"]
+    assert "too_few_trades" in recommendation["recommended_run"]["score_warnings"]
+
+
+def test_compare_backtest_runs_many_not_recommended_for_no_trade_best(tmp_path) -> None:
+    idle_dir = write_run_dir(
+        tmp_path,
+        "idle",
+        {
+            "starting_balance": "10000",
+            "ending_balance": "10000",
+            "total_return": "0",
+            "total_return_pct": "0",
+            "trades_count": 0,
+            "max_drawdown_pct": "0",
+        },
+    )
+    (idle_dir / "trades.csv").unlink()
+    worse_dir = write_run_dir(
+        tmp_path,
+        "worse",
+        {
+            "starting_balance": "10000",
+            "ending_balance": "8000",
+            "total_return": "-2000",
+            "total_return_pct": "-20",
+            "completed_round_trips": 10,
+            "win_rate_pct": "10",
+            "profit_factor": "0.1",
+            "max_drawdown_pct": "60",
+        },
+    )
+
+    stdout = StringIO()
+    exit_code = cli.main(["--run-dir", str(idle_dir), "--run-dir", str(worse_dir)], stdout=stdout)
+
+    assert exit_code == 0
+    recommendation = json.loads(stdout.getvalue())["recommendation"]
+    assert recommendation["recommended_run"]["run_name"] == "idle"
+    assert recommendation["recommendation_status"] == "not_recommended"
+    assert "best_run_has_no_trades" in recommendation["recommendation_warnings"]
+    assert "all_runs_weak" in recommendation["recommendation_warnings"]
+
+
+def test_compare_backtest_runs_many_not_recommended_for_negative_high_drawdown_best(tmp_path) -> None:
+    risky_dir = write_run_dir(
+        tmp_path,
+        "risky",
+        {
+            "starting_balance": "10000",
+            "ending_balance": "9800",
+            "total_return": "-200",
+            "total_return_pct": "-2",
+            "completed_round_trips": 10,
+            "win_rate_pct": "80",
+            "profit_factor": "3",
+            "max_drawdown_pct": "25",
+        },
+    )
+    worse_dir = write_run_dir(
+        tmp_path,
+        "worse",
+        {
+            "starting_balance": "10000",
+            "ending_balance": "8000",
+            "total_return": "-2000",
+            "total_return_pct": "-20",
+            "completed_round_trips": 10,
+            "win_rate_pct": "10",
+            "profit_factor": "0.2",
+            "max_drawdown_pct": "60",
+        },
+    )
+
+    stdout = StringIO()
+    exit_code = cli.main(["--run-dir", str(risky_dir), "--run-dir", str(worse_dir)], stdout=stdout)
+
+    assert exit_code == 0
+    recommendation = json.loads(stdout.getvalue())["recommendation"]
+    assert recommendation["recommended_run"]["run_name"] == "risky"
+    assert recommendation["recommendation_status"] == "not_recommended"
+    assert "best_run_has_negative_return" in recommendation["recommendation_warnings"]
+    assert "best_run_has_high_drawdown" in recommendation["recommendation_warnings"]
+
+
+def test_backtest_recommendation_summary_empty_comparison_has_no_valid_runs() -> None:
+    assert build_backtest_recommendation_summary([]) == {
+        "recommended_run": None,
+        "recommendation_status": "no_valid_runs",
+        "recommendation_reason": {
+            "highest_overall_score": False,
+            "positive_return": False,
+            "acceptable_drawdown": False,
+            "sufficient_trades": False,
+            "better_risk_adjusted_profile": False,
+            "score_gap_to_runner_up": None,
+        },
+        "recommendation_warnings": ["all_runs_weak"],
+        "runner_up_runs": [],
+    }
 
 
 def test_compare_backtest_runs_does_not_touch_runtime_audit_tables(db_session, tmp_path) -> None:

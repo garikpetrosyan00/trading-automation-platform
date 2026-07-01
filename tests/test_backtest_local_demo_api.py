@@ -391,6 +391,10 @@ def test_local_demo_api_compares_two_saved_runs(
     assert candidate["overall_score"] == candidate["summary"]["overall_score"]
     assert "score_components" in candidate
     assert "score_warnings" in candidate
+    assert body["recommendation"]["recommended_run"]["run_name"] == "candidate"
+    assert body["recommendation"]["recommended_run"]["run_path"] == "candidate"
+    assert "run_dir" not in body["recommendation"]["recommended_run"]
+    assert body["recommendation"]["recommendation_status"] in {"weak_recommendation", "not_recommended"}
     assert str(tmp_path.resolve()) not in response.text
 
 

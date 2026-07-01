@@ -384,6 +384,9 @@ class LocalBacktestArtifactService:
             for metric, items in rankings.items()
             if isinstance(items, list)
         }
+        recommendation = comparison.get("recommendation")
+        if isinstance(recommendation, dict):
+            sanitized["recommendation"] = self._sanitize_comparison_recommendation(recommendation)
         return sanitized
 
     def _sanitize_comparison_run(self, item: dict[str, Any]) -> dict[str, Any]:
@@ -395,6 +398,27 @@ class LocalBacktestArtifactService:
     def _sanitize_comparison_ranking(self, item: dict[str, Any]) -> dict[str, Any]:
         sanitized = dict(item)
         sanitized["run_path"] = self._relative_artifact_path(Path(str(item.get("run_dir", ""))))
+        sanitized.pop("run_dir", None)
+        return sanitized
+
+    def _sanitize_comparison_recommendation(self, recommendation: dict[str, Any]) -> dict[str, Any]:
+        sanitized = dict(recommendation)
+        recommended_run = recommendation.get("recommended_run")
+        if isinstance(recommended_run, dict):
+            sanitized["recommended_run"] = self._sanitize_recommendation_run(recommended_run)
+        runner_up_runs = recommendation.get("runner_up_runs")
+        if isinstance(runner_up_runs, list):
+            sanitized["runner_up_runs"] = [
+                self._sanitize_recommendation_run(item)
+                for item in runner_up_runs
+                if isinstance(item, dict)
+            ]
+        return sanitized
+
+    def _sanitize_recommendation_run(self, item: dict[str, Any]) -> dict[str, Any]:
+        sanitized = dict(item)
+        path_value = item.get("run_dir") or item.get("run_path") or item.get("run_name") or ""
+        sanitized["run_path"] = self._relative_artifact_path(Path(str(path_value)))
         sanitized.pop("run_dir", None)
         return sanitized
 

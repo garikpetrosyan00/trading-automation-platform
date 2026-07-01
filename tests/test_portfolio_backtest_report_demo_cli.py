@@ -53,6 +53,14 @@ def test_portfolio_backtest_report_demo_runs_e2e_and_validates_report(tmp_path) 
     report = json.loads((output_dir / "comparison_report.json").read_text(encoding="utf-8"))
     assert report["generated_at"] == GENERATED_AT
     assert report["run_count"] == 2
+    assert report["recommendation"]["recommended_run"]["run_name"] in {
+        "base_price_threshold",
+        "candidate_price_threshold",
+    }
+    assert report["recommendation"]["recommendation_status"] in {
+        "weak_recommendation",
+        "not_recommended",
+    }
     assert [run["run_path"] for run in report["runs"]] == [
         "base_price_threshold",
         "candidate_price_threshold",
@@ -101,6 +109,7 @@ def test_portfolio_backtest_report_demo_writes_optional_markdown_report(tmp_path
     assert "# Backtest Comparison Report" in markdown
     assert "Generated at: `2026-07-01T00:00:00Z`" in markdown
     assert "Local backtest artifact comparison report only" in markdown
+    assert "## Recommendation" in markdown
     assert "### `total_return`" in markdown
 
 

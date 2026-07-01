@@ -102,6 +102,10 @@ def test_export_backtest_comparison_report_writes_json_from_run_dirs(tmp_path) -
     assert candidate["overall_score"] == candidate["summary"]["overall_score"]
     assert candidate["score_components"]["final_normalized_score"] == candidate["overall_score"]
     assert "infinite_or_unavailable_profit_factor" in candidate["score_warnings"]
+    assert report["recommendation"]["recommended_run"]["run_name"] == "candidate"
+    assert report["recommendation"]["recommended_run"]["run_path"] == "candidate"
+    assert report["recommendation"]["recommendation_status"] == "weak_recommendation"
+    assert "best_run_has_too_few_trades" in report["recommendation"]["recommendation_warnings"]
     assert [item["run_name"] for item in report["rankings"]["overall_score"]] == ["candidate", "base"]
     assert [item["run_name"] for item in report["rankings"]["total_return"]] == ["candidate", "base"]
     assert [item["run_path"] for item in report["rankings"]["ending_balance"]] == ["candidate", "base"]
@@ -142,6 +146,9 @@ def test_export_backtest_comparison_report_writes_markdown(tmp_path) -> None:
     assert "| candidate | candidate |" in markdown
     assert "Overall Score" in markdown
     assert "Score Warnings" in markdown
+    assert "## Recommendation" in markdown
+    assert "Status: `weak_recommendation`" in markdown
+    assert "Recommendation Warnings" in markdown
     assert "### `overall_score`" in markdown
     assert "### `total_return`" in markdown
 
@@ -218,6 +225,48 @@ def test_export_backtest_comparison_report_reads_existing_comparison_json(tmp_pa
     report = json.loads(output_json.read_text(encoding="utf-8"))
     assert [run["run_path"] for run in report["runs"]] == ["base", "candidate"]
     assert report["rankings"]["total_return"][0]["run_path"] == "candidate"
+    assert report["recommendation"]["recommended_run"]["run_path"] == "candidate"
+
+
+def test_export_backtest_comparison_report_tolerates_older_comparison_without_scores_or_recommendation(tmp_path) -> None:
+    comparison_json = tmp_path / "comparison.json"
+    comparison_json.write_text(
+        json.dumps(
+            {
+                "result": "PASS",
+                "runs_count": 2,
+                "ranking_metrics": ["total_return"],
+                "runs": [
+                    {"run_name": "base", "run_dir": str(tmp_path / "runs" / "base"), "summary": {"total_return": "10"}},
+                    {"run_name": "candidate", "run_dir": str(tmp_path / "runs" / "candidate"), "summary": {"total_return": "20"}},
+                ],
+                "rankings": {"total_return": []},
+            },
+            sort_keys=True,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    output_json = tmp_path / "report.json"
+
+    exit_code = cli.main(
+        [
+            "--comparison-json",
+            str(comparison_json),
+            "--artifact-root",
+            str(tmp_path / "runs"),
+            "--output-json",
+            str(output_json),
+            "--generated-at",
+            GENERATED_AT,
+        ],
+        stdout=StringIO(),
+    )
+
+    assert exit_code == 0
+    report = json.loads(output_json.read_text(encoding="utf-8"))
+    assert report["recommendation"]["recommendation_status"] == "no_valid_runs"
+    assert report["recommendation"]["recommended_run"] is None
 
 
 def test_export_backtest_comparison_report_refuses_existing_output_without_overwrite(tmp_path) -> None:

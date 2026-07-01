@@ -37,6 +37,14 @@ def test_portfolio_backtest_comparison_smoke_writes_runs_and_comparison(tmp_path
     assert comparison["ranking_metrics"] == ["overall_score", "total_return", "ending_balance", "max_drawdown_pct"]
     assert "overall_score" in comparison["rankings"]
     assert all("overall_score" in run for run in comparison["runs"])
+    assert comparison["recommendation"]["recommended_run"]["run_name"] in {
+        "base_price_threshold",
+        "candidate_price_threshold",
+    }
+    assert comparison["recommendation"]["recommendation_status"] in {
+        "weak_recommendation",
+        "not_recommended",
+    }
     assert [item["run_name"] for item in comparison["rankings"]["total_return"]] == [
         "base_price_threshold",
         "candidate_price_threshold",

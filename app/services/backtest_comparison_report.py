@@ -3,6 +3,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from app.services.backtest_run_comparison import build_backtest_recommendation_summary
+
 
 SAFETY_NOTE = (
     "Local backtest artifact comparison report only; no live/testnet/Binance calls, "
@@ -63,13 +65,18 @@ def build_backtest_comparison_report(
         raise BacktestComparisonReportError("comparison must include multi-run runs and rankings")
 
     root = Path(artifact_root).resolve() if artifact_root is not None else None
+    report_runs = [_report_run(item, artifact_root=root) for item in runs]
+    recommendation = comparison.get("recommendation")
+    if not isinstance(recommendation, dict):
+        recommendation = build_backtest_recommendation_summary(_runs_with_overall_scores_from_rankings(runs, rankings))
     return {
         "result": "PASS",
         "generated_at": generated_at or datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
         "run_count": len(runs),
         "ranking_metrics": list(comparison.get("ranking_metrics", [])),
-        "runs": [_report_run(item, artifact_root=root) for item in runs],
+        "runs": report_runs,
         "rankings": _report_rankings(rankings, artifact_root=root),
+        "recommendation": _report_recommendation(recommendation, artifact_root=root),
         "safety_note": SAFETY_NOTE,
     }
 
@@ -101,6 +108,10 @@ def build_backtest_comparison_markdown_report(report: dict[str, Any], *, title: 
             ["Run", "Path", "Strategy", "Total Return", "Ending Balance", "Max Drawdown %", "Overall Score", "Score Warnings"],
             rows,
         ),
+        "",
+        "## Recommendation",
+        "",
+        _recommendation_markdown(report.get("recommendation")),
         "",
         "## Rankings",
         "",
@@ -163,6 +174,29 @@ def _report_run(item: dict[str, Any], *, artifact_root: Path | None) -> dict[str
     return payload
 
 
+def _runs_with_overall_scores_from_rankings(runs: list[Any], rankings: dict[str, Any]) -> list[dict[str, Any]]:
+    if not isinstance(rankings.get("overall_score"), list):
+        return [item for item in runs if isinstance(item, dict)]
+    scores_by_name = {
+        item.get("run_name"): item.get("value")
+        for item in rankings.get("overall_score", [])
+        if isinstance(item, dict) and item.get("available") is True
+    }
+    hydrated = []
+    for item in runs:
+        if not isinstance(item, dict):
+            continue
+        payload = dict(item)
+        summary = dict(payload.get("summary")) if isinstance(payload.get("summary"), dict) else {}
+        score = payload.get("overall_score") or summary.get("overall_score") or scores_by_name.get(payload.get("run_name"))
+        if score is not None:
+            payload["overall_score"] = score
+            summary["overall_score"] = score
+            payload["summary"] = summary
+        hydrated.append(payload)
+    return hydrated
+
+
 def _report_rankings(rankings: dict[str, Any], *, artifact_root: Path | None) -> dict[str, list[dict[str, Any]]]:
     return {
         metric: [_report_ranking_item(item, artifact_root=artifact_root) for item in items]
@@ -181,6 +215,73 @@ def _report_ranking_item(item: dict[str, Any], *, artifact_root: Path | None) ->
         "available": item.get("available"),
         **({"reason": item.get("reason")} if item.get("reason") else {}),
     }
+
+
+def _report_recommendation(recommendation: dict[str, Any], *, artifact_root: Path | None) -> dict[str, Any]:
+    payload = dict(recommendation)
+    recommended_run = recommendation.get("recommended_run")
+    if isinstance(recommended_run, dict):
+        payload["recommended_run"] = _report_recommendation_run(recommended_run, artifact_root=artifact_root)
+    else:
+        payload["recommended_run"] = None
+    runner_up_runs = recommendation.get("runner_up_runs")
+    payload["runner_up_runs"] = [
+        _report_recommendation_run(item, artifact_root=artifact_root)
+        for item in runner_up_runs
+        if isinstance(item, dict)
+    ] if isinstance(runner_up_runs, list) else []
+    return payload
+
+
+def _report_recommendation_run(item: dict[str, Any], *, artifact_root: Path | None) -> dict[str, Any]:
+    payload = dict(item)
+    path_value = item.get("run_dir") or item.get("run_path")
+    if path_value not in (None, ""):
+        payload["run_path"] = _safe_run_path(path_value, artifact_root=artifact_root)
+    payload.pop("run_dir", None)
+    return payload
+
+
+def _recommendation_markdown(recommendation: Any) -> str:
+    if not isinstance(recommendation, dict):
+        return "Unavailable"
+    recommended_run = recommendation.get("recommended_run")
+    selected_rows = []
+    if isinstance(recommended_run, dict):
+        selected_rows.append(
+            (
+                recommended_run.get("run_name"),
+                recommended_run.get("run_path"),
+                recommended_run.get("strategy"),
+                recommended_run.get("overall_score"),
+                recommended_run.get("total_return_pct"),
+                recommended_run.get("max_drawdown_pct") or recommended_run.get("max_drawdown_amount"),
+                ", ".join(recommended_run.get("score_warnings", [])) if isinstance(recommended_run.get("score_warnings"), list) else None,
+            )
+        )
+    lines = [
+        f"Status: `{_markdown_text(recommendation.get('recommendation_status'))}`",
+        "",
+        _table(
+            ["Run", "Path", "Strategy", "Overall Score", "Total Return %", "Drawdown", "Score Warnings"],
+            selected_rows,
+        ),
+        "",
+        _table(
+            ["Reason", "Value"],
+            [
+                (key, value)
+                for key, value in (recommendation.get("recommendation_reason") or {}).items()
+            ] if isinstance(recommendation.get("recommendation_reason"), dict) else [],
+        ),
+        "",
+        _table(
+            ["Recommendation Warnings"],
+            [(warning,) for warning in recommendation.get("recommendation_warnings", [])]
+            if isinstance(recommendation.get("recommendation_warnings"), list) else [],
+        ),
+    ]
+    return "\n".join(lines)
 
 
 def _safe_run_path(value: Any, *, artifact_root: Path | None) -> str | None:

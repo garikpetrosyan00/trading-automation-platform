@@ -39,6 +39,17 @@ NUMERIC_SCORE_COMPONENT_FIELDS = (
     "exposure_score",
     "final_normalized_score",
 )
+NUMERIC_RECOMMENDATION_RUN_FIELDS = (
+    "overall_score",
+    "total_return_pct",
+    "max_drawdown_pct",
+    "max_drawdown_amount",
+    "profit_factor",
+    "win_rate",
+    "trade_count",
+    "exposure_pct",
+)
+RECOMMENDATION_STATUSES = {"recommended", "weak_recommendation", "not_recommended", "no_valid_runs"}
 
 
 class BacktestComparisonReportValidationError(ValueError):
@@ -90,6 +101,13 @@ def validate_backtest_comparison_report(
     )
     _check_rankings(
         rankings,
+        run_names=run_names,
+        errors=errors,
+        checked_fields=checked_fields,
+        allow_absolute_paths=allow_absolute_paths,
+    )
+    _check_recommendation(
+        report.get("recommendation"),
         run_names=run_names,
         errors=errors,
         checked_fields=checked_fields,
@@ -196,6 +214,97 @@ def _check_rankings(
             )
             if item.get("available") is True and not _is_numeric(item.get("value")):
                 errors.append(f"rankings.{metric}[{index}].value must be numeric when available")
+
+
+def _check_recommendation(
+    recommendation: Any,
+    *,
+    run_names: set[str],
+    errors: list[str],
+    checked_fields: list[str],
+    allow_absolute_paths: bool,
+) -> None:
+    checked_fields.append("recommendation")
+    if recommendation is None:
+        return
+    if not isinstance(recommendation, dict):
+        errors.append("recommendation must be an object when present")
+        return
+    status = recommendation.get("recommendation_status")
+    if status not in RECOMMENDATION_STATUSES:
+        errors.append("recommendation.recommendation_status is invalid")
+    recommended_run = recommendation.get("recommended_run")
+    if status == "no_valid_runs":
+        if recommended_run is not None:
+            errors.append("recommendation.recommended_run must be null when status is no_valid_runs")
+    elif not isinstance(recommended_run, dict):
+        errors.append("recommendation.recommended_run must be an object")
+    else:
+        _check_recommendation_run(
+            recommended_run,
+            label="recommendation.recommended_run",
+            run_names=run_names,
+            errors=errors,
+            allow_absolute_paths=allow_absolute_paths,
+        )
+    reason = recommendation.get("recommendation_reason")
+    if not isinstance(reason, dict):
+        errors.append("recommendation.recommendation_reason must be an object")
+    else:
+        for field in ("highest_overall_score", "positive_return", "acceptable_drawdown", "sufficient_trades", "better_risk_adjusted_profile"):
+            if field in reason and not isinstance(reason.get(field), bool):
+                errors.append(f"recommendation.recommendation_reason.{field} must be boolean")
+        if reason.get("score_gap_to_runner_up") not in (None, "") and not _is_numeric(reason.get("score_gap_to_runner_up")):
+            errors.append("recommendation.recommendation_reason.score_gap_to_runner_up must be numeric")
+    _check_string_list(
+        recommendation.get("recommendation_warnings"),
+        label="recommendation.recommendation_warnings",
+        errors=errors,
+    )
+    runner_up_runs = recommendation.get("runner_up_runs")
+    if runner_up_runs is not None:
+        if not isinstance(runner_up_runs, list):
+            errors.append("recommendation.runner_up_runs must be a list")
+        else:
+            for index, item in enumerate(runner_up_runs):
+                if not isinstance(item, dict):
+                    errors.append(f"recommendation.runner_up_runs[{index}] must be an object")
+                    continue
+                _check_recommendation_run(
+                    item,
+                    label=f"recommendation.runner_up_runs[{index}]",
+                    run_names=run_names,
+                    errors=errors,
+                    allow_absolute_paths=allow_absolute_paths,
+                )
+
+
+def _check_recommendation_run(
+    item: dict[str, Any],
+    *,
+    label: str,
+    run_names: set[str],
+    errors: list[str],
+    allow_absolute_paths: bool,
+) -> None:
+    run_name = item.get("run_name")
+    if run_name is not None and run_name not in run_names:
+        errors.append(f"{label}.run_name references unknown run: {run_name}")
+    _check_safe_path(
+        item.get("run_path"),
+        label=f"{label}.run_path",
+        errors=errors,
+        allow_absolute_paths=allow_absolute_paths,
+    )
+    for field in NUMERIC_RECOMMENDATION_RUN_FIELDS:
+        if field in item and item.get(field) not in (None, "") and not _is_numeric(item.get(field)):
+            errors.append(f"{label}.{field} must be numeric")
+    _check_string_list(item.get("score_warnings"), label=f"{label}.score_warnings", errors=errors)
+
+
+def _check_string_list(value: Any, *, label: str, errors: list[str]) -> None:
+    if value is not None and (not isinstance(value, list) or any(not isinstance(item, str) for item in value)):
+        errors.append(f"{label} must be a list of strings")
 
 
 def _check_safety_note(value: Any, *, errors: list[str], checked_fields: list[str]) -> None:

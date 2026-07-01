@@ -22,6 +22,7 @@ def test_validate_backtest_comparison_report_accepts_valid_report(tmp_path) -> N
     assert "generated_at" in result["checked_fields"]
     assert "run_summaries" in result["checked_fields"]
     assert "ranking_references" in result["checked_fields"]
+    assert "recommendation" in result["checked_fields"]
 
 
 def test_validate_backtest_comparison_report_reports_missing_required_fields(tmp_path) -> None:
@@ -120,6 +121,36 @@ def test_validate_backtest_comparison_report_rejects_invalid_score_fields(tmp_pa
     assert "runs[0].overall_score must be numeric" in result["errors"]
     assert "runs[1].score_components.return_score must be numeric" in result["errors"]
     assert "runs[1].score_warnings must be a list of strings" in result["errors"]
+
+
+def test_validate_backtest_comparison_report_rejects_invalid_recommendation_fields(tmp_path) -> None:
+    report = valid_report()
+    report["recommendation"]["recommendation_status"] = "maybe"
+    report["recommendation"]["recommended_run"]["overall_score"] = "not-a-number"
+    report["recommendation"]["recommended_run"]["run_name"] = "missing"
+    report["recommendation"]["recommendation_reason"]["highest_overall_score"] = "yes"
+    report["recommendation"]["recommendation_warnings"] = ["all_runs_weak", 123]
+    report_path = write_report(tmp_path, report)
+
+    exit_code, result = run_validator(report_path)
+
+    assert exit_code == 1
+    assert "recommendation.recommendation_status is invalid" in result["errors"]
+    assert "recommendation.recommended_run.overall_score must be numeric" in result["errors"]
+    assert "recommendation.recommended_run.run_name references unknown run: missing" in result["errors"]
+    assert "recommendation.recommendation_reason.highest_overall_score must be boolean" in result["errors"]
+    assert "recommendation.recommendation_warnings must be a list of strings" in result["errors"]
+
+
+def test_validate_backtest_comparison_report_accepts_older_report_without_recommendation(tmp_path) -> None:
+    report = valid_report()
+    report.pop("recommendation")
+    report_path = write_report(tmp_path, report)
+
+    exit_code, result = run_validator(report_path)
+
+    assert exit_code == 0
+    assert result["valid"] is True
 
 
 def test_validate_backtest_comparison_report_does_not_touch_runtime_audit_tables(db_session, tmp_path) -> None:
@@ -273,6 +304,53 @@ def valid_report() -> dict:
             ],
             "ending_balance": [],
             "max_drawdown_pct": [],
+        },
+        "recommendation": {
+            "recommended_run": {
+                "strategy": "moving_average_crossover",
+                "run_name": "candidate",
+                "run_path": "candidate",
+                "overall_score": "61",
+                "total_return_pct": None,
+                "max_drawdown_pct": "0.5",
+                "max_drawdown_amount": "50",
+                "profit_factor": None,
+                "win_rate": "100",
+                "trade_count": 1,
+                "exposure_pct": "50",
+                "score_warnings": ["too_few_trades", "infinite_or_unavailable_profit_factor"],
+            },
+            "recommendation_status": "weak_recommendation",
+            "recommendation_reason": {
+                "highest_overall_score": True,
+                "positive_return": True,
+                "acceptable_drawdown": True,
+                "sufficient_trades": False,
+                "better_risk_adjusted_profile": True,
+                "score_gap_to_runner_up": "1",
+            },
+            "recommendation_warnings": [
+                "all_runs_weak",
+                "best_run_has_too_few_trades",
+                "infinite_or_unavailable_profit_factor",
+                "too_few_trades",
+            ],
+            "runner_up_runs": [
+                {
+                    "strategy": "price_threshold",
+                    "run_name": "base",
+                    "run_path": "base",
+                    "overall_score": "60",
+                    "total_return_pct": None,
+                    "max_drawdown_pct": "1.25",
+                    "max_drawdown_amount": "125",
+                    "profit_factor": None,
+                    "win_rate": "100",
+                    "trade_count": 1,
+                    "exposure_pct": "50",
+                    "score_warnings": ["too_few_trades", "infinite_or_unavailable_profit_factor"],
+                }
+            ],
         },
         "safety_note": (
             "Local backtest artifact comparison report only; no live/testnet/Binance calls, "
