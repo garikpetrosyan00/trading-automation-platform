@@ -157,6 +157,130 @@ def bot_paper_artifacts(session, bot_id: int) -> dict[str, object]:
     }
 
 
+def bot_paper_artifact_summary(session, bot_id: int) -> dict[str, object]:
+    artifacts = bot_paper_artifacts(session, bot_id)
+    paper_position = artifacts["paper_position"]
+    return {
+        "orders": [
+            {
+                "side": order.side,
+                "status": order.status,
+                "rejection_reason": order.rejection_reason,
+            }
+            for order in artifacts["orders"]
+        ],
+        "fills": [
+            {
+                "side": fill.side,
+                "quantity": fill.quantity,
+                "fill_quantity": fill.fill_quantity,
+                "fill_price": fill.fill_price,
+                "fee": fill.fee,
+            }
+            for fill in artifacts["fills"]
+        ],
+        "attempts": [
+            {
+                "side": attempt.side,
+                "final_status": attempt.final_status,
+                "final_reason": attempt.final_reason,
+                "order_id": attempt.order_id,
+                "metadata": attempt.metadata_,
+            }
+            for attempt in artifacts["attempts"]
+        ],
+        "snapshots": [
+            {
+                "event_type": snapshot.event_type,
+                "source_order_id": snapshot.source_order_id,
+                "source_fill_id": snapshot.source_fill_id,
+                "cash_available": snapshot.cash_available,
+                "cash_locked": snapshot.cash_locked,
+                "base_quantity": snapshot.base_quantity,
+                "base_locked": snapshot.base_locked,
+            }
+            for snapshot in artifacts["snapshots"]
+        ],
+        "draft_assets": {
+            asset: {"available": row.available, "locked": row.locked}
+            for asset, row in artifacts["draft_assets"].items()
+        },
+        "paper_position": None
+        if paper_position is None
+        else {
+            "symbol": paper_position.symbol,
+            "base_asset": paper_position.base_asset,
+            "quote_asset": paper_position.quote_asset,
+            "quantity": paper_position.quantity,
+            "average_entry_price": paper_position.average_entry_price,
+            "realized_pnl": paper_position.realized_pnl,
+        },
+    }
+
+
+def assert_rejected_gate_audit(
+    session,
+    *,
+    bot_id: int,
+    response,
+    expected_side: str,
+    expected_code: str,
+    expected_events: list[str] | None = None,
+    attempt_index: int = 0,
+) -> None:
+    run_events = paper_audit_events(session, bot_id)
+    assert response.action == "skipped"
+    assert response.message == "order_rejected"
+    assert response.recent_activity_preview[0].message == "order_rejected"
+    assert response.decision_explanation is not None
+    assert response.decision_explanation.decision == expected_side
+    if expected_events is not None:
+        assert [event.message for event in run_events] == expected_events
+    latest_event = run_events[-1]
+    assert latest_event.message == "order_rejected"
+    assert latest_event.payload["side"] == expected_side
+    assert latest_event.payload["message"] == expected_code
+    assert latest_event.payload["symbol"] == "BTCUSDT"
+    assert "id" not in latest_event.payload
+    assert "traceback" not in latest_event.payload
+    assert "secret" not in latest_event.payload
+
+    attempts = ExecutionAttemptRepository(session).list_filtered(bot_id=bot_id, mode="paper")
+    attempt = attempts[attempt_index]
+    assert attempt.side == expected_side
+    assert attempt.final_status == "rejected_by_broker"
+    assert attempt.final_reason == expected_code
+    assert attempt.safety_status == expected_code
+    assert attempt.order_id is None
+    assert attempt.metadata_["fill_id"] is None
+    assert attempt.metadata_["broker"] == "paper"
+    assert attempt.metadata_["mode"] == "paper"
+    assert attempt.metadata_["side"] == expected_side
+    assert not any(item.final_status == "filled" and item.side == expected_side for item in attempts[: attempt_index + 1])
+
+
+def assert_no_new_paper_side_effects(
+    before: dict[str, object],
+    after: dict[str, object],
+    *,
+    expected_side: str,
+    expected_code: str,
+) -> None:
+    assert after["orders"] == before["orders"]
+    assert after["fills"] == before["fills"]
+    assert after["snapshots"] == before["snapshots"]
+    assert after["draft_assets"] == before["draft_assets"]
+    assert after["paper_position"] == before["paper_position"]
+    assert len(after["attempts"]) == len(before["attempts"]) + 1
+    new_attempt = after["attempts"][0]
+    assert new_attempt["side"] == expected_side
+    assert new_attempt["final_status"] == "rejected_by_broker"
+    assert new_attempt["final_reason"] == expected_code
+    assert new_attempt["order_id"] is None
+    assert new_attempt["metadata"]["fill_id"] is None
+    assert after["attempts"][1:] == before["attempts"]
+
+
 def add_candles(
     session,
     *,
@@ -1754,6 +1878,46 @@ def test_live_mode_bot_does_not_use_simulated_execution_for_buy_or_sell(
     assert any(event.message == "buy_signal" for event in events)
     assert any(event.message == "live_mode_not_implemented" for event in events)
     assert not any(event.message == "order_filled" for event in events)
+    assert PaperPositionRepository(db_session).get_for_bot_symbol(bot_id=bot.id, symbol="BTCUSDT") is None
+    assert PaperEquitySnapshotRepository(db_session).list_latest_for_bot(bot_id=bot.id) == []
+    assert DraftBalanceRepository(db_session).list_for_bot(bot.id) == []
+    live_attempts = ExecutionAttemptRepository(db_session).list_filtered(bot_id=bot.id, mode="live")
+    assert len(live_attempts) == 1
+    assert live_attempts[0].final_status == "blocked_by_safety"
+    assert live_attempts[0].final_reason == "live_mode_not_implemented"
+
+
+def test_testnet_mode_bot_does_not_create_paper_execution_artifacts(
+    db_session,
+    db_session_factory,
+    stub_market_data_service,
+    bot_stack_factory,
+    funded_account,
+) -> None:
+    funded_account(db_session)
+    _, bot, _ = bot_stack_factory(db_session, is_paper=False, execution_mode="testnet")
+    runner = build_runner(db_session_factory, stub_market_data_service)
+    runner.start_bot(bot.id)
+    stub_market_data_service.set_price("BTCUSDT", "95")
+
+    response = asyncio.run(run_bot_once_endpoint(bot.id, runner))
+
+    repository = PortfolioRepository(db_session)
+    audit_events = paper_audit_events(db_session, bot.id)
+    testnet_attempts = ExecutionAttemptRepository(db_session).list_filtered(bot_id=bot.id, mode="testnet")
+    assert response.action == "skipped"
+    assert response.message == "order_rejected"
+    assert response.recent_activity_preview[0].message == "order_rejected"
+    assert repository.list_orders_filtered(bot_id=bot.id, mode="paper") == []
+    assert repository.list_fills() == []
+    assert PaperPositionRepository(db_session).get_for_bot_symbol(bot_id=bot.id, symbol="BTCUSDT") is None
+    assert PaperEquitySnapshotRepository(db_session).list_latest_for_bot(bot_id=bot.id) == []
+    assert DraftBalanceRepository(db_session).list_for_bot(bot.id) == []
+    assert [event.message for event in audit_events] == ["buy_signal", "order_rejected"]
+    assert audit_events[-1].payload["message"] == "Binance testnet broker is disabled"
+    assert len(testnet_attempts) == 1
+    assert testnet_attempts[0].final_status == "blocked_by_safety"
+    assert testnet_attempts[0].final_reason == "testnet_broker_disabled"
 
 
 def test_inactive_strategy_is_skipped_without_placing_orders(
@@ -2563,8 +2727,10 @@ def test_manual_bot_run_draft_bot_records_recent_activity(
 ) -> None:
     bot = draft_bot
     runner = build_runner(db_session_factory, stub_market_data_service)
+    before = bot_paper_artifact_summary(db_session, bot.id)
 
     response = asyncio.run(run_bot_once_endpoint(bot.id, runner))
+    after = bot_paper_artifact_summary(db_session, bot.id)
     run_events = asyncio.run(
         list_run_events_endpoint(
             db_session,
@@ -2580,6 +2746,8 @@ def test_manual_bot_run_draft_bot_records_recent_activity(
     assert response.status == "draft"
     assert response.recent_activity_preview[0].message == "bot_not_active"
     assert [event.message for event in run_events] == ["bot_not_active"]
+    # Non-runnable bots are skipped before strategy evaluation, so the paper gate is intentionally unreachable here.
+    assert after == before
 
 
 def test_manual_bot_run_paused_bot_returns_skipped_result(
@@ -2596,13 +2764,17 @@ def test_manual_bot_run_paused_bot_returns_skipped_result(
     runner.start_bot(bot.id)
     asyncio.run(pause_bot_endpoint(bot.id, runner))
     stub_market_data_service.set_price("BTCUSDT", "95")
+    before = bot_paper_artifact_summary(db_session, bot.id)
 
     response = asyncio.run(run_bot_once_endpoint(bot.id, runner))
+    after = bot_paper_artifact_summary(db_session, bot.id)
 
     assert response.action == "skipped"
     assert response.message == "bot_skipped_paused"
     assert response.status == "paused"
     assert response.is_paused is True
+    # Paused bots are skipped before strategy evaluation, so the paper gate is intentionally unreachable here.
+    assert after == before
     assert response.recent_activity_preview[0].message == "bot_skipped_paused"
     assert PortfolioRepository(db_session).list_orders() == []
     assert PortfolioRepository(db_session).list_fills() == []
@@ -3139,33 +3311,28 @@ def test_manual_bot_run_safety_gate_rejects_buy_insufficient_quote_without_side_
     runner.start_bot(bot.id)
     stub_market_data_service.set_price("BTCUSDT", "95")
 
-    before = bot_paper_artifacts(db_session, bot.id)
+    before = bot_paper_artifact_summary(db_session, bot.id)
     response = asyncio.run(run_bot_once_endpoint(bot.id, runner))
-    after = bot_paper_artifacts(db_session, bot.id)
-    run_events = paper_audit_events(db_session, bot.id)
+    after = bot_paper_artifact_summary(db_session, bot.id)
 
-    assert response.action == "skipped"
-    assert response.message == "order_rejected"
-    assert response.recent_activity_preview[0].message == "order_rejected"
-    assert response.decision_explanation is not None
-    assert response.decision_explanation.decision == "buy"
-    assert [event.message for event in run_events] == ["order_rejected"]
-    assert run_events[0].payload["side"] == "buy"
-    assert run_events[0].payload["message"] == "insufficient_draft_balance_available"
-    assert after["orders"] == []
-    assert after["fills"] == []
-    assert len(after["attempts"]) == 1
-    assert after["attempts"][0].side == "buy"
-    assert after["attempts"][0].final_status == "rejected_by_broker"
-    assert after["attempts"][0].final_reason == "insufficient_draft_balance_available"
-    assert after["attempts"][0].order_id is None
-    assert not any(attempt.final_status == "filled" for attempt in after["attempts"])
-    assert after["snapshots"] == []
-    assert after["paper_position"] is None
-    assert after["draft_assets"]["USDT"].available == before["draft_assets"]["USDT"].available == Decimal("9.49000000")
-    assert after["draft_assets"]["USDT"].locked == before["draft_assets"]["USDT"].locked == Decimal("0E-8")
-    assert after["draft_assets"]["BTC"].available == before["draft_assets"]["BTC"].available == Decimal("0E-8")
-    assert after["draft_assets"]["BTC"].locked == before["draft_assets"]["BTC"].locked == Decimal("0E-8")
+    assert_rejected_gate_audit(
+        db_session,
+        bot_id=bot.id,
+        response=response,
+        expected_side="buy",
+        expected_code="insufficient_draft_balance_available",
+        expected_events=["order_rejected"],
+    )
+    assert_no_new_paper_side_effects(
+        before,
+        after,
+        expected_side="buy",
+        expected_code="insufficient_draft_balance_available",
+    )
+    assert after["draft_assets"]["USDT"]["available"] == Decimal("9.49000000")
+    assert after["draft_assets"]["USDT"]["locked"] == Decimal("0E-8")
+    assert after["draft_assets"]["BTC"]["available"] == Decimal("0E-8")
+    assert after["draft_assets"]["BTC"]["locked"] == Decimal("0E-8")
     assert_no_reconciliation_activity(db_session, bot.id)
 
 
@@ -3182,22 +3349,24 @@ def test_manual_bot_run_safety_gate_rejects_buy_missing_draft_balance_without_si
     runner.start_bot(bot.id)
     stub_market_data_service.set_price("BTCUSDT", "95")
 
+    before = bot_paper_artifact_summary(db_session, bot.id)
     response = asyncio.run(run_bot_once_endpoint(bot.id, runner))
-    after = bot_paper_artifacts(db_session, bot.id)
-    run_events = paper_audit_events(db_session, bot.id)
+    after = bot_paper_artifact_summary(db_session, bot.id)
 
-    assert response.action == "skipped"
-    assert response.message == "order_rejected"
-    assert [event.message for event in run_events] == ["order_rejected"]
-    assert run_events[0].payload["side"] == "buy"
-    assert run_events[0].payload["message"] == "draft_balance_asset_not_found"
-    assert after["orders"] == []
-    assert after["fills"] == []
-    assert len(after["attempts"]) == 1
-    assert after["attempts"][0].final_status == "rejected_by_broker"
-    assert after["attempts"][0].final_reason == "draft_balance_asset_not_found"
-    assert after["attempts"][0].order_id is None
-    assert after["snapshots"] == []
+    assert_rejected_gate_audit(
+        db_session,
+        bot_id=bot.id,
+        response=response,
+        expected_side="buy",
+        expected_code="draft_balance_asset_not_found",
+        expected_events=["order_rejected"],
+    )
+    assert_no_new_paper_side_effects(
+        before,
+        after,
+        expected_side="buy",
+        expected_code="draft_balance_asset_not_found",
+    )
     assert after["draft_assets"] == {}
     assert after["paper_position"] is None
     assert_no_reconciliation_activity(db_session, bot.id)
@@ -3220,7 +3389,7 @@ def test_manual_bot_run_safety_gate_rejects_sell_missing_position_without_side_e
     buy_response = asyncio.run(run_bot_once_endpoint(bot.id, runner))
     assert buy_response.message == "buy_filled"
     stub_market_data_service.set_price("BTCUSDT", "115")
-    before = bot_paper_artifacts(db_session, bot.id)
+    before = bot_paper_artifact_summary(db_session, bot.id)
 
     def reject_missing_position(self, **kwargs):
         raise AppError(
@@ -3232,31 +3401,30 @@ def test_manual_bot_run_safety_gate_rejects_sell_missing_position_without_side_e
     monkeypatch.setattr(PaperSafetyGateService, "validate_paper_sell_allowed", reject_missing_position)
 
     response = asyncio.run(run_bot_once_endpoint(bot.id, runner))
-    after = bot_paper_artifacts(db_session, bot.id)
-    run_events = paper_audit_events(db_session, bot.id)
+    after = bot_paper_artifact_summary(db_session, bot.id)
 
-    assert response.action == "skipped"
-    assert response.message == "order_rejected"
-    assert response.decision_explanation is not None
-    assert response.decision_explanation.decision == "sell"
-    assert [event.message for event in run_events] == ["buy_signal", "order_filled", "order_rejected"]
-    assert run_events[-1].payload["side"] == "sell"
-    assert run_events[-1].payload["message"] == "insufficient_paper_position_quantity"
-    assert len(after["orders"]) == len(before["orders"]) == 1
-    assert after["orders"][0].side == "buy"
-    assert len(after["fills"]) == len(before["fills"]) == 1
-    assert len(after["attempts"]) == len(before["attempts"]) + 1
-    assert after["attempts"][0].side == "sell"
-    assert after["attempts"][0].final_status == "rejected_by_broker"
-    assert after["attempts"][0].final_reason == "insufficient_paper_position_quantity"
-    assert after["attempts"][0].order_id is None
-    assert not any(attempt.side == "sell" and attempt.final_status == "filled" for attempt in after["attempts"])
-    assert len(after["snapshots"]) == len(before["snapshots"]) == 1
-    assert after["snapshots"][0].event_type == "buy_fill"
-    assert after["paper_position"].quantity == before["paper_position"].quantity == Decimal("0.10000000")
-    assert after["draft_assets"]["BTC"].available == before["draft_assets"]["BTC"].available == Decimal("0.10000000")
-    assert after["draft_assets"]["BTC"].locked == before["draft_assets"]["BTC"].locked == Decimal("0E-8")
-    assert after["draft_assets"]["USDT"].available == before["draft_assets"]["USDT"].available == Decimal("9990.50000000")
+    # A natural missing-position sell cannot be reached through the strategy decision
+    # because BotRunner uses the same bot-scoped position to decide whether a sell signal exists.
+    assert_rejected_gate_audit(
+        db_session,
+        bot_id=bot.id,
+        response=response,
+        expected_side="sell",
+        expected_code="insufficient_paper_position_quantity",
+        expected_events=["buy_signal", "order_filled", "order_rejected"],
+    )
+    assert_no_new_paper_side_effects(
+        before,
+        after,
+        expected_side="sell",
+        expected_code="insufficient_paper_position_quantity",
+    )
+    assert after["orders"][0]["side"] == "buy"
+    assert after["snapshots"][0]["event_type"] == "buy_fill"
+    assert after["paper_position"]["quantity"] == Decimal("0.10000000")
+    assert after["draft_assets"]["BTC"]["available"] == Decimal("0.10000000")
+    assert after["draft_assets"]["BTC"]["locked"] == Decimal("0E-8")
+    assert after["draft_assets"]["USDT"]["available"] == Decimal("9990.50000000")
     assert_no_reconciliation_activity(db_session, bot.id)
 
 
@@ -3277,7 +3445,7 @@ def test_manual_bot_run_safety_gate_rejects_sell_insufficient_position_without_s
     buy_response = asyncio.run(run_bot_once_endpoint(bot.id, runner))
     assert buy_response.message == "buy_filled"
     stub_market_data_service.set_price("BTCUSDT", "115")
-    before = bot_paper_artifacts(db_session, bot.id)
+    before = bot_paper_artifact_summary(db_session, bot.id)
 
     def reject_insufficient_position(self, **kwargs):
         raise AppError(
@@ -3289,27 +3457,87 @@ def test_manual_bot_run_safety_gate_rejects_sell_insufficient_position_without_s
     monkeypatch.setattr(PaperSafetyGateService, "validate_paper_sell_allowed", reject_insufficient_position)
 
     response = asyncio.run(run_bot_once_endpoint(bot.id, runner))
-    after = bot_paper_artifacts(db_session, bot.id)
-    run_events = paper_audit_events(db_session, bot.id)
+    after = bot_paper_artifact_summary(db_session, bot.id)
 
-    assert response.action == "skipped"
-    assert response.message == "order_rejected"
-    assert [event.message for event in run_events] == ["buy_signal", "order_filled", "order_rejected"]
-    assert run_events[-1].payload["side"] == "sell"
-    assert run_events[-1].payload["message"] == "insufficient_paper_position_quantity"
-    assert len(after["orders"]) == len(before["orders"]) == 1
-    assert len(after["fills"]) == len(before["fills"]) == 1
-    assert len(after["attempts"]) == len(before["attempts"]) + 1
-    assert after["attempts"][0].side == "sell"
-    assert after["attempts"][0].final_status == "rejected_by_broker"
-    assert after["attempts"][0].final_reason == "insufficient_paper_position_quantity"
-    assert after["attempts"][0].order_id is None
-    assert not any(attempt.side == "sell" and attempt.final_status == "filled" for attempt in after["attempts"])
-    assert len(after["snapshots"]) == len(before["snapshots"]) == 1
-    assert after["paper_position"].quantity == before["paper_position"].quantity == Decimal("0.10000000")
-    assert after["draft_assets"]["BTC"].available == before["draft_assets"]["BTC"].available == Decimal("0.10000000")
-    assert after["draft_assets"]["BTC"].locked == before["draft_assets"]["BTC"].locked == Decimal("0E-8")
-    assert after["draft_assets"]["USDT"].available == before["draft_assets"]["USDT"].available == Decimal("9990.50000000")
+    # A natural insufficient-position sell cannot be reached through the strategy decision
+    # because BotRunner sells the current bot-scoped quantity; this simulates a post-decision race.
+    assert_rejected_gate_audit(
+        db_session,
+        bot_id=bot.id,
+        response=response,
+        expected_side="sell",
+        expected_code="insufficient_paper_position_quantity",
+        expected_events=["buy_signal", "order_filled", "order_rejected"],
+    )
+    assert_no_new_paper_side_effects(
+        before,
+        after,
+        expected_side="sell",
+        expected_code="insufficient_paper_position_quantity",
+    )
+    assert after["paper_position"]["quantity"] == Decimal("0.10000000")
+    assert after["draft_assets"]["BTC"]["available"] == Decimal("0.10000000")
+    assert after["draft_assets"]["BTC"]["locked"] == Decimal("0E-8")
+    assert after["draft_assets"]["USDT"]["available"] == Decimal("9990.50000000")
+    assert_no_reconciliation_activity(db_session, bot.id)
+
+
+def test_manual_bot_run_safety_gate_rejects_sell_asset_mismatch_without_side_effects(
+    db_session,
+    db_session_factory,
+    stub_market_data_service,
+    bot_stack_factory,
+    funded_account,
+) -> None:
+    funded_account(db_session)
+    _, bot, _ = bot_stack_factory(db_session)
+    reset_draft_balance(
+        db_session,
+        bot.id,
+        defaults={
+            "BTC": (Decimal("0.1"), Decimal("0")),
+            "ETH": (Decimal("0.1"), Decimal("0")),
+            "USDT": (Decimal("10000"), Decimal("0")),
+        },
+    )
+    db_session.add(
+        PaperPosition(
+            bot_id=bot.id,
+            symbol="BTCUSDT",
+            base_asset="ETH",
+            quote_asset="USDT",
+            quantity=Decimal("0.1"),
+            average_entry_price=Decimal("95"),
+            realized_pnl=Decimal("0"),
+        )
+    )
+    db_session.commit()
+    runner = build_runner(db_session_factory, stub_market_data_service)
+    runner.start_bot(bot.id)
+    stub_market_data_service.set_price("BTCUSDT", "115")
+
+    before = bot_paper_artifact_summary(db_session, bot.id)
+    response = asyncio.run(run_bot_once_endpoint(bot.id, runner))
+    after = bot_paper_artifact_summary(db_session, bot.id)
+
+    assert_rejected_gate_audit(
+        db_session,
+        bot_id=bot.id,
+        response=response,
+        expected_side="sell",
+        expected_code="paper_position_asset_mismatch",
+        expected_events=["order_rejected"],
+    )
+    assert_no_new_paper_side_effects(
+        before,
+        after,
+        expected_side="sell",
+        expected_code="paper_position_asset_mismatch",
+    )
+    assert after["paper_position"]["base_asset"] == "ETH"
+    assert after["paper_position"]["quantity"] == Decimal("0.10000000")
+    assert after["draft_assets"]["BTC"]["available"] == Decimal("0.10000000")
+    assert after["draft_assets"]["ETH"]["available"] == Decimal("0.10000000")
     assert_no_reconciliation_activity(db_session, bot.id)
 
 
