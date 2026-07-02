@@ -99,7 +99,7 @@ Safety boundary: v1 is local-only. It does not place live trades, does not submi
 
 Next roadmap:
 
-- Paper trading hardening with clearer operator gates and safer paused-bot workflows.
+- Paper trading production hardening v1 is complete for backend paper-mode safety gates, BotRunner integration, and rejection audit coverage.
 - Risk limits around sizing, exposure, drawdown, and per-bot loss controls.
 - Reconciliation flows for unresolved execution attempts and delayed confirmations.
 - Kill switch controls for stopping automated execution paths.
@@ -624,6 +624,32 @@ Runtime concurrency proof has passed in Local Simulator / paper mode only:
 Safety boundaries: Binance/testnet/live behavior is unchanged and was not enabled or exercised. The reconciliation worker was not involved.
 
 Current verification: full pytest `637 passed`; `py_compile` passed; `git diff --check` passed; Alembic head is `20260619_0031 (head)`.
+
+### Paper Trading Production Hardening v1
+
+Paper Trading Production Hardening v1 is complete for the backend paper execution path. The milestone added a centralized `PaperSafetyGateService`, integrated it into BotRunner before paper execution side effects, and added a BotRunner audit matrix for rejection paths.
+
+The paper gate protects:
+
+- paper-only execution mode and unsafe live/testnet-like bot configuration
+- non-runnable bots when a direct gate call requires a runnable bot
+- missing or insufficient quote Draft Balance for BUY
+- missing, insufficient, or asset-mismatched bot-scoped Paper Position for SELL
+
+BotRunner uses the gate only on the paper path. If the gate rejects, the manual run keeps the existing safe skipped style and must not report a false fill. Rejections are audited as rejected paper execution attempts with stable error codes, and the rejection path must not create an Order, Fill, DraftBalance mutation, PaperPosition mutation, or PaperEquitySnapshot.
+
+Safety boundary: this hardening is backend-only paper execution work. It does not enable live trading, does not enable Binance or testnet order execution, does not change Binance/testnet/live behavior, and does not add migrations.
+
+Useful closeout verification:
+
+```bash
+./.venv/bin/python -m pytest tests/test_bot_runner.py tests/test_paper_safety_gate.py
+./.venv/bin/python -m pytest tests/test_execution_audit_api.py tests/test_portfolio_services.py tests/test_draft_balance_service.py tests/test_paper_position_service.py tests/test_paper_equity_snapshots.py
+./.venv/bin/python -m pytest
+./.venv/bin/python -m compileall -q app tests
+git diff --check
+./.venv/bin/alembic heads
+```
 
 ## One-shot paper runner CLI
 
