@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 
-from app.core.errors import NotFoundError
+from app.core.errors import AppError, NotFoundError
 from app.core.logging import get_logger
 from app.data.schemas import MarketEvent
 from app.engine.risk import RISK_REASON_STOP_LOSS_TRIGGERED, RiskLimits, RiskManager
@@ -22,6 +22,7 @@ from app.models.bot_run import BotRun
 from app.models.run_event import RunEvent
 from app.repositories.bot import BotRepository
 from app.repositories.bot_run import BotRunRepository
+from app.repositories.draft_balance import DraftBalanceRepository
 from app.repositories.execution_profile import ExecutionProfileRepository
 from app.repositories.execution_attempt import ExecutionAttemptRepository
 from app.repositories.market_candle import MarketCandleRepository
@@ -47,6 +48,7 @@ from app.services.bot_run import BotRunService
 from app.services.brokers.safety import ExecutionSafetyConfig, ExecutionSafetyGuard
 from app.services.execution_attempt import ExecutionAttemptService
 from app.services.execution_limits import ExecutionDailyLimitService
+from app.services.paper_safety_gate import PaperSafetyGateService
 from app.services.simulated_execution import PaperOrderIntent, SimulatedExecutionService
 
 logger = get_logger(__name__)
@@ -625,6 +627,59 @@ class BotRunner:
                 return event
             return None
 
+        execution_mode = self._bot_execution_mode(bot)
+        attempt_repository = ExecutionAttemptRepository(db)
+
+        if execution_mode == "paper":
+            try:
+                self._validate_paper_gate(
+                    db,
+                    bot_id=bot.id,
+                    symbol=strategy.symbol,
+                    side=execution_action,
+                    quantity=quantity,
+                    price=decision.current_price if decision.current_price is not None else latest_price,
+                )
+            except AppError as exc:
+                ExecutionAttemptService(attempt_repository).record(
+                    bot_id=bot.id,
+                    strategy_id=strategy.id,
+                    symbol=strategy.symbol,
+                    side=execution_action,
+                    mode="paper",
+                    broker="paper",
+                    requested_quantity=quantity,
+                    requested_price=decision.current_price if decision.current_price is not None else latest_price,
+                    decision_reason=decision_payload.get("detail") or decision_payload.get("reason"),
+                    risk_status=risk_decision.reason,
+                    safety_status=exc.error_code,
+                    final_status="rejected_by_broker",
+                    final_reason=exc.error_code,
+                    metadata={
+                        "decision": decision_payload,
+                        "broker": "paper",
+                        "symbol": strategy.symbol,
+                        "side": execution_action,
+                        "mode": "paper",
+                        "fill_id": None,
+                    },
+                )
+                event = self._record_event(
+                    db,
+                    bot_run.id,
+                    event_type="system",
+                    level="warning",
+                    message="order_rejected",
+                    payload={
+                        "side": execution_action,
+                        "symbol": strategy.symbol,
+                        "message": exc.error_code,
+                        **decision_payload,
+                    },
+                )
+                db.commit()
+                return event
+
         self._record_event(
             db,
             bot_run.id,
@@ -638,7 +693,6 @@ class BotRunner:
             },
         )
 
-        execution_mode = self._bot_execution_mode(bot)
         if execution_mode != "paper":
             db.commit()
 
@@ -670,7 +724,6 @@ class BotRunner:
             db.commit()
             return event
 
-        attempt_repository = ExecutionAttemptRepository(db)
         safety_guard = ExecutionSafetyGuard(
             ExecutionSafetyConfig(
                 global_enabled=self.config.execution_global_enabled,
@@ -825,6 +878,43 @@ class BotRunner:
         db.commit()
         return event
 
+    def _validate_paper_gate(
+        self,
+        db,
+        *,
+        bot_id: int,
+        symbol: str,
+        side: str,
+        quantity: Decimal,
+        price: Decimal | None,
+    ) -> None:
+        if price is None:
+            return
+
+        base_asset, quote_asset = self._symbol_assets(symbol)
+        gate = PaperSafetyGateService(
+            bot_repository=BotRepository(db),
+            draft_balance_repository=DraftBalanceRepository(db),
+            paper_position_repository=PaperPositionRepository(db),
+        )
+        if side == "buy":
+            fill_price = self._paper_fill_price(price, side)
+            notional = quantity * fill_price
+            gate.validate_paper_buy_allowed(
+                bot_id=bot_id,
+                quote_asset=quote_asset,
+                required_quote_amount=notional + self._paper_fee(notional),
+            )
+            return
+
+        gate.validate_paper_sell_allowed(
+            bot_id=bot_id,
+            symbol=symbol,
+            base_asset=base_asset,
+            quote_asset=quote_asset,
+            quantity=quantity,
+        )
+
     def _submit_binance_testnet_order(
         self,
         *,
@@ -916,6 +1006,24 @@ class BotRunner:
         if mode:
             return mode
         return "paper" if bot.is_paper else "live"
+
+    def _paper_fill_price(self, price: Decimal, side: str) -> Decimal:
+        slippage_multiplier = self.config.simulation_slippage_bps / Decimal("10000")
+        if side == "buy":
+            return price * (Decimal("1") + slippage_multiplier)
+        return price * (Decimal("1") - slippage_multiplier)
+
+    def _paper_fee(self, notional: Decimal) -> Decimal:
+        return notional * (self.config.simulation_fee_bps / Decimal("10000"))
+
+    @staticmethod
+    def _symbol_assets(symbol: str) -> tuple[str, str]:
+        normalized = symbol.strip().upper()
+        quote_asset_suffixes = ("USDT", "USDC", "BUSD", "USD", "BTC", "ETH")
+        for quote_asset in quote_asset_suffixes:
+            if normalized.endswith(quote_asset) and len(normalized) > len(quote_asset):
+                return normalized[: -len(quote_asset)], quote_asset
+        return normalized, "USDT"
 
     def _ensure_running_run(self, bot_run_service: BotRunService, bot_id: int, trigger_type: str) -> BotRun:
         existing = bot_run_service.repository.get_active_for_bot(bot_id)
