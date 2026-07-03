@@ -89,6 +89,7 @@ def test_paper_operator_overview_empty_new_bot_returns_safe_empty_state(
     assert response.status_code == 200
     body = response.json()
     assert set(body) == OVERVIEW_FIELDS
+    _assert_public_shape(body)
     assert body["bot_id"] == bot.id
     assert body["mode"] == "paper"
     assert body["status"] == "draft"
@@ -134,8 +135,10 @@ def test_paper_operator_overview_after_buy_shows_public_state_and_clean_audit(
 
     with TestClient(app) as client:
         response = client.get(f"/api/v1/bots/{bot.id}/paper/operator-overview")
+        audit_response = client.get(f"/api/v1/bots/{bot.id}/paper-reconciliation/audit")
 
     assert response.status_code == 200
+    assert audit_response.status_code == 200
     body = response.json()
     _assert_public_shape(body)
     assert body["status"] == "active"
@@ -150,6 +153,7 @@ def test_paper_operator_overview_after_buy_shows_public_state_and_clean_audit(
     assert body["recent_execution_summary"]["latest_attempt_status"] == "filled"
     assert body["latest_reconciliation_audit"]["ok"] is True
     assert body["latest_reconciliation_audit"]["issues"] == []
+    assert body["latest_reconciliation_audit"] == _overview_audit_from_dedicated_response(audit_response.json())
     assert body["read_only"] is True
 
 
@@ -219,6 +223,46 @@ def test_paper_operator_overview_reports_disabled_paper_trading_flag(
     assert response.json()["paper_trading_enabled"] is False
 
 
+def test_paper_operator_overview_does_not_expose_live_or_testnet_safety_flags(
+    db_session,
+    stub_market_data_service,
+    noop_bot_runner,
+    bot_stack_factory,
+    configure_app_state,
+    monkeypatch,
+) -> None:
+    _, bot, _ = bot_stack_factory(db_session)
+    import app.api.v1.endpoints.paper_operator as endpoint
+
+    monkeypatch.setattr(
+        endpoint,
+        "get_settings",
+        lambda: Settings(
+            EXECUTION_LIVE_ENABLED=True,
+            BINANCE_TESTNET_BROKER_ENABLED=True,
+            BINANCE_TESTNET_ORDER_SUBMISSION_ENABLED=True,
+            BINANCE_TESTNET_DRY_RUN_ENABLED=True,
+            BINANCE_TESTNET_API_KEY="test-key",
+            BINANCE_TESTNET_API_SECRET="test-secret",
+        ),
+    )
+    configure_app_state(market_data_service=stub_market_data_service, bot_runner=noop_bot_runner)
+
+    with TestClient(app) as client:
+        response = client.get(f"/api/v1/bots/{bot.id}/paper/operator-overview")
+
+    assert response.status_code == 200
+    body = response.json()
+    _assert_public_shape(body)
+    _assert_no_unsafe_internal_metadata(body)
+    serialized = response.text
+    assert "live_execution_enabled" not in serialized
+    assert "binance_testnet" not in serialized
+    assert "dry_run" not in serialized
+    assert "test-key" not in serialized
+    assert "test-secret" not in serialized
+
+
 def test_paper_operator_overview_missing_bot_returns_stable_not_found(
     stub_market_data_service,
     noop_bot_runner,
@@ -231,6 +275,50 @@ def test_paper_operator_overview_missing_bot_returns_stable_not_found(
 
     assert response.status_code == 404
     assert response.json()["error_code"] == "bot_not_found"
+
+
+def test_paper_operator_overview_draft_paused_and_no_signal_do_not_look_filled(
+    db_session,
+    db_session_factory,
+    stub_market_data_service,
+    noop_bot_runner,
+    bot_stack_factory,
+    funded_account,
+    configure_app_state,
+    reset_draft_balance_for_bot,
+) -> None:
+    _, draft_bot, _ = bot_stack_factory(db_session, name="Draft overview bot")
+    _, paused_bot, _ = bot_stack_factory(db_session, name="Paused overview bot", status="paused")
+    funded_account(db_session)
+    _, no_signal_bot, _ = bot_stack_factory(db_session, name="No signal overview bot")
+    reset_draft_balance_for_bot(db_session, no_signal_bot.id)
+    _run_bot_once(
+        db_session_factory,
+        stub_market_data_service,
+        bot_id=no_signal_bot.id,
+        price="105",
+        expected_action="no_action",
+    )
+    configure_app_state(market_data_service=stub_market_data_service, bot_runner=noop_bot_runner)
+
+    with TestClient(app) as client:
+        draft_response = client.get(f"/api/v1/bots/{draft_bot.id}/paper/operator-overview")
+        paused_response = client.get(f"/api/v1/bots/{paused_bot.id}/paper/operator-overview")
+        no_signal_response = client.get(f"/api/v1/bots/{no_signal_bot.id}/paper/operator-overview")
+
+    for response in (draft_response, paused_response, no_signal_response):
+        assert response.status_code == 200
+        body = response.json()
+        _assert_public_shape(body)
+        assert body["recent_execution_summary"]["filled_attempt_count"] == 0
+        assert body["recent_execution_summary"]["latest_attempt_status"] is None
+        assert body["latest_equity_snapshot"] is None
+        assert "order_filled" not in response.text
+        assert "buy_fill" not in response.text
+        assert "sell_fill" not in response.text
+    assert draft_response.json()["status"] == "draft"
+    assert paused_response.json()["status"] == "paused"
+    assert no_signal_response.json()["recent_execution_summary"]["latest_run_event_message"] == "evaluation_no_signal"
 
 
 def test_paper_operator_overview_repeated_calls_are_read_only(
@@ -301,6 +389,9 @@ def test_paper_operator_overview_does_not_expose_unsafe_internal_metadata(
         response = client.get(f"/api/v1/bots/{bot.id}/paper/operator-overview")
 
     assert response.status_code == 200
+    body = response.json()
+    _assert_public_shape(body)
+    _assert_no_unsafe_internal_metadata(body)
     serialized = response.text
     assert "metadata" not in serialized
     assert "secret" not in serialized
@@ -346,6 +437,39 @@ def _assert_public_shape(body: dict) -> None:
     assert set(body["recent_execution_summary"]) == EXECUTION_SUMMARY_FIELDS
     assert set(body["latest_reconciliation_audit"]) == AUDIT_FIELDS
     assert all(set(issue) == ISSUE_FIELDS for issue in body["latest_reconciliation_audit"]["issues"])
+
+
+def _overview_audit_from_dedicated_response(audit: dict) -> dict:
+    payload = dict(audit)
+    payload.pop("bot_id")
+    payload["issue_count"] = len(payload["issues"])
+    return payload
+
+
+def _assert_no_unsafe_internal_metadata(value) -> None:
+    forbidden = {
+        "metadata",
+        "secret",
+        "raw_payload",
+        "token",
+        "order_id",
+        "fill_id",
+        "attempt_id",
+        "client_order_id",
+        "source_order_id",
+        "source_fill_id",
+        "stack",
+        "traceback",
+    }
+    if isinstance(value, dict):
+        for key, nested_value in value.items():
+            assert key not in forbidden
+            if isinstance(nested_value, str):
+                assert nested_value not in forbidden
+            _assert_no_unsafe_internal_metadata(nested_value)
+    elif isinstance(value, list):
+        for item in value:
+            _assert_no_unsafe_internal_metadata(item)
 
 
 def _artifact_summary(db_session, bot_id: int) -> dict[str, object]:

@@ -731,7 +731,56 @@ curl "http://127.0.0.1:8000/api/v1/bots/<paper_bot_id>/paper/operator-overview"
 
 This endpoint gives operators one safe inspection surface for a bot's paper state. It summarizes the bot mode/status, `PAPER_TRADING_ENABLED`, Draft Balance assets, Paper Positions, the latest Paper Equity snapshot, recent paper execution status, and the latest reconciliation audit result. It is read-only: it does not execute trades, repair records, mutate Orders, Fills, ExecutionAttempts, DraftBalance, PaperPosition, or PaperEquitySnapshot rows, or contact Binance/testnet/live execution paths.
 
-Example response shape:
+Top-level sections:
+
+- `bot_id`: selected bot id
+- `mode`: bot execution mode as stored for the bot, usually `paper` for this operator view
+- `status`: current bot lifecycle status such as `draft`, `paused`, or `active`
+- `paper_trading_enabled`: current `PAPER_TRADING_ENABLED` setting
+- `draft_balance`: bot-scoped Draft Balance assets with public `asset`, `available`, `locked`, and `total` quantities
+- `paper_positions`: bot-scoped Paper Position summaries by symbol
+- `latest_equity_snapshot`: most recent Paper Equity snapshot, or `null` when none exists
+- `recent_execution_summary`: counts and latest public status/reason for recent paper execution attempts plus latest RunEvent message
+- `latest_reconciliation_audit`: embedded read-only consistency audit result using the same public shape as the dedicated audit endpoint, with `issue_count`
+- `read_only`: always `true`
+
+Empty/new bot response shape:
+
+```json
+{
+  "bot_id": 6,
+  "mode": "paper",
+  "status": "draft",
+  "paper_trading_enabled": true,
+  "draft_balance": {
+    "assets": []
+  },
+  "paper_positions": [],
+  "latest_equity_snapshot": null,
+  "recent_execution_summary": {
+    "recent_attempt_count": 0,
+    "filled_attempt_count": 0,
+    "rejected_attempt_count": 0,
+    "latest_attempt_status": null,
+    "latest_attempt_reason": null,
+    "latest_run_event_message": null
+  },
+  "latest_reconciliation_audit": {
+    "ok": true,
+    "issue_count": 0,
+    "issues": [],
+    "checked_attempt_count": 0,
+    "checked_order_count": 0,
+    "checked_fill_count": 0,
+    "checked_run_event_count": 0,
+    "checked_equity_snapshot_count": 0,
+    "read_only": true
+  },
+  "read_only": true
+}
+```
+
+Post-BUY response shape:
 
 ```json
 {
