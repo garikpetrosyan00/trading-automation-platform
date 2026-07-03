@@ -20,10 +20,12 @@ class PaperSafetyGateService:
         bot_repository: BotRepository,
         draft_balance_repository: DraftBalanceRepository,
         paper_position_repository: PaperPositionRepository,
+        paper_trading_enabled: bool = True,
     ):
         self.bot_repository = bot_repository
         self.draft_balance_repository = draft_balance_repository
         self.paper_position_repository = paper_position_repository
+        self.paper_trading_enabled = paper_trading_enabled
 
     def validate_bot_paper_execution_allowed(
         self,
@@ -47,6 +49,12 @@ class PaperSafetyGateService:
                 "Bot is not active and runnable",
                 status_code=409,
                 error_code="bot_not_runnable",
+            )
+        if not self.paper_trading_enabled:
+            raise AppError(
+                "Paper trading is disabled",
+                status_code=409,
+                error_code="paper_trading_disabled",
             )
         return bot
 

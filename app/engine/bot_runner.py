@@ -63,6 +63,7 @@ class RunnerConfig:
     simulation_enabled: bool
     simulation_fee_bps: Decimal
     simulation_slippage_bps: Decimal
+    paper_trading_enabled: bool = True
     execution_global_enabled: bool = True
     execution_live_enabled: bool = False
     binance_testnet_broker_enabled: bool = False
@@ -896,6 +897,7 @@ class BotRunner:
             bot_repository=BotRepository(db),
             draft_balance_repository=DraftBalanceRepository(db),
             paper_position_repository=PaperPositionRepository(db),
+            paper_trading_enabled=self.config.paper_trading_enabled,
         )
         if side == "buy":
             fill_price = self._paper_fill_price(price, side)

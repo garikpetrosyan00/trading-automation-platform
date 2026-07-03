@@ -44,6 +44,10 @@ class Settings(BaseSettings):
         default=Decimal("5"),
         validation_alias=AliasChoices("SIMULATION_SLIPPAGE_BPS"),
     )
+    paper_trading_enabled: bool = Field(
+        default=True,
+        validation_alias=AliasChoices("PAPER_TRADING_ENABLED"),
+    )
     binance_testnet_broker_enabled: bool = Field(
         default=False,
         validation_alias=AliasChoices("BINANCE_TESTNET_BROKER_ENABLED"),

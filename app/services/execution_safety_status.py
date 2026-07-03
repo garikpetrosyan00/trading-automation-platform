@@ -77,6 +77,11 @@ class ExecutionSafetyStatusService:
             broker=broker,
             market_price=market_price,
         )
+        decision_allowed = decision.allowed
+        blocking_reason = None if decision.allowed else decision.reason
+        if mode == "paper" and not self.settings.paper_trading_enabled:
+            decision_allowed = False
+            blocking_reason = "paper_trading_disabled"
         remaining_capacity = self._remaining_daily_order_capacity(config.max_daily_order_count, snapshot.count)
         remaining_loss_capacity = self._remaining_daily_loss_capacity(config.max_daily_loss, daily_loss.realized_loss)
         is_daily_loss_limit_exceeded = (
@@ -88,7 +93,7 @@ class ExecutionSafetyStatusService:
         return ExecutionSafetyStatus(
             global_execution_enabled=self.settings.execution_global_enabled,
             live_execution_enabled=self.settings.execution_live_enabled,
-            paper_execution_allowed=self.settings.execution_global_enabled,
+            paper_execution_allowed=self.settings.execution_global_enabled and self.settings.paper_trading_enabled,
             binance_testnet_broker_enabled=self.settings.binance_testnet_broker_enabled,
             binance_testnet_order_submission_enabled=self.settings.binance_testnet_order_submission_enabled,
             binance_testnet_credentials_configured=bool(
@@ -105,8 +110,8 @@ class ExecutionSafetyStatusService:
             current_daily_realized_loss=daily_loss.realized_loss,
             remaining_daily_loss_capacity=remaining_loss_capacity,
             is_daily_loss_limit_exceeded=is_daily_loss_limit_exceeded,
-            is_execution_currently_allowed=decision.allowed,
-            blocking_reason=None if decision.allowed else decision.reason,
+            is_execution_currently_allowed=decision_allowed,
+            blocking_reason=blocking_reason,
             metadata=decision.metadata,
         )
 

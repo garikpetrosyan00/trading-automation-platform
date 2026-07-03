@@ -96,6 +96,18 @@ def test_global_execution_safety_status_returns_safe_defaults(
     assert body["blocking_reason"] is None
 
 
+def test_execution_safety_status_reports_paper_trading_disabled(db_session) -> None:
+    status = ExecutionSafetyStatusService(
+        ExecutionAttemptRepository(db_session),
+        Settings(PAPER_TRADING_ENABLED=False),
+        paper_accounting_repository=PaperAccountingRepository(db_session),
+    ).get_status(mode="paper")
+
+    assert status.paper_execution_allowed is False
+    assert status.is_execution_currently_allowed is False
+    assert status.blocking_reason == "paper_trading_disabled"
+
+
 def test_execution_safety_status_reports_configured_daily_capacity(
     db_session_factory,
     stub_market_data_service,

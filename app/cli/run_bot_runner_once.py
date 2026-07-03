@@ -49,6 +49,7 @@ def build_runner(
             simulation_enabled=settings.simulation_enabled,
             simulation_fee_bps=settings.simulation_fee_bps,
             simulation_slippage_bps=settings.simulation_slippage_bps,
+            paper_trading_enabled=settings.paper_trading_enabled,
             execution_global_enabled=settings.execution_global_enabled,
             execution_live_enabled=False,
             binance_testnet_broker_enabled=False,

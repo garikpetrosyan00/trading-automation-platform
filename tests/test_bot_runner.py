@@ -44,17 +44,24 @@ class FakeClock:
         self.current += timedelta(seconds=seconds)
 
 
-def build_runner(db_session_factory, stub_market_data_service, clock: FakeClock | None = None) -> BotRunner:
+def build_runner(
+    db_session_factory,
+    stub_market_data_service,
+    clock: FakeClock | None = None,
+    **config_overrides,
+) -> BotRunner:
+    config_values = {
+        "enabled": True,
+        "poll_interval_seconds": 3600,
+        "simulation_enabled": True,
+        "simulation_fee_bps": Decimal("0"),
+        "simulation_slippage_bps": Decimal("0"),
+        **config_overrides,
+    }
     return BotRunner(
         session_factory=db_session_factory,
         market_data_service=stub_market_data_service,
-        config=RunnerConfig(
-            enabled=True,
-            poll_interval_seconds=3600,
-            simulation_enabled=True,
-            simulation_fee_bps=Decimal("0"),
-            simulation_slippage_bps=Decimal("0"),
-        ),
+        config=RunnerConfig(**config_values),
         now_provider=clock.now if clock is not None else None,
     )
 
@@ -279,6 +286,13 @@ def assert_no_new_paper_side_effects(
     assert new_attempt["order_id"] is None
     assert new_attempt["metadata"]["fill_id"] is None
     assert after["attempts"][1:] == before["attempts"]
+
+
+def assert_manual_response_matches_latest_event(session, *, bot_id: int, response) -> None:
+    latest_event = RunEventRepository(session).get_latest_for_bot(bot_id)
+    assert latest_event is not None
+    assert response.message == latest_event.message
+    assert response.recent_activity_preview[0].message == latest_event.message
 
 
 def add_candles(
@@ -571,6 +585,86 @@ def test_sell_signal_triggers_full_sell(
     assert sum(1 for event in events if event.message == "order_filled") == 2
 
 
+def test_paper_trading_disabled_rejects_buy_without_execution_side_effects(
+    db_session,
+    db_session_factory,
+    stub_market_data_service,
+    bot_stack_factory,
+    funded_account,
+) -> None:
+    funded_account(db_session)
+    _, bot, _ = bot_stack_factory(db_session)
+    reset_draft_balance(db_session, bot.id)
+    runner = build_runner(db_session_factory, stub_market_data_service, paper_trading_enabled=False)
+    runner.start_bot(bot.id)
+    stub_market_data_service.set_price("BTCUSDT", "95")
+    before = bot_paper_artifact_summary(db_session, bot.id)
+
+    response = asyncio.run(run_bot_once_endpoint(bot.id, runner))
+    after = bot_paper_artifact_summary(db_session, bot.id)
+
+    assert_rejected_gate_audit(
+        db_session,
+        bot_id=bot.id,
+        response=response,
+        expected_side="buy",
+        expected_code="paper_trading_disabled",
+        expected_events=["order_rejected"],
+    )
+    assert_manual_response_matches_latest_event(db_session, bot_id=bot.id, response=response)
+    assert_no_new_paper_side_effects(
+        before,
+        after,
+        expected_side="buy",
+        expected_code="paper_trading_disabled",
+    )
+
+
+def test_paper_trading_disabled_rejects_sell_without_execution_side_effects(
+    db_session,
+    db_session_factory,
+    stub_market_data_service,
+    bot_stack_factory,
+    funded_account,
+) -> None:
+    funded_account(db_session)
+    _, bot, _ = bot_stack_factory(db_session)
+    reset_draft_balance_with_base(db_session, bot.id, "BTC", Decimal("0.1"))
+    seed_open_position(
+        db_session,
+        bot_id=bot.id,
+        symbol="BTCUSDT",
+        base_asset="BTC",
+        quote_asset="USDT",
+        quantity=Decimal("0.1"),
+        average_entry_price=Decimal("95"),
+    )
+    db_session.commit()
+    runner = build_runner(db_session_factory, stub_market_data_service, paper_trading_enabled=False)
+    runner.start_bot(bot.id)
+    stub_market_data_service.set_price("BTCUSDT", "115")
+    before = bot_paper_artifact_summary(db_session, bot.id)
+
+    response = asyncio.run(run_bot_once_endpoint(bot.id, runner))
+    after = bot_paper_artifact_summary(db_session, bot.id)
+
+    assert_rejected_gate_audit(
+        db_session,
+        bot_id=bot.id,
+        response=response,
+        expected_side="sell",
+        expected_code="paper_trading_disabled",
+        expected_events=["order_rejected"],
+    )
+    assert_manual_response_matches_latest_event(db_session, bot_id=bot.id, response=response)
+    assert_no_new_paper_side_effects(
+        before,
+        after,
+        expected_side="sell",
+        expected_code="paper_trading_disabled",
+    )
+
+
 def test_bot_runner_allows_sell_exit_after_daily_count_exhausted(
     db_session,
     db_session_factory,
@@ -621,7 +715,7 @@ def test_live_mode_records_not_implemented_without_order(
 ) -> None:
     funded_account(db_session)
     _, bot, _ = bot_stack_factory(db_session, is_paper=False)
-    runner = build_runner(db_session_factory, stub_market_data_service)
+    runner = build_runner(db_session_factory, stub_market_data_service, paper_trading_enabled=False)
     runner.start_bot(bot.id)
     stub_market_data_service.set_price("BTCUSDT", "95")
 
@@ -1896,7 +1990,7 @@ def test_testnet_mode_bot_does_not_create_paper_execution_artifacts(
 ) -> None:
     funded_account(db_session)
     _, bot, _ = bot_stack_factory(db_session, is_paper=False, execution_mode="testnet")
-    runner = build_runner(db_session_factory, stub_market_data_service)
+    runner = build_runner(db_session_factory, stub_market_data_service, paper_trading_enabled=False)
     runner.start_bot(bot.id)
     stub_market_data_service.set_price("BTCUSDT", "95")
 

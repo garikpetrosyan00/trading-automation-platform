@@ -18,11 +18,12 @@ from app.services.paper_position import PaperPositionService
 from app.services.paper_safety_gate import PaperSafetyGateService
 
 
-def build_gate(session) -> PaperSafetyGateService:
+def build_gate(session, *, paper_trading_enabled: bool = True) -> PaperSafetyGateService:
     return PaperSafetyGateService(
         bot_repository=BotRepository(session),
         draft_balance_repository=DraftBalanceRepository(session),
         paper_position_repository=PaperPositionRepository(session),
+        paper_trading_enabled=paper_trading_enabled,
     )
 
 
@@ -86,6 +87,38 @@ def test_valid_paper_sell_passes(db_session, bot_stack_factory) -> None:
         quote_asset="usdt",
         quantity=Decimal("0.75"),
     )
+
+
+def test_disabled_paper_trading_rejects_buy_before_balance_checks(db_session, bot_stack_factory) -> None:
+    _, bot, _ = bot_stack_factory(db_session, status="active")
+
+    with pytest.raises(AppError) as exc_info:
+        build_gate(db_session, paper_trading_enabled=False).validate_paper_buy_allowed(
+            bot_id=bot.id,
+            quote_asset="USDT",
+            required_quote_amount=Decimal("1"),
+        )
+
+    assert exc_info.value.error_code == "paper_trading_disabled"
+    assert exc_info.value.status_code == 409
+    assert exc_info.value.message == "Paper trading is disabled"
+
+
+def test_disabled_paper_trading_rejects_sell_before_position_checks(db_session, bot_stack_factory) -> None:
+    _, bot, _ = bot_stack_factory(db_session, status="active")
+
+    with pytest.raises(AppError) as exc_info:
+        build_gate(db_session, paper_trading_enabled=False).validate_paper_sell_allowed(
+            bot_id=bot.id,
+            symbol="BTCUSDT",
+            base_asset="BTC",
+            quote_asset="USDT",
+            quantity=Decimal("0.1"),
+        )
+
+    assert exc_info.value.error_code == "paper_trading_disabled"
+    assert exc_info.value.status_code == 409
+    assert exc_info.value.message == "Paper trading is disabled"
 
 
 def test_buy_rejects_insufficient_quote_balance(db_session, bot_stack_factory) -> None:
@@ -176,7 +209,7 @@ def test_rejects_non_paper_live_or_testnet_configuration(
     )
 
     with pytest.raises(AppError) as exc_info:
-        build_gate(db_session).validate_bot_paper_execution_allowed(bot_id=bot.id)
+        build_gate(db_session, paper_trading_enabled=False).validate_bot_paper_execution_allowed(bot_id=bot.id)
 
     assert exc_info.value.error_code == "paper_execution_mode_required"
     assert exc_info.value.status_code == 409
@@ -187,7 +220,7 @@ def test_rejects_bot_that_is_not_runnable_when_required(db_session, bot_stack_fa
     _, bot, _ = bot_stack_factory(db_session, status="paused")
 
     with pytest.raises(AppError) as exc_info:
-        build_gate(db_session).validate_bot_paper_execution_allowed(bot_id=bot.id)
+        build_gate(db_session, paper_trading_enabled=False).validate_bot_paper_execution_allowed(bot_id=bot.id)
 
     assert exc_info.value.error_code == "bot_not_runnable"
     assert exc_info.value.status_code == 409
