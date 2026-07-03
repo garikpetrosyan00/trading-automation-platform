@@ -99,12 +99,11 @@ Safety boundary: v1 is local-only. It does not place live trades, does not submi
 
 Next roadmap:
 
-- Paper trading production hardening v1 is complete for backend paper-mode safety gates, BotRunner integration, and rejection audit coverage.
+- Paper reconciliation/audit hardening for clearer unresolved-attempt handling and operator review.
+- Paper trading API/operator workflows for safer manual demos and repeatable smoke checks.
+- Optional portfolio/equity reporting polish for paper-mode review surfaces.
 - Risk limits around sizing, exposure, drawdown, and per-bot loss controls.
-- Reconciliation flows for unresolved execution attempts and delayed confirmations.
-- Kill switch controls for stopping automated execution paths.
-- Testnet-only exchange safety reviews before any exchange-connected workflow is broadened.
-- Small live spot pilot only after stable paper and testnet operation with explicit operator approval.
+- Binance/testnet/live remains out of scope until explicitly enabled and separately hardened.
 
 ## Local Backtest Demo Pipeline
 
@@ -627,7 +626,18 @@ Current verification: full pytest `637 passed`; `py_compile` passed; `git diff -
 
 ### Paper Trading Production Hardening v1
 
-Paper Trading Production Hardening v1 is complete for the backend paper execution path. The milestone added a centralized `PaperSafetyGateService`, integrated it into BotRunner before paper execution side effects, and added a BotRunner audit matrix for rejection paths.
+Paper Trading Production Hardening v1 is complete for the backend paper execution path. Paper trading here is simulated/local backend behavior: it uses local application state, Draft Balance, Paper Position, and paper audit records rather than Binance live/testnet execution.
+
+Completed safety controls:
+
+- centralized `PaperSafetyGateService` integrated into BotRunner before paper execution side effects
+- DraftBalance BUY gate for missing or insufficient quote balance
+- PaperPosition SELL gate for missing, insufficient, or asset-mismatched bot-scoped position
+- global `PAPER_TRADING_ENABLED` kill switch for paper BUY/SELL execution
+- deterministic rejected audit behavior with stable public rejection codes
+- no-side-effect guarantees for rejected paper execution
+- execution safety status visibility through `/api/v1/execution-safety/status`
+- local operator smoke coverage through the one-shot paper runner CLI
 
 The paper gate protects:
 
@@ -636,7 +646,7 @@ The paper gate protects:
 - missing or insufficient quote Draft Balance for BUY
 - missing, insufficient, or asset-mismatched bot-scoped Paper Position for SELL
 
-BotRunner uses the gate only on the paper path. If the gate rejects, the manual run keeps the existing safe skipped style and must not report a false fill. Rejections are audited as rejected paper execution attempts with stable error codes, and the rejection path must not create an Order, Fill, DraftBalance mutation, PaperPosition mutation, or PaperEquitySnapshot.
+BotRunner uses the gate only on the paper path. If the gate rejects, the manual run keeps the existing safe skipped style and must not report a false fill. Rejections are audited as rejected paper execution attempts with stable error codes, and the rejection path must not create an Order, Fill, filled ExecutionAttempt, DraftBalance mutation, PaperPosition mutation, or PaperEquitySnapshot.
 
 Global paper trading kill switch:
 
@@ -648,7 +658,14 @@ Global paper trading kill switch:
 - `/api/v1/execution-safety/status` exposes both `paper_trading_enabled` and the derived `paper_execution_allowed`
 - live and Binance testnet paths are not controlled by this paper kill switch
 
-Safety boundary: this hardening is backend-only paper execution work. It does not enable live trading, does not enable Binance or testnet order execution, does not change Binance/testnet/live behavior, and does not add migrations.
+Safety boundary: this hardening is backend-only paper execution work. It does not enable live trading, does not enable Binance or testnet order execution, does not change Binance/testnet/live behavior, and does not add migrations. Binance live/testnet execution remains protected by its existing execution safety flags and must be separately hardened before any broadened exchange-connected workflow. Local CSV backtests remain local-only and are not affected by `PAPER_TRADING_ENABLED`.
+
+Next roadmap:
+
+- Paper reconciliation/audit hardening for rejected and unresolved paper execution review.
+- Paper trading API/operator workflows for safer manual setup, smoke checks, and readback.
+- Optional portfolio/equity reporting polish for paper-mode operator surfaces.
+- Binance/testnet/live remains out of scope until explicitly enabled and separately hardened.
 
 Useful closeout verification:
 
