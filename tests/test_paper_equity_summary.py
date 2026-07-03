@@ -158,8 +158,10 @@ def test_paper_equity_summary_after_sell_reports_closed_position_and_pnl(
 
     with TestClient(app) as client:
         response = client.get(f"/api/v1/bots/{bot.id}/paper/equity-summary")
+        overview_response = client.get(f"/api/v1/bots/{bot.id}/paper/operator-overview")
 
     assert response.status_code == 200
+    assert overview_response.status_code == 200
     body = response.json()
     _assert_public_shape(body)
     assert body["current_cash"] == "10002"
@@ -171,8 +173,10 @@ def test_paper_equity_summary_after_sell_reports_closed_position_and_pnl(
     assert body["total_pnl"] == "2"
     assert body["starting_cash"] == "10000"
     assert body["equity_snapshot_count"] == 2
+    assert body["latest_snapshot"] == overview_response.json()["latest_equity_snapshot"]
     assert body["latest_snapshot"]["event_type"] == "sell_fill"
     assert body["latest_snapshot"]["base_quantity"] == "0"
+    assert body["read_only"] is True
 
 
 def test_paper_equity_summary_reports_disabled_paper_trading_flag(
@@ -196,6 +200,46 @@ def test_paper_equity_summary_reports_disabled_paper_trading_flag(
     assert response.json()["paper_trading_enabled"] is False
 
 
+def test_paper_equity_summary_does_not_expose_live_or_testnet_safety_flags(
+    db_session,
+    stub_market_data_service,
+    noop_bot_runner,
+    bot_stack_factory,
+    configure_app_state,
+    monkeypatch,
+) -> None:
+    _, bot, _ = bot_stack_factory(db_session)
+    import app.api.v1.endpoints.paper_equity as endpoint
+
+    monkeypatch.setattr(
+        endpoint,
+        "get_settings",
+        lambda: Settings(
+            EXECUTION_LIVE_ENABLED=True,
+            BINANCE_TESTNET_BROKER_ENABLED=True,
+            BINANCE_TESTNET_ORDER_SUBMISSION_ENABLED=True,
+            BINANCE_TESTNET_DRY_RUN_ENABLED=True,
+            BINANCE_TESTNET_API_KEY="test-key",
+            BINANCE_TESTNET_API_SECRET="test-secret",
+        ),
+    )
+    configure_app_state(market_data_service=stub_market_data_service, bot_runner=noop_bot_runner)
+
+    with TestClient(app) as client:
+        response = client.get(f"/api/v1/bots/{bot.id}/paper/equity-summary")
+
+    assert response.status_code == 200
+    body = response.json()
+    _assert_public_shape(body)
+    _assert_no_unsafe_internal_metadata(body)
+    serialized = response.text
+    assert "live_execution_enabled" not in serialized
+    assert "binance_testnet" not in serialized
+    assert "dry_run" not in serialized
+    assert "test-key" not in serialized
+    assert "test-secret" not in serialized
+
+
 def test_paper_equity_summary_missing_bot_returns_stable_not_found(
     stub_market_data_service,
     noop_bot_runner,
@@ -208,6 +252,56 @@ def test_paper_equity_summary_missing_bot_returns_stable_not_found(
 
     assert response.status_code == 404
     assert response.json()["error_code"] == "bot_not_found"
+
+
+def test_paper_equity_summary_draft_paused_and_no_signal_do_not_look_filled_or_profitable(
+    db_session,
+    db_session_factory,
+    stub_market_data_service,
+    noop_bot_runner,
+    bot_stack_factory,
+    funded_account,
+    configure_app_state,
+    reset_draft_balance_for_bot,
+) -> None:
+    _, draft_bot, _ = bot_stack_factory(db_session, name="Draft equity summary bot")
+    _, paused_bot, _ = bot_stack_factory(db_session, name="Paused equity summary bot", status="paused")
+    funded_account(db_session)
+    _, no_signal_bot, _ = bot_stack_factory(db_session, name="No signal equity summary bot")
+    reset_draft_balance_for_bot(db_session, no_signal_bot.id)
+    _run_bot_once(
+        db_session_factory,
+        stub_market_data_service,
+        bot_id=no_signal_bot.id,
+        price="105",
+        expected_action="no_action",
+    )
+    configure_app_state(market_data_service=stub_market_data_service, bot_runner=noop_bot_runner)
+
+    with TestClient(app) as client:
+        draft_response = client.get(f"/api/v1/bots/{draft_bot.id}/paper/equity-summary")
+        paused_response = client.get(f"/api/v1/bots/{paused_bot.id}/paper/equity-summary")
+        no_signal_response = client.get(f"/api/v1/bots/{no_signal_bot.id}/paper/equity-summary")
+
+    for response in (draft_response, paused_response, no_signal_response):
+        assert response.status_code == 200
+        body = response.json()
+        _assert_public_shape(body)
+        assert body["open_position_count"] == 0
+        assert body["open_positions_value"] == "0"
+        assert body["latest_total_equity"] is None
+        assert body["realized_pnl"] == "0"
+        assert body["unrealized_pnl"] == "0"
+        assert body["total_pnl"] == "0"
+        assert body["equity_snapshot_count"] == 0
+        assert body["latest_snapshot"] is None
+        assert body["read_only"] is True
+        assert "order_filled" not in response.text
+        assert "buy_fill" not in response.text
+        assert "sell_fill" not in response.text
+    assert draft_response.json()["status"] == "draft"
+    assert paused_response.json()["status"] == "paused"
+    assert no_signal_response.json()["current_cash"] == "10000"
 
 
 def test_paper_equity_summary_repeated_calls_are_read_only(

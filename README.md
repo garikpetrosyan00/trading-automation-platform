@@ -850,7 +850,47 @@ curl "http://127.0.0.1:8000/api/v1/bots/<paper_bot_id>/paper/equity-summary"
 
 This endpoint is an inspection/reporting surface for one bot's paper equity state. It summarizes current paper cash, open position count/value, latest total equity, realized/unrealized/total PnL when representable from persisted paper artifacts, snapshot count, and the latest public equity snapshot. It is read-only: it does not execute trades, repair inconsistencies, mutate Orders, Fills, ExecutionAttempts, DraftBalance, PaperPosition, or PaperEquitySnapshot rows, or contact Binance/testnet/live execution paths.
 
-Example response shape:
+Top-level fields:
+
+- `bot_id`: selected bot id
+- `mode`: bot execution mode as stored for the bot
+- `status`: current bot lifecycle status such as `draft`, `paused`, or `active`
+- `paper_trading_enabled`: current `PAPER_TRADING_ENABLED` setting
+- `starting_cash`: derived starting cash when a latest equity snapshot and PnL are available; otherwise `0`
+- `current_cash`: current paper cash from the latest equity snapshot, or Draft Balance cash when no snapshot exists
+- `open_position_count`: count of bot-scoped Paper Positions with quantity greater than zero
+- `open_positions_value`: current value of open paper positions when representable from persisted paper state
+- `latest_total_equity`: latest persisted total equity value, or `null` when no snapshot exists
+- `realized_pnl`: realized paper PnL from bot-scoped Paper Positions
+- `unrealized_pnl`: unrealized paper PnL when representable from the latest snapshot market price
+- `total_pnl`: realized plus unrealized paper PnL
+- `equity_snapshot_count`: count of bot-scoped Paper Equity snapshots
+- `latest_snapshot`: latest public Paper Equity snapshot, using the same allowlisted fields as the operator overview, or `null`
+- `read_only`: always `true`
+
+Empty/new bot response shape:
+
+```json
+{
+  "bot_id": 6,
+  "mode": "paper",
+  "status": "draft",
+  "paper_trading_enabled": true,
+  "starting_cash": "0",
+  "current_cash": "0",
+  "open_position_count": 0,
+  "open_positions_value": "0",
+  "latest_total_equity": null,
+  "realized_pnl": "0",
+  "unrealized_pnl": "0",
+  "total_pnl": "0",
+  "equity_snapshot_count": 0,
+  "latest_snapshot": null,
+  "read_only": true
+}
+```
+
+Post-BUY response shape:
 
 ```json
 {
