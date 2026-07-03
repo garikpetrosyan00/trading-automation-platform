@@ -13,7 +13,11 @@ from app.repositories.bot import BotRepository
 from app.repositories.execution_attempt import ExecutionAttemptRepository
 from app.repositories.execution_reconciliation_job import ExecutionReconciliationJobRepository
 from app.repositories.execution_reconciliation_worker_status import ExecutionReconciliationWorkerStatusRepository
+from app.repositories.draft_balance import DraftBalanceRepository
+from app.repositories.paper_equity_snapshot import PaperEquitySnapshotRepository
+from app.repositories.paper_position import PaperPositionRepository
 from app.repositories.portfolio import PortfolioRepository
+from app.repositories.run_event import RunEventRepository
 from app.schemas.execution import (
     ExecutionAuditMode,
     ExecutionAuditStatus,
@@ -29,9 +33,11 @@ from app.schemas.execution import (
     ExecutionReconciliationWorkerStatusRead,
     ExecutionSide,
 )
+from app.schemas.paper_reconciliation import PaperReconciliationAuditRead
 from app.services.execution_reconciliation import ExecutionReconciliationStatusService
 from app.services.execution_reconciliation_worker_status import ExecutionReconciliationWorkerStatusService
 from app.services.metadata_sanitizer import sanitize_public_metadata
+from app.services.paper_reconciliation_audit import PaperReconciliationAuditService
 
 router = APIRouter()
 
@@ -224,6 +230,36 @@ async def get_bot_execution_reconciliation_status(
     return ExecutionReconciliationStatusService(ExecutionAttemptRepository(db)).get_bot_status(
         bot_id=bot_id,
         limit=limit,
+    )
+
+
+@router.get("/bots/{bot_id}/paper-reconciliation/audit", response_model=PaperReconciliationAuditRead)
+async def get_bot_paper_reconciliation_audit(
+    bot_id: int,
+    db: DbSession,
+    limit: OrderLimit = 100,
+) -> PaperReconciliationAuditRead:
+    if BotRepository(db).get_by_id(bot_id) is None:
+        raise NotFoundError(f"Bot with id {bot_id} was not found", error_code="bot_not_found")
+    result = PaperReconciliationAuditService(
+        db=db,
+        attempt_repository=ExecutionAttemptRepository(db),
+        portfolio_repository=PortfolioRepository(db),
+        draft_balance_repository=DraftBalanceRepository(db),
+        paper_position_repository=PaperPositionRepository(db),
+        paper_equity_snapshot_repository=PaperEquitySnapshotRepository(db),
+        run_event_repository=RunEventRepository(db),
+    ).audit_bot(bot_id=bot_id, limit=limit)
+    return PaperReconciliationAuditRead(
+        bot_id=result.bot_id,
+        ok=result.ok,
+        issues=[issue.__dict__ for issue in result.issues],
+        checked_attempt_count=result.checked_attempt_count,
+        checked_order_count=result.checked_order_count,
+        checked_fill_count=result.checked_fill_count,
+        checked_run_event_count=result.checked_run_event_count,
+        checked_equity_snapshot_count=result.checked_equity_snapshot_count,
+        read_only=result.read_only,
     )
 
 

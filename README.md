@@ -667,6 +667,14 @@ Next roadmap:
 - Optional portfolio/equity reporting polish for paper-mode operator surfaces.
 - Binance/testnet/live remains out of scope until explicitly enabled and separately hardened.
 
+Read-only paper reconciliation audit:
+
+```bash
+curl "http://127.0.0.1:8000/api/v1/bots/<paper_bot_id>/paper-reconciliation/audit"
+```
+
+This audit detects obvious paper artifact inconsistencies across RunEvent, ExecutionAttempt, Order, Fill, DraftBalance, PaperPosition, and PaperEquitySnapshot records. It is read-only: it does not auto-repair data, create or delete artifacts, mutate balances or positions, write equity snapshots, or contact Binance/testnet/live execution paths.
+
 Useful closeout verification:
 
 ```bash
