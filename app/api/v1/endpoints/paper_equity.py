@@ -1,17 +1,37 @@
+from dataclasses import asdict
 from typing import Annotated
 
 from fastapi import APIRouter, Query
 
 from app.api.dependencies import DbSession
+from app.core.config import get_settings
+from app.core.errors import NotFoundError
 from app.repositories.bot import BotRepository
 from app.repositories.draft_balance import DraftBalanceRepository
 from app.repositories.paper_equity_snapshot import PaperEquitySnapshotRepository
 from app.repositories.paper_position import PaperPositionRepository
 from app.schemas.paper_equity import PaperEquitySnapshotItemRead, PaperEquitySnapshotListRead
+from app.schemas.paper_equity_summary import PaperEquitySummaryRead
 from app.schemas.paper_position import decimal_to_string
 from app.services.paper_equity_snapshot import PaperEquitySnapshotService
+from app.services.paper_equity_summary import PaperEquitySummaryService
 
 router = APIRouter()
+
+
+@router.get("/bots/{bot_id}/paper/equity-summary", response_model=PaperEquitySummaryRead)
+async def get_bot_paper_equity_summary(bot_id: int, db: DbSession) -> PaperEquitySummaryRead:
+    bot = BotRepository(db).get_by_id(bot_id)
+    if bot is None:
+        raise NotFoundError(f"Bot with id {bot_id} was not found", error_code="bot_not_found")
+
+    summary = PaperEquitySummaryService(
+        settings=get_settings(),
+        draft_balance_repository=DraftBalanceRepository(db),
+        paper_position_repository=PaperPositionRepository(db),
+        paper_equity_snapshot_repository=PaperEquitySnapshotRepository(db),
+    ).get_summary(bot=bot)
+    return PaperEquitySummaryRead(**asdict(summary))
 
 
 @router.get("/bots/{bot_id}/paper-equity", response_model=PaperEquitySnapshotListRead)

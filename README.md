@@ -842,6 +842,50 @@ Post-BUY response shape:
 }
 ```
 
+Read-only paper equity summary:
+
+```bash
+curl "http://127.0.0.1:8000/api/v1/bots/<paper_bot_id>/paper/equity-summary"
+```
+
+This endpoint is an inspection/reporting surface for one bot's paper equity state. It summarizes current paper cash, open position count/value, latest total equity, realized/unrealized/total PnL when representable from persisted paper artifacts, snapshot count, and the latest public equity snapshot. It is read-only: it does not execute trades, repair inconsistencies, mutate Orders, Fills, ExecutionAttempts, DraftBalance, PaperPosition, or PaperEquitySnapshot rows, or contact Binance/testnet/live execution paths.
+
+Example response shape:
+
+```json
+{
+  "bot_id": 6,
+  "mode": "paper",
+  "status": "active",
+  "paper_trading_enabled": true,
+  "starting_cash": "10000",
+  "current_cash": "9990.5",
+  "open_position_count": 1,
+  "open_positions_value": "9.5",
+  "latest_total_equity": "10000",
+  "realized_pnl": "0",
+  "unrealized_pnl": "0",
+  "total_pnl": "0",
+  "equity_snapshot_count": 1,
+  "latest_snapshot": {
+    "symbol": "BTCUSDT",
+    "quote_asset": "USDT",
+    "cash_available": "9990.5",
+    "cash_locked": "0",
+    "base_quantity": "0.1",
+    "base_locked": "0",
+    "average_entry_price": "95",
+    "realized_pnl": "0",
+    "market_price": "95",
+    "position_value": "9.5",
+    "total_equity": "10000",
+    "event_type": "buy_fill",
+    "created_at": "2026-07-03T12:00:00Z"
+  },
+  "read_only": true
+}
+```
+
 Useful closeout verification:
 
 ```bash

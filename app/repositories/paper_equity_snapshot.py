@@ -1,4 +1,4 @@
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.models.paper_equity_snapshot import PaperEquitySnapshot
@@ -28,3 +28,7 @@ class PaperEquitySnapshotRepository:
             PaperEquitySnapshot.id.desc(),
         ).limit(limit)
         return list(self.db.scalars(statement).all())
+
+    def count_for_bot(self, *, bot_id: int) -> int:
+        statement = select(func.count()).select_from(PaperEquitySnapshot).where(PaperEquitySnapshot.bot_id == bot_id)
+        return int(self.db.scalar(statement) or 0)
