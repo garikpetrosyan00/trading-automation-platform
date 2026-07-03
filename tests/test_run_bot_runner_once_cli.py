@@ -90,6 +90,8 @@ def test_cli_paused_paper_bot_is_skipped_without_artifacts_or_reconciliation(
         "paper_fills_created": 0,
         "paper_orders_created": 0,
         "record_noop_events": False,
+        "rejected_execution_attempts_created": 0,
+        "rejection_reason": None,
         "result": "skipped",
         "skipped": True,
         "status": "paused",
@@ -137,6 +139,8 @@ def test_cli_active_paper_bot_evaluates_existing_runner_path_with_local_market_d
     assert summary["paper_orders_created"] == 1
     assert summary["paper_fills_created"] == 1
     assert summary["execution_attempts_created"] == 1
+    assert summary["rejected_execution_attempts_created"] == 0
+    assert summary["rejection_reason"] is None
 
     orders = PortfolioRepository(db_session).list_orders_filtered(bot_id=bot.id, mode="paper")
     attempts = ExecutionAttemptRepository(db_session).list_filtered(bot_id=bot.id, mode="paper", limit=10)
@@ -146,6 +150,67 @@ def test_cli_active_paper_bot_evaluates_existing_runner_path_with_local_market_d
     assert len(attempts) == 1
     assert attempts[0].broker == "paper"
     assert attempts[0].final_status == "filled"
+    assert ExecutionReconciliationJobRepository(db_session).list_for_bot(bot_id=bot.id) == []
+
+
+def test_cli_disabled_paper_trading_returns_rejected_skipped_summary_without_unsafe_details(
+    db_session,
+    db_session_factory,
+    bot_stack_factory,
+    bot_runner_factory,
+    funded_account,
+    reset_draft_balance_for_bot,
+    set_latest_market_price,
+) -> None:
+    funded_account(db_session, currency="USDT", amount=Decimal("10000"))
+    _, bot, _ = bot_stack_factory(db_session, status="active")
+    reset_draft_balance_for_bot(db_session, bot.id)
+    set_latest_market_price("95")
+    stdout = StringIO()
+    stderr = StringIO()
+
+    def disabled_runner_factory(_session_factory):
+        runner = bot_runner_factory()
+        runner.config.paper_trading_enabled = False
+        return runner
+
+    exit_code = cli.main(
+        ["--bot-id", str(bot.id)],
+        session_factory=db_session_factory,
+        runner_factory=disabled_runner_factory,
+        stdout=stdout,
+        stderr=stderr,
+    )
+
+    assert exit_code == 0
+    assert stderr.getvalue() == ""
+    summary = json.loads(stdout.getvalue())
+    assert summary == {
+        "action": "paper_order_rejected",
+        "bot_id": bot.id,
+        "executed": False,
+        "execution_attempts_created": 1,
+        "execution_mode": "paper",
+        "paper_fills_created": 0,
+        "paper_orders_created": 0,
+        "record_noop_events": False,
+        "rejected_execution_attempts_created": 1,
+        "rejection_reason": "paper_trading_disabled",
+        "result": "skipped",
+        "skipped": True,
+        "status": "active",
+    }
+    assert "filled" not in stdout.getvalue()
+    assert "traceback" not in stdout.getvalue().lower()
+    assert "metadata" not in summary
+    assert "order_id" not in summary
+    assert "attempt_id" not in summary
+    assert PortfolioRepository(db_session).list_orders_filtered(bot_id=bot.id, mode="paper") == []
+    assert PortfolioRepository(db_session).list_fills() == []
+    attempts = ExecutionAttemptRepository(db_session).list_filtered(bot_id=bot.id, mode="paper", limit=10)
+    assert len(attempts) == 1
+    assert attempts[0].final_status == "rejected_by_broker"
+    assert attempts[0].final_reason == "paper_trading_disabled"
     assert ExecutionReconciliationJobRepository(db_session).list_for_bot(bot_id=bot.id) == []
 
 

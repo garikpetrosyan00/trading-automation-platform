@@ -585,7 +585,9 @@ def test_run_price_threshold_backtest_behavior_is_preserved_through_api(
     stub_market_data_service,
     noop_bot_runner,
     configure_app_state,
+    monkeypatch,
 ) -> None:
+    monkeypatch.setenv("PAPER_TRADING_ENABLED", "false")
     configure_app_state(market_data_service=stub_market_data_service, bot_runner=noop_bot_runner)
     strategy = create_price_threshold_strategy(db_session)
     add_candles(db_session, closes=["10", "20"])

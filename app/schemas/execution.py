@@ -215,6 +215,7 @@ class ExecutionManualReconciliationRead(BaseModel):
 class ExecutionSafetyStatusRead(BaseModel):
     global_execution_enabled: bool
     live_execution_enabled: bool
+    paper_trading_enabled: bool
     paper_execution_allowed: bool
     binance_testnet_broker_enabled: bool
     binance_testnet_order_submission_enabled: bool

@@ -638,6 +638,16 @@ The paper gate protects:
 
 BotRunner uses the gate only on the paper path. If the gate rejects, the manual run keeps the existing safe skipped style and must not report a false fill. Rejections are audited as rejected paper execution attempts with stable error codes, and the rejection path must not create an Order, Fill, DraftBalance mutation, PaperPosition mutation, or PaperEquitySnapshot.
 
+Global paper trading kill switch:
+
+- `PAPER_TRADING_ENABLED=true` by default, preserving existing local/dev paper behavior
+- set `PAPER_TRADING_ENABLED=false` to reject paper BUY and SELL execution before paper-side effects
+- disabled paper execution uses stable rejection code `paper_trading_disabled`
+- disabled paper execution creates no paper Order, Fill, filled ExecutionAttempt, DraftBalance mutation, PaperPosition mutation, or PaperEquitySnapshot
+- the manual run response stays in the skipped/rejected style and must not report buy/sell filled wording
+- `/api/v1/execution-safety/status` exposes both `paper_trading_enabled` and the derived `paper_execution_allowed`
+- live and Binance testnet paths are not controlled by this paper kill switch
+
 Safety boundary: this hardening is backend-only paper execution work. It does not enable live trading, does not enable Binance or testnet order execution, does not change Binance/testnet/live behavior, and does not add migrations.
 
 Useful closeout verification:
@@ -677,6 +687,18 @@ Safety behavior:
 - does not contact Binance by itself
 - does not print credentials, raw payloads, headers, signed query data, broker internals, or tokens
 
+Paper kill-switch smoke:
+
+```bash
+# Enabled/default paper behavior.
+PAPER_TRADING_ENABLED=true .venv/bin/python -m app.cli.run_bot_runner_once --bot-id <paper_bot_id>
+
+# Disabled paper behavior.
+PAPER_TRADING_ENABLED=false .venv/bin/python -m app.cli.run_bot_runner_once --bot-id <paper_bot_id>
+```
+
+When disabled, an active paper bot with a BUY/SELL signal should return JSON like `{"result":"skipped","action":"paper_order_rejected","executed":false,"rejection_reason":"paper_trading_disabled"}` with zero paper orders/fills created. The latest RunEvent is `order_rejected` with the same public rejection code; rejected audit attempts do not include an order id or fill id.
+
 Example paused output:
 
 ```json
@@ -689,6 +711,8 @@ Example paused output:
   "paper_fills_created": 0,
   "paper_orders_created": 0,
   "record_noop_events": false,
+  "rejected_execution_attempts_created": 0,
+  "rejection_reason": null,
   "result": "skipped",
   "skipped": true,
   "status": "paused"
@@ -1681,6 +1705,7 @@ Simulation configuration:
 
 ```bash
 SIMULATION_ENABLED=true
+PAPER_TRADING_ENABLED=true
 SIMULATION_BASE_CURRENCY=USD
 SIMULATION_STARTING_CASH=1000.00
 SIMULATION_FEE_BPS=10

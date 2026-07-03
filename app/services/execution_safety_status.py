@@ -16,6 +16,7 @@ from app.services.execution_limits import ExecutionDailyLimitService
 class ExecutionSafetyStatus:
     global_execution_enabled: bool
     live_execution_enabled: bool
+    paper_trading_enabled: bool
     paper_execution_allowed: bool
     binance_testnet_broker_enabled: bool
     binance_testnet_order_submission_enabled: bool
@@ -93,6 +94,7 @@ class ExecutionSafetyStatusService:
         return ExecutionSafetyStatus(
             global_execution_enabled=self.settings.execution_global_enabled,
             live_execution_enabled=self.settings.execution_live_enabled,
+            paper_trading_enabled=self.settings.paper_trading_enabled,
             paper_execution_allowed=self.settings.execution_global_enabled and self.settings.paper_trading_enabled,
             binance_testnet_broker_enabled=self.settings.binance_testnet_broker_enabled,
             binance_testnet_order_submission_enabled=self.settings.binance_testnet_order_submission_enabled,

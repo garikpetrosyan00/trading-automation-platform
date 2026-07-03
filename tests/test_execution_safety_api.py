@@ -14,6 +14,31 @@ from app.repositories.portfolio import PortfolioRepository
 from app.services.execution_safety_status import ExecutionSafetyStatusService
 
 
+EXECUTION_SAFETY_STATUS_PUBLIC_FIELDS = {
+    "global_execution_enabled",
+    "live_execution_enabled",
+    "paper_trading_enabled",
+    "paper_execution_allowed",
+    "binance_testnet_broker_enabled",
+    "binance_testnet_order_submission_enabled",
+    "binance_testnet_credentials_configured",
+    "binance_testnet_dry_run_enabled",
+    "max_order_notional",
+    "max_daily_order_count",
+    "max_daily_loss",
+    "utc_day_start",
+    "current_daily_attempt_count",
+    "remaining_daily_order_capacity",
+    "current_daily_realized_pnl",
+    "current_daily_realized_loss",
+    "remaining_daily_loss_capacity",
+    "is_daily_loss_limit_exceeded",
+    "is_execution_currently_allowed",
+    "blocking_reason",
+    "metadata",
+}
+
+
 def add_execution_attempt(
     session,
     *,
@@ -76,8 +101,10 @@ def test_global_execution_safety_status_returns_safe_defaults(
 
     assert response.status_code == 200
     body = response.json()
+    assert set(body) == EXECUTION_SAFETY_STATUS_PUBLIC_FIELDS
     assert body["global_execution_enabled"] is True
     assert body["live_execution_enabled"] is False
+    assert body["paper_trading_enabled"] is True
     assert body["paper_execution_allowed"] is True
     assert body["binance_testnet_broker_enabled"] is False
     assert body["binance_testnet_order_submission_enabled"] is False
@@ -96,16 +123,35 @@ def test_global_execution_safety_status_returns_safe_defaults(
     assert body["blocking_reason"] is None
 
 
-def test_execution_safety_status_reports_paper_trading_disabled(db_session) -> None:
-    status = ExecutionSafetyStatusService(
-        ExecutionAttemptRepository(db_session),
-        Settings(PAPER_TRADING_ENABLED=False),
-        paper_accounting_repository=PaperAccountingRepository(db_session),
-    ).get_status(mode="paper")
+def test_execution_safety_status_reports_paper_trading_disabled(
+    stub_market_data_service,
+    noop_bot_runner,
+    configure_app_state,
+    monkeypatch,
+) -> None:
+    settings = Settings(
+        PAPER_TRADING_ENABLED=False,
+        BINANCE_TESTNET_BROKER_ENABLED=False,
+        BINANCE_TESTNET_ORDER_SUBMISSION_ENABLED=False,
+    )
+    import app.api.v1.endpoints.execution_safety as endpoint
 
-    assert status.paper_execution_allowed is False
-    assert status.is_execution_currently_allowed is False
-    assert status.blocking_reason == "paper_trading_disabled"
+    monkeypatch.setattr(endpoint, "get_settings", lambda: settings)
+    configure_app_state(market_data_service=stub_market_data_service, bot_runner=noop_bot_runner)
+
+    with TestClient(app) as client:
+        response = client.get("/api/v1/execution-safety/status")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert set(body) == EXECUTION_SAFETY_STATUS_PUBLIC_FIELDS
+    assert body["paper_trading_enabled"] is False
+    assert body["paper_execution_allowed"] is False
+    assert body["is_execution_currently_allowed"] is False
+    assert body["blocking_reason"] == "paper_trading_disabled"
+    assert body["live_execution_enabled"] is False
+    assert body["binance_testnet_broker_enabled"] is False
+    assert body["binance_testnet_order_submission_enabled"] is False
 
 
 def test_execution_safety_status_reports_configured_daily_capacity(
@@ -129,6 +175,7 @@ def test_execution_safety_status_reports_configured_daily_capacity(
 
     assert response.status_code == 200
     body = response.json()
+    assert body["paper_trading_enabled"] is True
     assert body["max_daily_order_count"] == 2
     assert body["max_order_notional"] == "25"
     assert body["current_daily_attempt_count"] == 1
@@ -373,6 +420,7 @@ def test_execution_safety_status_reports_testnet_dry_run_without_leaking_credent
     body = response.json()
     assert body["binance_testnet_credentials_configured"] is True
     assert body["binance_testnet_dry_run_enabled"] is True
+    assert body["paper_trading_enabled"] is True
     assert "super-secret-key" not in serialized
     assert "super-secret-secret" not in serialized
     assert ExecutionAttemptRepository(db_session).list_filtered() == []

@@ -2820,7 +2820,7 @@ def test_manual_bot_run_draft_bot_records_recent_activity(
     draft_bot,
 ) -> None:
     bot = draft_bot
-    runner = build_runner(db_session_factory, stub_market_data_service)
+    runner = build_runner(db_session_factory, stub_market_data_service, paper_trading_enabled=False)
     before = bot_paper_artifact_summary(db_session, bot.id)
 
     response = asyncio.run(run_bot_once_endpoint(bot.id, runner))
@@ -2854,7 +2854,7 @@ def test_manual_bot_run_paused_bot_returns_skipped_result(
     funded_account(db_session)
     _, bot, _ = bot_stack_factory(db_session)
     reset_draft_balance(db_session, bot.id)
-    runner = build_runner(db_session_factory, stub_market_data_service)
+    runner = build_runner(db_session_factory, stub_market_data_service, paper_trading_enabled=False)
     runner.start_bot(bot.id)
     asyncio.run(pause_bot_endpoint(bot.id, runner))
     stub_market_data_service.set_price("BTCUSDT", "95")
@@ -3350,7 +3350,7 @@ def test_manual_bot_run_no_signal_returns_no_action(
     funded_account(db_session)
     _, bot, _ = bot_stack_factory(db_session)
     reset_draft_balance(db_session, bot.id)
-    runner = build_runner(db_session_factory, stub_market_data_service)
+    runner = build_runner(db_session_factory, stub_market_data_service, paper_trading_enabled=False)
     runner.start_bot(bot.id)
     stub_market_data_service.set_price("BTCUSDT", "105")
 

@@ -93,18 +93,25 @@ def run_once(
     orders_created = after["paper_orders"] - before["paper_orders"]
     fills_created = after["paper_fills"] - before["paper_fills"]
     attempts_created = after["execution_attempts"] - before["execution_attempts"]
-    executed = orders_created > 0 or fills_created > 0 or attempts_created > 0
+    rejected_attempts_created = after["rejected_execution_attempts"] - before["rejected_execution_attempts"]
+    filled_attempts_created = after["filled_execution_attempts"] - before["filled_execution_attempts"]
+    rejection_reason = after["latest_rejection_reason"] if rejected_attempts_created > 0 else None
+    executed = orders_created > 0 or fills_created > 0 or filled_attempts_created > 0
 
     return {
         "bot_id": bot_id,
         "execution_mode": execution_mode,
         "status": bot_after.status if bot_after is not None else status_before,
-        "result": _result_for(status_before=status_before, executed=executed),
+        "result": _result_for(
+            status_before=status_before,
+            executed=executed,
+            rejected_attempts_created=rejected_attempts_created,
+        ),
         "action": _action_for(
             status_before=status_before,
             orders_created=orders_created,
             fills_created=fills_created,
-            attempts_created=attempts_created,
+            rejected_attempts_created=rejected_attempts_created,
         ),
         "skipped": not executed,
         "executed": executed,
@@ -112,6 +119,8 @@ def run_once(
         "paper_orders_created": orders_created,
         "paper_fills_created": fills_created,
         "execution_attempts_created": attempts_created,
+        "rejected_execution_attempts_created": rejected_attempts_created,
+        "rejection_reason": rejection_reason,
     }
 
 
@@ -174,7 +183,7 @@ def _positive_int(value: str) -> int:
     return parsed
 
 
-def _artifact_counts(db: Session, bot_id: int) -> dict[str, int]:
+def _artifact_counts(db: Session, bot_id: int) -> dict[str, object]:
     order_count = int(
         db.scalar(
             select(func.count())
@@ -200,10 +209,47 @@ def _artifact_counts(db: Session, bot_id: int) -> dict[str, int]:
         )
         or 0
     )
+    rejected_attempt_count = int(
+        db.scalar(
+            select(func.count())
+            .select_from(ExecutionAttempt)
+            .where(
+                ExecutionAttempt.bot_id == bot_id,
+                ExecutionAttempt.mode == "paper",
+                ExecutionAttempt.final_status == "rejected_by_broker",
+            )
+        )
+        or 0
+    )
+    filled_attempt_count = int(
+        db.scalar(
+            select(func.count())
+            .select_from(ExecutionAttempt)
+            .where(
+                ExecutionAttempt.bot_id == bot_id,
+                ExecutionAttempt.mode == "paper",
+                ExecutionAttempt.final_status == "filled",
+            )
+        )
+        or 0
+    )
+    latest_rejected_attempt = db.scalar(
+        select(ExecutionAttempt)
+        .where(
+            ExecutionAttempt.bot_id == bot_id,
+            ExecutionAttempt.mode == "paper",
+            ExecutionAttempt.final_status == "rejected_by_broker",
+        )
+        .order_by(ExecutionAttempt.created_at.desc(), ExecutionAttempt.id.desc())
+        .limit(1)
+    )
     return {
         "paper_orders": order_count,
         "paper_fills": fill_count,
         "execution_attempts": attempt_count,
+        "rejected_execution_attempts": rejected_attempt_count,
+        "filled_execution_attempts": filled_attempt_count,
+        "latest_rejection_reason": latest_rejected_attempt.final_reason if latest_rejected_attempt is not None else None,
     }
 
 
@@ -212,7 +258,7 @@ def _action_for(
     status_before: str,
     orders_created: int,
     fills_created: int,
-    attempts_created: int,
+    rejected_attempts_created: int,
 ) -> str:
     if status_before == "paused":
         return "bot_paused"
@@ -220,14 +266,16 @@ def _action_for(
         return "bot_not_active"
     if orders_created > 0 or fills_created > 0:
         return "paper_order_created"
-    if attempts_created > 0:
-        return "execution_attempt_recorded"
+    if rejected_attempts_created > 0:
+        return "paper_order_rejected"
     return "no_order_created"
 
 
-def _result_for(*, status_before: str, executed: bool) -> str:
+def _result_for(*, status_before: str, executed: bool, rejected_attempts_created: int) -> str:
     if executed:
         return "evaluated"
+    if rejected_attempts_created > 0:
+        return "skipped"
     if status_before == "active":
         return "evaluated"
     return "skipped"
