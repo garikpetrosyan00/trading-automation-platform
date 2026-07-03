@@ -19,6 +19,7 @@ from app.repositories.paper_equity_snapshot import PaperEquitySnapshotRepository
 from app.repositories.paper_position import PaperPositionRepository
 from app.repositories.portfolio import PortfolioRepository
 from app.repositories.run_event import RunEventRepository
+from app.services.paper_reconciliation_audit import ISSUE_DESCRIPTIONS
 
 
 AUDIT_PUBLIC_FIELDS = {
@@ -40,6 +41,21 @@ ISSUE_PUBLIC_FIELDS = {
     "side",
     "artifact",
 }
+ISSUE_CODE_ALLOWLIST = set(ISSUE_DESCRIPTIONS)
+
+
+def test_paper_reconciliation_audit_missing_bot_returns_stable_not_found(
+    stub_market_data_service,
+    noop_bot_runner,
+    configure_app_state,
+) -> None:
+    configure_app_state(market_data_service=stub_market_data_service, bot_runner=noop_bot_runner)
+
+    with TestClient(app) as client:
+        response = client.get("/api/v1/bots/999999/paper-reconciliation/audit")
+
+    assert response.status_code == 404
+    assert response.json()["error_code"] == "bot_not_found"
 
 
 def test_paper_reconciliation_audit_clean_successful_buy_returns_ok(
@@ -101,6 +117,7 @@ def test_paper_reconciliation_audit_clean_successful_sell_returns_ok(
 
     assert response.status_code == 200
     body = response.json()
+    assert set(body) == AUDIT_PUBLIC_FIELDS
     assert body["ok"] is True
     assert body["issues"] == []
     assert body["checked_attempt_count"] == 2
@@ -133,6 +150,7 @@ def test_paper_reconciliation_audit_clean_rejected_gate_returns_ok(
 
     assert response.status_code == 200
     body = response.json()
+    assert set(body) == AUDIT_PUBLIC_FIELDS
     assert body["ok"] is True
     assert body["issues"] == []
     assert body["checked_attempt_count"] == 1
@@ -163,7 +181,9 @@ def test_paper_reconciliation_audit_flags_missing_fill(
 
     assert response.status_code == 200
     body = response.json()
+    assert set(body) == AUDIT_PUBLIC_FIELDS
     assert body["ok"] is False
+    assert _issue_codes(body) <= ISSUE_CODE_ALLOWLIST
     assert "filled_order_missing_fill" in _issue_codes(body)
 
 
@@ -197,7 +217,9 @@ def test_paper_reconciliation_audit_flags_rejected_attempt_with_side_effect_orde
 
     assert response.status_code == 200
     body = response.json()
+    assert set(body) == AUDIT_PUBLIC_FIELDS
     assert body["ok"] is False
+    assert _issue_codes(body) <= ISSUE_CODE_ALLOWLIST
     assert "rejected_attempt_has_order" in _issue_codes(body)
 
 
@@ -227,6 +249,8 @@ def test_paper_reconciliation_audit_response_fields_are_public_and_allowlisted(
     body = response.json()
     assert set(body) == AUDIT_PUBLIC_FIELDS
     assert all(set(issue) == ISSUE_PUBLIC_FIELDS for issue in body["issues"])
+    assert body["read_only"] is True
+    assert _issue_codes(body) <= ISSUE_CODE_ALLOWLIST
     serialized = response.text
     assert "metadata" not in serialized
     assert "secret" not in serialized
@@ -260,12 +284,37 @@ def test_paper_reconciliation_audit_is_read_only(
     before = _artifact_summary(db_session, bot.id)
     configure_app_state(market_data_service=stub_market_data_service, bot_runner=noop_bot_runner)
     with TestClient(app) as client:
-        response = client.get(f"/api/v1/bots/{bot.id}/paper-reconciliation/audit")
+        first_response = client.get(f"/api/v1/bots/{bot.id}/paper-reconciliation/audit")
+        second_response = client.get(f"/api/v1/bots/{bot.id}/paper-reconciliation/audit")
     after = _artifact_summary(db_session, bot.id)
 
-    assert response.status_code == 200
-    assert response.json()["ok"] is True
+    assert first_response.status_code == 200
+    assert second_response.status_code == 200
+    assert first_response.json() == second_response.json()
+    assert first_response.json()["ok"] is True
+    assert first_response.json()["read_only"] is True
     assert after == before
+
+
+def test_paper_reconciliation_audit_issue_codes_are_explicitly_allowlisted() -> None:
+    expected_codes = {
+        "filled_attempt_missing_order",
+        "filled_order_missing_fill",
+        "filled_attempt_missing_equity_snapshot",
+        "filled_buy_missing_draft_balance",
+        "filled_buy_missing_paper_position",
+        "filled_sell_missing_draft_balance",
+        "filled_sell_missing_paper_position",
+        "rejected_attempt_has_order",
+        "rejected_attempt_has_fill",
+        "rejected_attempt_has_filled_attempt",
+        "rejected_attempt_has_equity_snapshot",
+        "duplicate_filled_attempt_for_order",
+        "run_event_missing_for_filled_attempt",
+        "run_event_missing_for_rejected_attempt",
+    }
+
+    assert ISSUE_CODE_ALLOWLIST == expected_codes
 
 
 def _build_disabled_runner(db_session_factory, stub_market_data_service):

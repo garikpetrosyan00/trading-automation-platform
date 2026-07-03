@@ -673,7 +673,55 @@ Read-only paper reconciliation audit:
 curl "http://127.0.0.1:8000/api/v1/bots/<paper_bot_id>/paper-reconciliation/audit"
 ```
 
-This audit detects obvious paper artifact inconsistencies across RunEvent, ExecutionAttempt, Order, Fill, DraftBalance, PaperPosition, and PaperEquitySnapshot records. It is read-only: it does not auto-repair data, create or delete artifacts, mutate balances or positions, write equity snapshots, or contact Binance/testnet/live execution paths.
+This audit detects obvious paper artifact inconsistencies across RunEvent, ExecutionAttempt, Order, Fill, DraftBalance, PaperPosition, and PaperEquitySnapshot records. It is read-only and detect-only: it does not auto-repair data, create or delete artifacts, mutate Orders, Fills, ExecutionAttempts, DraftBalance, PaperPosition, or PaperEquitySnapshot rows, or contact Binance/testnet/live execution paths.
+
+Response fields:
+
+- `ok`: `true` when no audit issues were found, `false` when at least one inconsistency was detected
+- `issues`: public issue objects with stable `code`, safe `description`, `severity`, and artifact context
+- `read_only`: always `true` for this endpoint
+- `checked_*_count`: the number of paper artifacts inspected in each category
+
+Clean response shape:
+
+```json
+{
+  "bot_id": 6,
+  "ok": true,
+  "issues": [],
+  "checked_attempt_count": 2,
+  "checked_order_count": 2,
+  "checked_fill_count": 2,
+  "checked_run_event_count": 5,
+  "checked_equity_snapshot_count": 2,
+  "read_only": true
+}
+```
+
+Inconsistent response shape:
+
+```json
+{
+  "bot_id": 6,
+  "ok": false,
+  "issues": [
+    {
+      "code": "filled_order_missing_fill",
+      "description": "A filled paper order is missing its paper fill.",
+      "severity": "warning",
+      "symbol": "BTCUSDT",
+      "side": "buy",
+      "artifact": "fill"
+    }
+  ],
+  "checked_attempt_count": 1,
+  "checked_order_count": 1,
+  "checked_fill_count": 0,
+  "checked_run_event_count": 1,
+  "checked_equity_snapshot_count": 1,
+  "read_only": true
+}
+```
 
 Useful closeout verification:
 
