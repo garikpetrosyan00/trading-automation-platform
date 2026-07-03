@@ -17,6 +17,10 @@ class PaperPositionRepository:
         )
         return self.db.scalar(statement)
 
+    def list_for_bot(self, *, bot_id: int) -> list[PaperPosition]:
+        statement = select(PaperPosition).where(PaperPosition.bot_id == bot_id).order_by(PaperPosition.symbol.asc())
+        return list(self.db.scalars(statement).all())
+
     def get_for_bot_symbol_for_update(self, *, bot_id: int, symbol: str) -> PaperPosition | None:
         statement = (
             select(PaperPosition)

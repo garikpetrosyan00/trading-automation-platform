@@ -723,6 +723,76 @@ Inconsistent response shape:
 }
 ```
 
+Read-only paper operator overview:
+
+```bash
+curl "http://127.0.0.1:8000/api/v1/bots/<paper_bot_id>/paper/operator-overview"
+```
+
+This endpoint gives operators one safe inspection surface for a bot's paper state. It summarizes the bot mode/status, `PAPER_TRADING_ENABLED`, Draft Balance assets, Paper Positions, the latest Paper Equity snapshot, recent paper execution status, and the latest reconciliation audit result. It is read-only: it does not execute trades, repair records, mutate Orders, Fills, ExecutionAttempts, DraftBalance, PaperPosition, or PaperEquitySnapshot rows, or contact Binance/testnet/live execution paths.
+
+Example response shape:
+
+```json
+{
+  "bot_id": 6,
+  "mode": "paper",
+  "status": "active",
+  "paper_trading_enabled": true,
+  "draft_balance": {
+    "assets": [
+      {"asset": "USDT", "available": "9000", "locked": "0", "total": "9000"}
+    ]
+  },
+  "paper_positions": [
+    {
+      "symbol": "BTCUSDT",
+      "base_asset": "BTC",
+      "quote_asset": "USDT",
+      "quantity": "0.01",
+      "average_entry_price": "100000",
+      "realized_pnl": "0",
+      "updated_at": "2026-07-03T12:00:00Z"
+    }
+  ],
+  "latest_equity_snapshot": {
+    "symbol": "BTCUSDT",
+    "quote_asset": "USDT",
+    "cash_available": "9000",
+    "cash_locked": "0",
+    "base_quantity": "0.01",
+    "base_locked": "0",
+    "average_entry_price": "100000",
+    "realized_pnl": "0",
+    "market_price": "100000",
+    "position_value": "1000",
+    "total_equity": "10000",
+    "event_type": "buy_fill",
+    "created_at": "2026-07-03T12:00:00Z"
+  },
+  "recent_execution_summary": {
+    "recent_attempt_count": 1,
+    "filled_attempt_count": 1,
+    "rejected_attempt_count": 0,
+    "latest_attempt_status": "filled",
+    "latest_attempt_reason": null,
+    "latest_run_event_message": "order_filled"
+  },
+  "latest_reconciliation_audit": {
+    "ok": true,
+    "issue_count": 0,
+    "issues": [],
+    "checked_attempt_count": 1,
+    "checked_order_count": 1,
+    "checked_fill_count": 1,
+    "checked_run_event_count": 1,
+    "checked_equity_snapshot_count": 1,
+    "read_only": true
+  },
+  "read_only": true
+}
+```
+
 Useful closeout verification:
 
 ```bash

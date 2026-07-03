@@ -16,6 +16,7 @@ from app.api.v1.endpoints.market_data import router as market_data_router
 from app.api.v1.endpoints.notification_rules import router as notification_rules_router
 from app.api.v1.endpoints.orders import router as orders_router
 from app.api.v1.endpoints.paper_equity import router as paper_equity_router
+from app.api.v1.endpoints.paper_operator import router as paper_operator_router
 from app.api.v1.endpoints.paper_portfolio import router as paper_portfolio_router
 from app.api.v1.endpoints.paper_position import router as paper_position_router
 from app.api.v1.endpoints.portfolio import router as portfolio_router
@@ -33,6 +34,7 @@ router.include_router(execution_safety_router, tags=["execution-safety"])
 router.include_router(draft_balance_router, tags=["draft-balance"])
 router.include_router(paper_position_router, tags=["paper-position"])
 router.include_router(paper_equity_router, tags=["paper-equity"])
+router.include_router(paper_operator_router, tags=["paper-operator"])
 router.include_router(orders_router, tags=["orders"])
 router.include_router(market_router, tags=["market"])
 router.include_router(backtests_router, prefix="/backtests", tags=["backtests"])
