@@ -658,7 +658,26 @@ Global paper trading kill switch:
 - `/api/v1/execution-safety/status` exposes both `paper_trading_enabled` and the derived `paper_execution_allowed`
 - live and Binance testnet paths are not controlled by this paper kill switch
 
-Safety boundary: this hardening is backend-only paper execution work. It does not enable live trading, does not enable Binance or testnet order execution, does not change Binance/testnet/live behavior, and does not add migrations. Binance live/testnet execution remains protected by its existing execution safety flags and must be separately hardened before any broadened exchange-connected workflow. Local CSV backtests remain local-only and are not affected by `PAPER_TRADING_ENABLED`.
+Final paper API/operator layer summary:
+
+- paper execution is guarded centrally by `PaperSafetyGateService`
+- BUY is protected by bot-scoped DraftBalance checks before paper-side effects
+- SELL is protected by bot-scoped PaperPosition checks before paper-side effects
+- `PAPER_TRADING_ENABLED` provides a global paper BUY/SELL kill switch
+- `/api/v1/execution-safety/status` exposes paper execution status visibility
+- `/api/v1/bots/{bot_id}/paper-reconciliation/audit` provides read-only paper artifact consistency checks
+- `/api/v1/bots/{bot_id}/paper/operator-overview` provides a read-only operator overview of paper state
+- `/api/v1/bots/{bot_id}/paper/equity-summary` provides read-only paper equity reporting
+
+Operator endpoint index:
+
+- `GET /api/v1/bots/{bot_id}/paper-reconciliation/audit`
+- `GET /api/v1/bots/{bot_id}/paper/operator-overview`
+- `GET /api/v1/bots/{bot_id}/paper/equity-summary`
+
+All three operator endpoints are read-only and safe for inspection. They do not execute trades, repair inconsistencies, mutate Orders, Fills, ExecutionAttempts, DraftBalance, PaperPosition, or PaperEquitySnapshot rows, or contact Binance/testnet/live paths.
+
+Safety boundary: this hardening is backend-only paper execution and read-only paper operator/reporting work. Paper trading is simulated/local backend behavior; it uses local application state, Draft Balance, Paper Position, and paper audit records rather than Binance live/testnet execution. Rejected paper execution must not create Orders, Fills, filled ExecutionAttempts, DraftBalance mutations, PaperPosition mutations, or PaperEquitySnapshots. This work does not enable live trading, does not enable Binance or testnet order execution, does not change Binance/testnet/live behavior, and does not add migrations. Binance live/testnet execution remains protected by its existing execution safety flags and must be separately enabled and hardened before any broadened exchange-connected workflow. Local CSV backtests remain local-only and are unaffected by `PAPER_TRADING_ENABLED` and by the paper operator endpoints.
 
 Next roadmap:
 
